@@ -1,0 +1,9 @@
+# Runtime caches - regenerated automatically (rendered radar/satellite/model frames)
+static/
+__pycache__/
+*.pyc
+streamlit.log
+# Local-only secrets
+mapbox_token.txt
+# Freebuff workspace metadata
+.freebuff/
