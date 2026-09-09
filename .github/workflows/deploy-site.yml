@@ -30,7 +30,7 @@ jobs:
       - name: Install site dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install requests numpy scipy xarray cfgrib eccodes pyproj Pillow
+          python -m pip install requests numpy scipy xarray cfgrib eccodes pyproj Pillow h5py
 
       - name: Build the site with live data
         run: python github_deploy.py --pages --warm-seconds 240
