@@ -2240,7 +2240,7 @@ def page_meso(d):
     <button id="btnPlay">▶ Animate 6 h</button>
     <span class="frame" id="fr">{ (meso or {}).get('analysis', '') }</span>
   </div>
-  <div class="src">The <b>East Tennessee (zoom)</b> sector magnifies SPC's national analysis to a Greeneville-centered box using SPC's own map projection — same fields, overlays, and animation, zoomed ~9.6×.</div>
+  <div class="src">The <b>East Tennessee (zoom)</b> sector magnifies SPC's national analysis to a Greeneville-centered view of East TN and its surroundings (34.3-37.3N, 85.8-80.2W) — with real state borders (Tennessee in white) and city markers drawn on every frame, plus the same fields, overlays, and animation as the native sectors.</div>
   <div class="ctl" style="margin-top:8px">
     <b>Overlays</b>
     <label><input type="checkbox" id="ovRadar"/> Radar</label>

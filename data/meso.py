@@ -122,7 +122,11 @@ ET_CODE = "ET"
 ET_NAME = "East Tennessee (zoom)"
 # Context box around East TN (S, N, W, E), Greeneville-centered. Aspect is
 # corrected to 4:3 in code so the 1000x750 output has no distortion.
-EAST_TN_BOX = (34.0, 38.5, -86.9, -81.5)
+# (south, north, west, east) — centered on East Tennessee itself:
+# East TN spans ~34.98-36.7N, -84.3..-81.65W; the box keeps Chattanooga /
+# Cookeville context on the SW edge and Asheville on the E edge, with
+# Greeneville near the frame center (validated: markers land mid-frame).
+EAST_TN_BOX = (34.3, 37.3, -85.8, -80.2)
 IMG_W, IMG_H = 1000, 750
 _RAD = 0.01745            # SPC carto.js uses this exact constant
 _RRR = 6371.0
@@ -212,6 +216,179 @@ def _label_font(size):
             return ImageFont.load_default()
 
 
+_STATE_CACHE = {}
+_STATE_GEOJSON = os.path.join(OUT_DIR, "_states.geojson")
+_STATE_TOPO = os.path.join(OUT_DIR, "_states_topo.json")
+_STATE_TOPO_URLS = (
+    "https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json",
+    "https://unpkg.com/us-atlas@3/states-10m.json",
+)
+_STATE_URLS = (
+    "https://eric.clst.org/assets/wiki/uploads/Stuff/gz_2010_us_040_00_20m.json",
+    "https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json",
+)
+_STATE_NAMES = {"Tennessee", "Kentucky", "Virginia", "North Carolina", "Georgia",
+                "Alabama", "West Virginia", "Mississippi", "Missouri"}
+_TN_FIPS = "47"
+_FIPS_TO_NAME = {"47": "Tennessee", "21": "Kentucky", "51": "Virginia", "37": "North Carolina",
+                 "13": "Georgia", "01": "Alabama", "54": "West Virginia", "28": "Mississippi",
+                 "39": "Ohio", "45": "South Carolina"}
+
+
+def _load_states_geojson():
+    """US state polygons: high-res us-atlas TopoJSON preferred, GeoJSON
+    (Census 20m) fallback. Cached on disk (refresh weekly)."""
+    import json
+    try:
+        if time.time() - os.path.getmtime(_STATE_TOPO) < 7 * 86400:
+            with open(_STATE_TOPO, encoding="utf-8") as f:
+                return json.load(f)
+    except (OSError, ValueError):
+        pass
+    for url in _STATE_TOPO_URLS:
+        try:
+            r = requests.get(url, headers=UA, timeout=60)
+            data = json.loads(r.content)
+            if data.get("objects", {}).get("states", {}).get("geometries"):
+                tmp = _STATE_TOPO + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(data, f)
+                os.replace(tmp, _STATE_TOPO)
+                return data
+        except Exception:  # noqa: BLE001
+            continue
+    try:
+        if time.time() - os.path.getmtime(_STATE_GEOJSON) < 7 * 86400:
+            with open(_STATE_GEOJSON, encoding="utf-8") as f:
+                return json.load(f)
+    except (OSError, ValueError):
+        pass
+    for url in _STATE_URLS:
+        try:
+            r = requests.get(url, headers=UA, timeout=60)
+            data = json.loads(r.content)
+            if data.get("features"):
+                tmp = _STATE_GEOJSON + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(data, f)
+                os.replace(tmp, _STATE_GEOJSON)
+                return data
+        except Exception:  # noqa: BLE001
+            continue
+    return {"features": []}
+
+
+def _topo_to_geojson(topo):
+    """Decode us-atlas TopoJSON states layer into GeoJSON features (pure
+    Python: delta-decode arcs, stitch rings, keep exterior rings only)."""
+    import json
+
+    def _dec_arc(arc):
+        out, x, y = [], 0, 0
+        for dx, dy in arc:
+            x += dx
+            y += dy
+            out.append((x, y))
+        return out
+
+    tr = topo.get("transform") or {}
+    sx, sy = tr.get("scale", [1.0, 1.0])
+    tx, ty = tr.get("translate", [0.0, 0.0])
+    # Per TopoJSON spec, delta encoding resets at the start of every arc.
+    arcs = [_dec_arc(a) for a in topo.get("arcs", [])]
+
+    def _ring(arc_idx):
+        pts = []
+        for i in arc_idx:
+            seg = arcs[i] if i >= 0 else list(reversed(arcs[~i]))
+            if pts and pts[-1] == seg[0]:
+                seg = seg[1:]
+            pts.extend(seg)
+        return [(p[0] * sx + tx, p[1] * sy + ty) for p in pts]
+
+    feats = []
+    states = topo.get("objects", {}).get("states", {}).get("geometries", [])
+    for g in states:
+        fips = str(g.get("id") or "")
+        name = (g.get("properties") or {}).get("name") or _FIPS_TO_NAME.get(fips, fips)
+        polys = []
+        gt = g.get("type")
+        if gt == "Polygon":
+            polys = [_ring(r) for r in g.get("arcs", [])]
+        elif gt == "MultiPolygon":
+            polys = [_ring(r) for poly in g.get("arcs", []) for r in poly]
+        if polys:
+            feats.append({"properties": {"name": name},
+                          "geometry": {"type": "MultiPolygon",
+                                       "coordinates": [[p] for p in polys]}})
+    return {"features": feats}
+
+
+def _rings(coords):
+    """Yield coordinate rings from any GeoJSON geometry nesting."""
+    if not isinstance(coords, (list, tuple)) or not coords:
+        return
+    first = coords[0]
+    if isinstance(first, (int, float)):
+        return  # a bare position; rings are yielded by callers above
+    if isinstance(first, (list, tuple)) and first and isinstance(first[0], (int, float)):
+        yield coords
+        return
+    for item in coords:
+        yield from _rings(item)
+
+
+def _state_borders(c, x0, y0, crop_w, crop_h):
+    """Real state border polylines (us-atlas 10m, cached) in zoomed-image
+    pixel coords. Ground-truth geography, drawn on every frame."""
+    key = (c["reflon"], x0, y0, crop_w, crop_h)
+    if key in _STATE_CACHE:
+        return _STATE_CACHE[key]
+    data = _load_states_geojson()
+    if data.get("objects"):          # TopoJSON -> decode to GeoJSON
+        data = _topo_to_geojson(data)
+    sx, sy = IMG_W / crop_w, IMG_H / crop_h
+    lines = []
+    for feat in data.get("features", []):
+        props = feat.get("properties") or {}
+        name = props.get("name") or props.get("NAME") or ""
+        if name not in _STATE_NAMES:
+            continue
+        g = feat.get("geometry") or {}
+        for ring in _rings(g.get("coordinates")):
+            pts = []
+            for lon, lat in ring:
+                px, py = _lalo_pix(c, float(lat), float(lon))
+                pts.append(((px - x0) * sx, (py - y0) * sy))
+            lines.append((pts, name == "Tennessee"))
+    _STATE_CACHE[key] = lines
+    return lines
+
+
+def _draw_states(im, x0, y0, crop_w, crop_h):
+    """Draw state borders; Tennessee emphasized in white, others thin gray."""
+    from PIL import ImageDraw
+    d = ImageDraw.Draw(im)
+
+    def _stroke(pts, color, width):
+        for i in range(1, len(pts)):
+            x1p, y1p = pts[i - 1]
+            x2p, y2p = pts[i]
+            if abs(x1p - x2p) > 200 or abs(y1p - y2p) > 200:  # ring seam
+                continue
+            if -60 <= x1p <= IMG_W + 60 and -60 <= y1p <= IMG_H + 60:
+                d.line([x1p, y1p, x2p, y2p], fill=color, width=width)
+
+    borders = _state_borders(_cart("19"), x0, y0, crop_w, crop_h)
+    for pts, is_tn in borders:
+        if not is_tn:
+            _stroke(pts, (150, 150, 155, 190), 2)
+    for pts, is_tn in borders:
+        if is_tn:
+            _stroke(pts, (255, 255, 255, 235), 4)
+    return im
+
+
 def _draw_cities(im, x0, y0, crop_w, crop_h):
     """Draw labeled city markers onto a zoomed image (geographic anchors)."""
     from PIL import ImageDraw
@@ -287,6 +464,7 @@ def zoom_east_tn(src_sector=None, force=False):
             if crop.width < 8 or crop.height < 8:
                 return False
             out = crop.resize((IMG_W, IMG_H), Image.LANCZOS)
+            _draw_states(out, x0, y0, x1 - x0, y1 - y0)
             _draw_cities(out, x0, y0, x1 - x0, y1 - y0)
             dst = os.path.join(odir, name[:-4] + ".png")
             tmp = dst + ".tmp"
