@@ -261,6 +261,13 @@ def _merge_descriptors(band_key, frames):
 
 def _prune_registry(reg):
     now = dt.datetime.now(dt.timezone.utc)
+    # sweep stale per-process download temps (renders that died mid-write)
+    try:
+        for fn in os.listdir(FRAME_DIR):
+            if fn.endswith(".nc.tmp") and now.timestamp() - os.path.getmtime(os.path.join(FRAME_DIR, fn)) > 900:
+                os.remove(os.path.join(FRAME_DIR, fn))
+    except OSError:
+        pass
     keep = {}
     for fid, entry in reg.items():
         m = re.match(r"\w+_(\d{14})", fid)
@@ -307,7 +314,9 @@ def _render_band_frame(band_key, desc, max_px=1100):
         import h5py
 
         url = f"{BUCKET}/{desc['key']}"
-        tmp = os.path.join(FRAME_DIR, fid + ".nc")
+        # unique temp name per process: the app AND the updater both render
+        # scans, and a shared .nc path makes Windows lock it (WinError 32)
+        tmp = os.path.join(FRAME_DIR, f"{fid}.{os.getpid()}.nc.tmp")
         with open(tmp, "wb") as f:
             f.write(requests.get(url, headers=UA, timeout=120).content)
         with h5py.File(tmp, "r") as f:
@@ -333,7 +342,10 @@ def _render_band_frame(band_key, desc, max_px=1100):
             else:
                 xb = np.asarray([f["x"][0], f["x"][-1]], dtype=float)
                 yb = np.asarray([f["y"][0], f["y"][-1]], dtype=float)
-        os.remove(tmp)
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass  # a lingering lock must not fail an otherwise-good render
 
         if b.get("kind") == "refl":
             vals = np.clip(D * 100.0, 0, 120)          # reflectance factor -> %

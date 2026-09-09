@@ -114,6 +114,33 @@ def main():
         except Exception as exc:  # noqa: BLE001
             _log(f"render queue failed: {exc}")
 
+    def _satellite_step(bands=("ir", "wvh", "wvm", "wvl", "c02", "c01")):
+        """Advance the GOES band renderers (one render pass per band).
+
+        Like future radar: the app's daemon threads die with the app and
+        swallow errors, so the updater drives a synchronous pass each cycle
+        to keep every satellite band's frame loop fresh.
+        """
+        try:
+            from data.satellite_bands import get_band_frames, _render_band_frame
+            import data.satellite_bands as sb
+            for k in bands:
+                try:
+                    frames = get_band_frames(k)
+                    if not frames:
+                        continue
+                    sb._merge_descriptors(k, frames)
+                    with sb._REG_LOCK:
+                        reg = sb._prune_registry(sb._load_registry())
+                        sb._save_registry(reg)
+                    pending = [fr for fr in frames if reg.get(fr["id"], {}).get("status") != "done"]
+                    for fr in pending[:2]:   # newest first-ish; 2 per band per cycle
+                        sb._render_band_frame(k, fr)
+                except Exception as exc:  # noqa: BLE001
+                    _log(f"satellite {k} failed: {exc}")
+        except Exception as exc:  # noqa: BLE001
+            _log(f"satellite step failed: {exc}")
+
     _log(f"site updater started (pid {os.getpid()}); site every {SITE_INTERVAL}s, fb every {FB_INTERVAL}s")
     last_fb = 0.0
     seeded = False
@@ -132,6 +159,7 @@ def main():
                     generate_site()
                 _render_queue_step()  # progressively render the full catalog
                 _future_radar_step()  # keep future radar (HRRR+NAM) fresh
+                _satellite_step()     # keep GOES bands (IR/WV/visible) fresh
                 if os.path.isdir("docs"):   # keep the Pages package current
                     try:
                         import github_deploy

@@ -245,6 +245,12 @@ def collect_data():
     # radar bundles (disk reads; renderers run in app.py / the updater)
     past = get_past_frames()
     nowcast = get_nowcast_frames()
+    # RainViewer's index occasionally stalls (its outage on 2026-09-09 served
+    # 4-hour-old frames all day) - drop stale frames so the page falls back
+    # to the official NWS mosaic instead of presenting old radar as live
+    _now = time.time()
+    past = [f for f in past if (_now - (f.get("time") or 0)) < 2400]
+    nowcast = [f for f in nowcast if abs((f.get("time") or 0) - _now) < 3600]
     future = future_bundle(max_hours=48)
     mrms = mrms_bundle("cref")
     nws = nws_bundle()
@@ -1357,9 +1363,9 @@ def page_index(d):
 def page_radar(d):
     layers = {
         "past": {"label": "Real-time (RainViewer)", "mode": "tiles", "framesKey": "past",
-                 "path": "/256/{z}/{x}/{y}/2/1_1_", "fallbacks": []},
+                 "path": "/256/{z}/{x}/{y}/2/1_1_", "fallbacks": ["nws"]},
         "nowcast": {"label": "Nowcast (+10-30 min)", "mode": "tiles", "framesKey": "nowcast",
-                    "path": "/256/{z}/{x}/{y}/2/1_1_", "fallbacks": ["past"]},
+                    "path": "/256/{z}/{x}/{y}/2/1_1_", "fallbacks": ["past", "nws"]},
         "future": {"label": "Future radar (HRRR + NAM, 48 h)", "mode": "png", "framesKey": "future"},
         "mrms": {"label": "MRMS mosaic (official)", "mode": "png", "framesKey": "mrms"},
         "nws": {"label": "NWS mosaic (official)", "mode": "png", "framesKey": "nws"},
@@ -2666,6 +2672,9 @@ def enforce_disk_budget():
     Per-directory budgets sum to well under the limit even with slack.
     """
     removed = 0
+    # renderer state - deleting these blinds the satellite page even when
+    # frames are fresh (the budget once wiped them and zeroed every band)
+    protected = {"registry.json", "descriptors.json", "listings.json", "cells.json"}
     for sub, budget in _DISK_BUDGETS.items():
         root = os.path.join("static", sub)
         if not os.path.isdir(root):
@@ -2674,6 +2683,8 @@ def enforce_disk_budget():
         total = 0
         for dirpath, _, files in os.walk(root):
             for fn in files:
+                if fn in protected:
+                    continue
                 p = os.path.join(dirpath, fn)
                 try:
                     st = os.stat(p)
