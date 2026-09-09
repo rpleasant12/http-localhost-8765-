@@ -143,17 +143,21 @@ def warm_renderers(max_wait=420):
             f = future_bundle(max_hours=48)
             m = (mrms_bundle("cref") or {}).get("frames") or []
             n = nws_bundle() or []
+            sat_ready = 0
             for bk in ("wvh", "ir", "c02", "c07"):
                 try:
-                    band_bundle(bk)
+                    b = band_bundle(bk)
+                    if (b.get("ready") or 0) >= 2:
+                        sat_ready += 1
                 except Exception:  # noqa: BLE001
                     pass
-            if len(m) >= 3 and len(n) >= 2 and f.get("ready", 0) >= 6:
+            if (len(m) >= 3 and len(n) >= 2 and f.get("ready", 0) >= 6
+                    and sat_ready >= 2):
                 print(f"renderers warm: mrms={len(m)} nws={len(n)} "
-                      f"future={f.get('ready')}/{f.get('total')}")
+                      f"future={f.get('ready')}/{f.get('total')} sat={sat_ready}/4")
                 return True
             print(f"warming renderers: mrms={len(m)} nws={len(n)} "
-                  f"future={f.get('ready')}/{f.get('total')}")
+                  f"future={f.get('ready')}/{f.get('total')} sat={sat_ready}/4")
             time.sleep(20)
         print("warm-up deadline reached; generating with what is ready")
         return False
