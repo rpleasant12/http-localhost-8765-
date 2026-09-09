@@ -553,6 +553,13 @@ def collect_data():
     except Exception:  # noqa: BLE001
         pass
 
+    meso = {}
+    try:
+        from data.meso import meso_bundle
+        meso = meso_bundle()
+    except Exception:  # noqa: BLE001
+        pass
+
     return {
         "generated": dt.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"),
         "pageName": config.PAGE_NAME,
@@ -620,6 +627,7 @@ def collect_data():
         "mpasShield": mpas_shield,
         "forecastCharts": charts,
         "mos": mos,
+        "meso": meso,
     }
 
 
@@ -960,6 +968,9 @@ _CSS = """
   .ctl button { background:#2b80ff; color:#fff; border:none; border-radius:8px; padding:9px 20px; font-size:16px; cursor:pointer; }
   .ctl button:active { transform:scale(.97); }
   .ctl select { background:#1b1f27; color:#eee; border:1px solid rgba(255,255,255,.2); border-radius:6px; padding:8px; font-size:14px; max-width:100%; }
+  .stack { position:relative; width:100%; aspect-ratio:4/3; background:#0a0d13; border-radius:10px; overflow:hidden; }
+  .stack .layer { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+  .frame { font-family:ui-monospace,monospace; color:#ffd54f; }
   .ctl input[type=range] { flex:1; min-width:110px; accent-color:#2b80ff; height:26px; }
   .frame { min-width:84px; text-align:center; font-weight:700; color:#ffd54f; font-size:16px; }
   .src { color:var(--dim); font-size:12px; margin-top:8px; }
@@ -1154,6 +1165,7 @@ function refresh(d) {{ DATA = d; if (map) build(); }}
 def _page(title, active, body, extra_head=""):
     pages = [("index.html", "Home"), ("radar.html", "Radar"), ("satellite.html", "Satellite"),
              ("models.html", "Models"), ("tropical.html", "NHC"), ("severe.html", "Severe"),
+             ("meso.html", "Mesoanalysis"),
              ("obs.html", "Obs & Skew-T"), ("charts.html", "Charts & MOS"), ("national.html", "National"),
              ("forecast.html", "Forecast")]
     nav = "".join(
@@ -2196,6 +2208,127 @@ boot();
     return _page("Severe", "severe.html", body)
 
 
+def page_meso(d):
+    """SPC mesoscale analysis: hourly SFCOA fields per sector, layered + animated."""
+    try:
+        from data.meso import meso_bundle
+        meso = meso_bundle()
+    except Exception:  # noqa: BLE001
+        meso = {}
+    body = f"""
+<header class="hero"><h1>🔬 SPC Mesoanalysis</h1>
+<div class="sub">Hourly SPC objective analysis (SFCOA) — every diagnostic field, layered like SPC's own viewer. Analysis: <b id="anl">{(meso or {}).get('analysis', '...')}</b> · auto-refreshes on every site update.</div></header>
+
+<div class="card">
+  <div class="stack" id="stack">
+    <img id="imgField" class="layer" alt="field"/>
+    <img id="imgRadar" class="layer" style="display:none" alt="radar"/>
+    <img id="imgWarns" class="layer" style="display:none" alt="warnings"/>
+    <img id="imgOtlk" class="layer" style="display:none" alt="outlook"/>
+  </div>
+  <div class="ctl" style="margin-top:12px">
+    <b>Field</b>
+    <select id="fld"></select>
+    <b>Sector</b>
+    <select id="sec"></select>
+    <button id="btnPlay">▶ Animate 6 h</button>
+    <span class="frame" id="fr">{ (meso or {}).get('analysis', '') }</span>
+  </div>
+  <div class="src">The <b>East Tennessee (zoom)</b> sector magnifies SPC's national analysis to a Greeneville-centered box using SPC's own map projection — same fields, overlays, and animation, zoomed ~9.6×.</div>
+  <div class="ctl" style="margin-top:8px">
+    <b>Overlays</b>
+    <label><input type="checkbox" id="ovRadar"/> Radar</label>
+    <label><input type="checkbox" id="ovWarns"/> Warnings</label>
+    <label><input type="checkbox" id="ovOtlk"/> SPC outlook</label>
+    <span class="src" id="stale"></span>
+  </div>
+  <div class="src">Images: NOAA/SPC Storm Prediction Center mesoscale analysis (public domain), updated hourly at :00. Field filled with SPC's official color palettes; overlays stack on top. The 6-hour animation steps through SPC's archived hourly frames.</div>
+</div>
+
+<script>
+const MESO = {json.dumps(meso)};
+const SEC = MESO.sectors || {{}};
+let curSec = (SEC.ET ? "ET" : "19"), curFld = "sbcp";   // East TN zoom when available
+function baseFor(sec) {{ return SEC[sec] && SEC[sec].fields[curFld] ? SEC[sec].fields[curFld].url : null; }}
+function show() {{
+  const u = baseFor(curSec);
+  const el = document.getElementById("imgField");
+  if (u) {{ el.src = u + "?" + Date.now(); el.style.display = ""; }}
+  else {{ el.removeAttribute("src"); }}
+  for (const [id, key] of [["imgRadar","radar"],["imgWarns","warns"],["imgOtlk","otlk"]]) {{
+    const ov = SEC[curSec] && SEC[curSec].overlays && SEC[curSec].overlays[key];
+    const box = document.getElementById("ov" + key[0].toUpperCase() + key.slice(1));
+    const im = document.getElementById(id);
+    if (ov && box.checked) {{ im.src = ov.url + "?" + Date.now(); im.style.display = ""; }}
+    else {{ im.removeAttribute("src"); im.style.display = "none"; }}
+  }}
+}}
+function fillPickers() {{
+  const fs = document.getElementById("fld");
+  const groups = MESO.fieldGroups || [];
+  fs.innerHTML = groups.map(([g, fields]) =>
+    `<optgroup label="${{g}}">` + fields.map(([c, l]) =>
+      `<option value="${{c}}"${{c === curFld ? " selected" : ""}}>${{l}}</option>`).join("") + `</optgroup>`).join("");
+  const ss = document.getElementById("sec");
+  ss.innerHTML = (MESO.sectorOrder || []).map(s =>
+    `<option value="${{s}}"${{s === curSec ? " selected" : ""}}>${{(MESO.sectorNames || {{}})[s] || s}}</option>`).join("");
+}}
+function tick() {{
+  document.getElementById("anl").textContent = MESO.analysis || "";
+  document.getElementById("fr").textContent = MESO.analysis || "";
+  show();
+}}
+fillPickers();
+document.getElementById("fld").onchange = e => {{ curFld = e.target.value; if (!baseFor(curSec)) curSec = "19"; document.getElementById("sec").value = curSec; tick(); }};
+document.getElementById("sec").onchange = e => {{ curSec = e.target.value; tick(); }};
+for (const id of ["ovRadar", "ovWarns", "ovOtlk"]) document.getElementById(id).onchange = show;
+/* 6-hour animation through SPC's hourly archive images
+   (data/meso.py pre-fetches field_yymmddhh.gif for the past 6 hours) */
+let animT = null, animI = 0;
+function archStamp(hoursBack) {{
+  const d = new Date(Date.now() - hoursBack * 3600e3);
+  const p = n => String(n).padStart(2, "0");
+  return `${{p(d.getUTCFullYear() % 100)}}${{p(d.getUTCMonth() + 1)}}${{p(d.getUTCDate())}}${{p(d.getUTCHours())}}`;
+}}
+function play() {{
+  if (animT) {{ stopAnim(); return; }}
+  document.getElementById("btnPlay").textContent = "⏸";
+  animI = 0;
+  const H = (MESO.historyHours || 6);
+  animT = setInterval(() => {{
+    const el = document.getElementById("imgField");
+    if (animI % (H + 1) === H || animI % (H + 1) === 0 && animI > 0 && !animT) {{ }}
+    const step = animI % (H + 1);
+    const back = H - step;                     // H..0
+    if (back === 0) {{
+      tick();                                   // live image + real label
+    }} else {{
+      const u = baseFor(curSec);
+      if (u) {{
+        const live = u.split("?")[0];           // ../meso/s19/sbcp.gif | ../meso/sET/sbcp.png
+        const arc = live.replace(/(\\/?meso\\/s[A-Z0-9]+\\/[a-z0-9_]+)\\.(gif|png)$/, `$1_${{archStamp(back)}}.$2`);
+        el.onerror = () => {{ el.onerror = null; tick(); }};
+        el.src = arc + "?" + Date.now();
+      }}
+      document.getElementById("fr").textContent = (MESO.analysis || "") + `  −${{back}} h`;
+    }}
+    animI++;
+  }}, 900);
+}}
+function stopAnim() {{ clearInterval(animT); animT = null; document.getElementById("btnPlay").textContent = "▶ Animate 6 h"; }}
+document.getElementById("btnPlay").onclick = play;
+tick();
+setInterval(async () => {{
+  try {{
+    const d = await (await fetch(SITE_DATA_URL, {{cache: "no-store"}})).json();
+    if (d.meso) {{ MESO.analysis = d.meso.analysis; Object.assign(MESO.sectors || {{}}, d.meso.sectors || {{}}); tick(); }}
+  }} catch (_e) {{}}
+}}, 180000);
+</script>
+"""
+    return _page("Mesoanalysis", "meso.html", body)
+
+
 def page_obs(d):
     obs = d.get("obs") or {}
     stations = obs.get("stations") or []
@@ -2588,6 +2721,7 @@ def generate_site():
             "models.html": page_models(d),
             "tropical.html": page_tropical(d),
             "severe.html": page_severe(d),
+            "meso.html": page_meso(d),
             "obs.html": page_obs(d),
             "charts.html": page_charts(d),
             "national.html": page_national(d),

@@ -27,12 +27,12 @@ DOCS_DIR = "docs"
 
 # asset dirs the pages may reference; anything found is copied wholesale
 ASSET_DIRS = ["model_maps", "hrrr", "nam", "mrms", "nws", "goes",
-              "star", "psu_hrrr", "satellite"]
+              "star", "psu_hrrr", "satellite", "meso"]
 COPY_EXT = (".png", ".gif", ".jpg", ".jpeg", ".webp")
 
 # ../hrrr/x.png  ../../hrrr/x.png  /app/static/hrrr/x.png  static/hrrr/x.png
 _REF = re.compile(
-    r"(?:(?:\.\./)+|/app/static/|static/)([A-Za-z0-9_\-]+/[A-Za-z0-9_\-.]+\.(?:png|gif|jpe?g|webp))"
+    r"(?:(?:\.\./)+|/app/static/|static/)([A-Za-z0-9_\-]+(?:/[A-Za-z0-9_\-]+)*/[A-Za-z0-9_\-.]+\.(?:png|gif|jpe?g|webp))"
 )
 
 # windows-reserved device names would break the git checkout on Windows
@@ -110,6 +110,22 @@ def package():
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copy2(os.path.join("static", rel), dst)
         n += 1
+
+    # meso history frames are referenced by JS URL-templates (field_yymmddhh),
+    # not literally in the payload - copy them wholesale
+    meso_src = os.path.join("static", "meso")
+    if os.path.isdir(meso_src):
+        for dirpath, _, files in os.walk(meso_src):
+            for fn in files:
+                if not (fn.endswith(".gif") or fn.endswith(".png")):
+                    continue   # .gif = native SPC sectors, .png = East TN zoom crops
+                src = os.path.join(dirpath, fn)
+                rel = os.path.relpath(src, "static")
+                dst = os.path.join(DOCS_DIR, _safe_name(rel))
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                if not os.path.exists(dst):
+                    shutil.copy2(src, dst)
+                    n += 1
     return n
 
 
