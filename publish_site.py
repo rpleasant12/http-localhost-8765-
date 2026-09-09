@@ -18,7 +18,7 @@ import sys
 import time
 
 MAX_AGE = 3600          # refuse to publish builds older than 1 hour
-MAX_SIZE_MB = 900       # hard cap; the site sits around 250 MB
+MAX_SIZE_MB = 780       # hard cap; full build sits around 700 MB
 
 
 def _run(args, **kw):

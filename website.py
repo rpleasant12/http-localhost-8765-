@@ -2738,10 +2738,13 @@ document.querySelectorAll(".cftoggle").forEach(b => b.onclick = () => {{
 # ---------------------------------------------------------------- build
 _DISK_BUDGETS = {          # max bytes per cache dir (age prunes handle the rest)
     # Streamlit disables static serving when static/ passes 1 GB TOTAL, so
-    # these must sum well under that (currently ~920 MB worst case)
-    "nexrad_sites": 350_000_000,
-    "mrms": 150_000_000,
-    "goes": 100_000_000,
+    # these must sum well under that (~640 MB with slack). meso is included:
+    # the ET-zoom history frames are large, and 13 sectors x 33 fields x
+    # history + overlays grows unbounded without a budget.
+    "nexrad_sites": 120_000_000,
+    "mrms": 60_000_000,
+    "goes": 60_000_000,
+    "meso": 220_000_000,
     "hrrr": 60_000_000,
     "herbie": 40_000_000,    # GRIB download cache - re-downloadable, not served
     "soundings": 60_000_000,
