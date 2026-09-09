@@ -40,6 +40,23 @@ PAST_COUNT = 12
 # ---------------------------------------------------------------- past radar
 
 
+def _hhmm(dt_obj):
+    """24-hour HH:MM label in the viewer's local time zone."""
+    return dt_obj.astimezone().strftime("%H:%M")
+
+
+def _past_label(mins, valid_utc):
+    """Past-frame label: 'Now 14:32' for the newest scan, else '13:52'."""
+    return f"Now {_hhmm(valid_utc)}" if mins < 6 else _hhmm(valid_utc)
+
+
+def _future_label(mins, valid_utc):
+    """Future-frame label: relative offset + 24-hour valid time ('+3h 17:00')."""
+    h, m = divmod(int(mins), 60)
+    rel = f"+{m}m" if h == 0 else (f"+{h}h" if m == 0 else f"+{h}h{m:02d}")
+    return f"{rel} {_hhmm(valid_utc)}"
+
+
 def get_past_frames(count=PAST_COUNT):
     """Return recent RainViewer past-radar frames for tile-based animation.
 
@@ -57,9 +74,10 @@ def get_past_frames(count=PAST_COUNT):
     now = dt.datetime.now(dt.timezone.utc)
     out = []
     for f in frames:
-        mins = int(max(0, (now - dt.datetime.fromtimestamp(f["time"], dt.timezone.utc)).total_seconds() // 60))
-        label = "Now" if mins < 6 else f"-{mins}m"
-        out.append({"time": f["time"], "path": f["path"], "label": label, "kind": "past"})
+        t_utc = dt.datetime.fromtimestamp(f["time"], dt.timezone.utc)
+        mins = int(max(0, (now - t_utc).total_seconds() // 60))
+        out.append({"time": f["time"], "path": f["path"],
+                    "label": _past_label(mins, t_utc), "kind": "past"})
     return out
 
 
@@ -79,8 +97,10 @@ def get_nowcast_frames(count=3):
     now = dt.datetime.now(dt.timezone.utc)
     out = []
     for f in frames[:count]:
-        mins = int(max(1, (dt.datetime.fromtimestamp(f["time"], dt.timezone.utc) - now).total_seconds() // 60))
-        out.append({"time": f["time"], "path": f["path"], "label": f"+{mins}m",
+        t_utc = dt.datetime.fromtimestamp(f["time"], dt.timezone.utc)
+        mins = int(max(1, (t_utc - now).total_seconds() // 60))
+        out.append({"time": f["time"], "path": f["path"],
+                    "label": _future_label(mins, t_utc),
                     "kind": "future", "model": "rvnow"})
     return out
 
@@ -108,9 +128,10 @@ def get_satellite_frames(count=12):
     if rv:
         now_ts = time.time()
         for f in rv[-count:]:
+            t_utc = dt.datetime.fromtimestamp(f["time"], dt.timezone.utc)
             mins = int(max(0, (now_ts - f["time"]) // 60))
-            label = "Now" if mins < 6 else f"-{mins}m"
-            frames.append({"time": f["time"], "path": f["path"], "label": label, "kind": "satellite"})
+            frames.append({"time": f["time"], "path": f["path"],
+                           "label": _past_label(mins, t_utc), "kind": "satellite"})
         return frames
 
     # GIBS fallback: GOES-East ABI GeoColor, latest frame near :00/:10/:20...
@@ -120,10 +141,9 @@ def get_satellite_frames(count=12):
     for m in range(0, count):
         t = latest - dt.timedelta(minutes=10 * m)
         mins = int((now - t).total_seconds() // 60)
-        label = "Now" if mins < 6 else f"-{mins}m"
         frames.append({
             "time": t.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "label": label,
+            "label": _past_label(mins, t),
             "kind": "satellite",
         })
     return frames
@@ -175,7 +195,7 @@ def get_future_frames(max_hours=48):
             by_valid_hour[key] = {
                 "model": "hrrr",
                 "time": valid.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "label": f"+{ahead}m",
+                "label": _future_label(ahead, valid),
                 "kind": "future",
                 "url": f"{base}{fh:02d}.grib2",
                 "start": start,
@@ -239,7 +259,7 @@ def _nam_future_descriptors(now):
         out.append({
             "model": "nam",
             "time": valid.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "label": f"+{ahead // 60}h{(ahead % 60):02d}" if ahead % 60 else f"+{ahead // 60}h",
+            "label": _future_label(ahead, valid),
             "kind": "future",
             "url": f"{base}{fh:02d}.tm00.grib2",
             "start": start,

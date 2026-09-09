@@ -76,6 +76,91 @@ UA = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) tnwx/1.0",
     "Accept": "application/geo+json",
 }
+
+# ---- US-wide observations (aviationweather.gov official cache file, keyless) ----
+# The /api/data query endpoints cap at 400 entries, so full-US coverage comes
+# from their recommended cache file: metars.cache.csv.gz (all current METARs,
+# updated once per minute). Cache in-process for 5 minutes to stay polite.
+_METAR_URL = "https://aviationweather.gov/data/cache/metars.cache.csv.gz"
+_METAR_CACHE = {"t": 0.0, "rows": []}
+_METAR_TTL_S = 300
+
+
+def us_observations():
+    """Current CONUS METARs -> obs dicts for the site's US observations layer.
+
+    K-prefix stations with coordinates in the CONUS bounds and a temperature;
+    obs dicts match nearby_observations fields so the pages render both the
+    same way (id, name, lat, lon, tempF, dewF, windDir, windMph, gustMph,
+    rh, desc, time).
+    """
+    import time as _time
+    import datetime as _dt
+    now = _time.time()
+    if now - _METAR_CACHE["t"] < _METAR_TTL_S and _METAR_CACHE["rows"]:
+        return _METAR_CACHE["rows"]
+    try:
+        import csv
+        import gzip
+        r = requests.get(_METAR_URL, headers={"User-Agent": UA["User-Agent"]}, timeout=60)
+        r.raise_for_status()
+        text = gzip.decompress(r.content).decode("utf-8", "replace")
+        rows = list(csv.DictReader(text.splitlines()))
+    except Exception:  # noqa: BLE001
+        return _METAR_CACHE["rows"]
+
+    out = []
+    for m in rows:
+        sid = (m.get("station_id") or "").strip()
+        if not sid.startswith("K"):
+            continue
+        try:
+            lat, lon = float(m["latitude"]), float(m["longitude"])
+            temp_c = float(m["temp_c"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not (23.0 < lat < 51.0 and -126.0 < lon < -65.0):
+            continue
+        try:
+            t = _dt.datetime.fromisoformat(m["observation_time"].replace("Z", "+00:00"))
+            if (now - t.timestamp()) > MAX_AGE_S:
+                continue
+        except (KeyError, ValueError):
+            continue
+
+        def _fnum(key, mult=1.0):
+            try:
+                return round(float(m[key]) * mult)
+            except (KeyError, TypeError, ValueError):
+                return None
+
+        wdir = m.get("wind_dir_degrees") or ""
+        out.append({
+            "id": sid,
+            "name": sid,  # cache file carries no station name column
+            "lat": round(lat, 4), "lon": round(lon, 4),
+            "tempF": round(temp_c * 9.0 / 5.0 + 32.0),
+            "dewF": (lambda v: round(v * 9.0 / 5.0 + 32.0) if v is not None else None)(
+                _try_float(m.get("dewpoint_c"))),
+            "windDir": _compass(_try_float(wdir)),
+            "windMph": _fnum("wind_speed_kt", 1.15078),
+            "gustMph": _fnum("wind_gust_kt", 1.15078),
+            "rh": None,
+            "desc": (m.get("wx_string") or "").replace("/", " ").strip() or "METAR",
+            "time": t.strftime("%H:%MZ"),
+        })
+    _METAR_CACHE["t"] = now
+    _METAR_CACHE["rows"] = out
+    return out
+
+
+def _try_float(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 API = "https://api.weather.gov"
 
 # stale after 3 h: dead stations shouldn't render as "current weather"

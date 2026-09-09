@@ -3,6 +3,9 @@
 # Branding
 PAGE_NAME = "Tennessee Weather Network"
 PAGE_URL = "https://www.facebook.com/tennesseeweathernetwork"
+# Public site URL (GitHub Pages). Used as the share target when the site is
+# viewed locally - sharing a localhost link on Facebook is useless.
+PUBLIC_SITE_URL = "https://rpleasant12.github.io/http-localhost-8765-/"
 
 # Initial location: Greeneville, East Tennessee
 DEFAULT_LOCATION_NAME = "Greeneville, TN"

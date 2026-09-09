@@ -32,9 +32,18 @@ from data.radar_frames import (
     start_future_renderer,
 )
 from data.severe import SPC_COLORS, hrrr_severe, spc_outlooks, spc_risk_at, tn_alerts
+from data.model_compare import render_comparison as _render_comparison
+from data.model_compare import nearest_fh as _model_nearest_fh
 from data.mrms import mrms_bundle
+
+
+def _product_cycle(model, product):
+    """Newest cycle that actually has THIS product's file (product-aware probe)."""
+    from data.model_maps import find_cycle
+    return find_cycle(model, product=product)
 from data.nws_radar import nws_bundle
 from data.national import nhc_storms, wpc_catalog, wpc_qpf, wpc_sigwx
+from data.nhc_maps import nhc_outlook_overlays, nhc_wind_radii_overlays
 from data.satellite_bands import BANDS as SAT_BANDS, band_bundle
 from data.star_sat import PRODUCTS as STAR_PRODUCTS, star_bundle
 from data.sounding import build_sounding
@@ -65,6 +74,7 @@ defaults = {
     "lon": config.LONGITUDE,
     "past_only": False,
     "auto_play": True,
+    "map_mode": "radar",  # radar = RainViewer NEXRAD tiles (default map layer)
 }
 for key, value in defaults.items():
     st.session_state.setdefault(key, value)
@@ -118,9 +128,9 @@ def cached_series(model, var_key, lat, lon, max_hours):
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def cached_fan(lat, lon):
-    """Multi-model temperature comparison at a point (disk-cached per cycle inside)."""
-    return get_ensemble_fan(lat, lon, var_key="temp", max_hours=48)
+def cached_fan(lat, lon, var_key="temp"):
+    """Multi-model comparison at a point (disk-cached per cycle inside)."""
+    return get_ensemble_fan(lat, lon, var_key=var_key, max_hours=48)
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -157,6 +167,57 @@ def cached_wpc_sigwx():
 def cached_sounding(lat, lon, fh):
     """RAP Skew-T at a point (disk-cached PNG inside)."""
     return build_sounding(lat, lon, fh=fh, place=NAME)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def cached_mpas_product(var, domain, max_frames):
+    """NCAR MPAS official graphics for one product (downloaded frames, disk-cached)."""
+    from data.shield_mpas import mpas_product
+    return mpas_product(var, domain, max_frames=max_frames)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def cached_shield_product(field, region, max_frames):
+    """GFDL SHiELD (FV3) official graphics for one product."""
+    from data.shield_mpas import shield_product
+    return shield_product(field, region, max_frames=max_frames)
+
+
+@st.cache_data(ttl=1200, show_spinner=False)
+def cached_psu_hrrr_loop(max_frames=24):
+    """PSU e-Wall HRRR future-radar loop (15-min cadence, current cycle)."""
+    from data.psu_hrrr import psu_hrrr_loop
+    return psu_hrrr_loop(max_frames=max_frames)
+
+
+@st.cache_data(ttl=180, show_spinner=False)
+def cached_us_warnings():
+    """All active US watches/warnings (NWS Spatial, simplified, marine dropped)."""
+    from data.national import us_warnings
+    return us_warnings()
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def cached_upper_air_maps():
+    """SPC observed upper-air analyses (surface - 250 mb, 00Z/12Z)."""
+    from data.national import upper_air_maps
+    return upper_air_maps()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def responsive_map_height(base=560):
+    """Map iframe height suited to the device.
+
+    Streamlit components must be sized server-side (the iframe is fixed
+    before any JS can run), so this uses st.context to detect phones
+    (user agent hints: Mobile/Android/iPhone) and shrinks accordingly.
+    """
+    try:
+        ua = "".join(st.context.headers.get_all("User-Agent") or [])
+    except Exception:  # noqa: BLE001 - older Streamlit: assume desktop
+        return base
+    mobile = any(hint in ua for hint in ("Mobile", "iPhone", "Android", "iPad"))
+    return 460 if mobile else base
 
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -281,7 +342,38 @@ with st.sidebar:
     show_alerts_opt = st.checkbox("Alert polygons on map", value=True, key="show_alerts_opt")
 
     st.divider()
-    past_only = st.toggle("Show only past radar", value=st.session_state.past_only)
+    st.markdown("**\U0001f327 Default radar layer**")
+    st.radio(
+        "Map opens showing",
+        ["radar", "future", "nws", "mrms"],
+        format_func=lambda o: {"radar": "Real-Time Radar (RainViewer)",
+                               "future": "Future Radar (HRRR forecast)",
+                               "nws": "NWS Radar (official)",
+                               "mrms": "MRMS (official NSSL)"}[o],
+        key="map_mode",
+        help="Real-time animates the last 2 h of observed NEXRAD; Future "
+             "animates the HRRR/NAM model forecast out to +48 h. Official "
+             "NOAA mosaics render locally in the background and take longer "
+             "on first load.",
+    )
+
+    st.markdown("**\U0001f327 MRMS product**")
+    from data.mrms import CATALOG as _MRMS_CATALOG
+    mrms_prod = st.selectbox(
+        "MRMS product",
+        list(_MRMS_CATALOG),
+        format_func=lambda k: _MRMS_CATALOG[k]["label"],
+        key="mrms_prod_pick",
+        help="Official NSSL MRMS products from the AWS open-data bucket: "
+             "reflectivity composites, rotation tracks, MESH hail size, azimuthal "
+             "shear, echo tops, VIL, SHI, precipitation rate and radar-only QPE.",
+    )
+
+    st.divider()
+    past_only = st.toggle("Show only past radar", value=st.session_state.past_only,
+                          help="Hides the RainViewer nowcast + HRRR/NAM future "
+                               "frames from the timeline (Future Radar mode will "
+                               "be empty).")
     if past_only != st.session_state.past_only:
         st.session_state.past_only = past_only
         st.rerun()
@@ -297,7 +389,7 @@ with st.sidebar:
         refresh()
         st.rerun()
 
-    st.caption(f"Last updated: {datetime.now().strftime('%I:%M %p')}")
+    st.caption(f"Last updated: {datetime.now().strftime('%H:%M')}")
 
 NAME = st.session_state.name
 LAT = st.session_state.lat
@@ -393,7 +485,7 @@ with st.spinner("Fetching weather data..."):
     sat_frames = cached_satellite_frames()
     spc = cached_spc()
     tn_all = cached_tn_alerts()
-    mrms = mrms_bundle()          # official MRMS mosaic (background renderer)
+    mrms = mrms_bundle(st.session_state.get("mrms_prod_pick", "cref"))   # official MRMS (background renderer)
     nws_radar = nws_bundle()      # official NWS WMS mosaic (background renderer)
 nhc = cached_nhc()
 
@@ -419,6 +511,58 @@ severe_payload = {
 # Kick off the background renderers (render pending frames to static/ dirs)
 start_future_renderer(max_hours=48)
 hrrr = future_bundle(max_hours=48)
+
+# The public site (static/site/) and Facebook page (static/fb_page.html) are
+# kept current by the DEDICATED site_updater.py process (survives app restarts;
+# in-app daemon threads proved unreliable under Streamlit's script-run model).
+# Start it after a fresh checkout:  python site_updater.py
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _sweep_static_caches():
+    """Bound every static cache so static/ never trips Streamlit's 1 GB cap.
+
+    Streamlit silently DISABLES static file serving above 1 GB, which would
+    blank every PNG overlay (future radar, MRMS, NWS, satellite). Raw GRIB
+    downloads and old rendered frames are the growth drivers; PNG overlays
+    already self-prune via their registries, this sweeps the rest by mtime.
+    """
+    import time as _time
+    now = _time.time()
+    freed = 0
+    rules = {
+        "static/herbie": 48 * 3600,   # GRIB subsets: superseded by newer cycles
+        "static/mrms": 6 * 3600,      # scans cadence ~2 min; keep recent window
+        "static/goes": 6 * 3600,
+        "static/star": 6 * 3600,
+        "static/nws_radar": 6 * 3600,
+        "static/hrrr": 26 * 3600,     # overlays prune via registry; sweep orphans
+    }
+    for folder, max_age in rules.items():
+        for root, _dirs, files in os.walk(folder):
+            for fn in files:
+                p = os.path.join(root, fn)
+                try:
+                    if now - os.path.getmtime(p) > max_age:
+                        freed += os.path.getsize(p)
+                        os.remove(p)
+                except OSError:
+                    pass
+    # drop empty cycle dirs left behind
+    for model_dir in os.listdir("static/herbie"):
+        mpath = os.path.join("static/herbie", model_dir)
+        if os.path.isdir(mpath):
+            for cyc in os.listdir(mpath):
+                cpath = os.path.join(mpath, cyc)
+                if os.path.isdir(cpath) and not os.listdir(cpath):
+                    try:
+                        os.rmdir(cpath)
+                    except OSError:
+                        pass
+    return round(freed / 1e6)
+
+
+_sweep_static_caches()
 
 # gentle page auto-refresh so freshly rendered frames appear without manual reload
 if st_autorefresh is not None:
@@ -552,7 +696,7 @@ for s in nhc:
         f" \u00b7 moving {s.get('movement', '')}"
     )
 
-ticker_items.append(f'<span style="color:#9aa4b2">Updated {datetime.now().strftime("%I:%M %p")}</span>')
+ticker_items.append(f'<span style="color:#9aa4b2">Updated {datetime.now().strftime("%H:%M")}</span>')
 
 items_html = " \u2022 ".join(ticker_items) + " \u2022 "
 st.markdown(
@@ -622,12 +766,13 @@ with tabs[0]:
         threat_score=overall,
         ai_summary=None,
         auto_play=False,
-        initial_mode="radar",
+        initial_mode=st.session_state.get("map_mode", "radar"),
         zoom=6,
-        height=520,
+        height=responsive_map_height(520),
         key="severe_map",
         severe=severe_payload,
         spc_features=spc_day1_features,
+        obs_stations=obs_stations,
         mapbox_token=MB,
         map_options=MAP_OPTS,
     )
@@ -727,15 +872,16 @@ with tabs[1]:
             obs_stations=obs_stations,
             map_options=MAP_OPTS,
             mrms_frames=mrms["frames"],
+            mrms_label=f"MRMS {mrms.get('product', 'Radar')} ({mrms.get('unit', 'dBZ')})",
             nws_frames=nws_radar,
             future_pending=bool(future_frames) and hrrr["ready"] < hrrr["total"],
             threat=level,
             threat_score=overall,
             ai_summary=ai_summary,
             auto_play=st.session_state.auto_play and not st.session_state.past_only,
-            initial_mode="radar",
+            initial_mode=st.session_state.get("map_mode", "radar"),
             zoom=7,
-            height=560,
+            height=responsive_map_height(560),
             key="radar_map",
             severe=severe_payload,
             spc_features=spc_day1_features,
@@ -756,6 +902,55 @@ with tabs[1]:
                 st.caption(current.get("textDescription", ""))
             else:
                 st.info("No nearby observation station reporting right now.")
+
+        # --- PSU e-Wall HRRR 15-min future-radar loop -----------------------
+        st.divider()
+        st.markdown("**HRRR 15-minute future radar (PSU e-Wall)**")
+        psu_len = st.select_slider(
+            "Loop length (frames)", options=[12, 24, 36, 48, 69], value=24, key="psu_len")
+        psu_speed = st.select_slider(
+            "Speed (ms/frame)", options=[250, 350, 500, 700, 900], value=500, key="psu_speed")
+        if st.button("Load HRRR 15-min loop", key="psu_go"):
+            st.session_state["psu_show"] = (psu_len, psu_speed)
+        psu_cur = st.session_state.get("psu_show")
+        if psu_cur:
+            psu_l, psu_s = psu_cur
+            try:
+                with st.spinner("Downloading PSU e-Wall frames (cached after first load)..."):
+                    psu = cached_psu_hrrr_loop(max_frames=psu_l)
+                if psu and psu.get("frames"):
+                    import streamlit.components.v1 as _comp
+                    import json as _sjson
+                    _urls = [f["file"] for f in psu["frames"]]
+                    _labels = [f["label"] for f in psu["frames"]]
+                    _comp.html(
+                        f'''<div style="position:relative;background:#000;border-radius:10px;overflow:hidden">
+  <img id="psuf" src="{_urls[-1]}" style="width:100%;display:block"/>
+  <div id="psulb" style="position:absolute;top:10px;left:12px;color:#fff;font:600 15px 'Source Sans Pro',sans-serif;
+    background:rgba(13,17,26,.78);padding:3px 12px;border-radius:6px">{_labels[-1]}</div>
+  <div style="position:absolute;top:10px;right:12px;color:#7ee787;font:700 12px 'Source Sans Pro',sans-serif;
+    background:rgba(13,17,26,.78);padding:3px 10px;border-radius:6px">HRRR 3 km \u00b7 PSU e-Wall</div>
+</div>
+<script>
+const urls = {_sjson.dumps(_urls)};
+const labels = {_sjson.dumps(_labels)};
+let i = urls.length - 1;
+const img = document.getElementById('psuf'), lb = document.getElementById('psulb');
+setInterval(() => {{
+  i = (i + 1) % urls.length;
+  const pre = new Image();
+  pre.onload = () => {{ img.src = urls[i]; lb.textContent = labels[i]; }};
+  pre.src = urls[i];
+}}, {psu_s});
+</script>''',
+                        height=430,
+                    )
+                    st.caption(f"HRRR 3-km simulated radar, 15-min frames \u00b7 init {psu['init']} "
+                               f"\u00b7 {len(psu['frames'])} frames \u00b7 {psu_s} ms/frame")
+                else:
+                    st.warning("PSU e-Wall unavailable right now (site unreachable?).")
+            except Exception as exc:  # noqa: BLE001
+                st.warning(f"PSU e-Wall load failed: {exc}")
     with right:
         render_alerts_column()
 
@@ -816,6 +1011,7 @@ with tabs[2]:
         sat_mode=sat_band,
         sat_modes=SAT_MODE_OPTS,
         nws_frames=nws_radar,
+        obs_stations=obs_stations,
         future_pending=False,
         threat=level,
         threat_score=overall,
@@ -823,7 +1019,7 @@ with tabs[2]:
         auto_play=st.session_state.auto_play,
         initial_mode=initial_mode,
         zoom=6,
-        height=600,
+        height=responsive_map_height(600),
         key="satellite_map",
         mapbox_token=MB,
         map_options=MAP_OPTS,
@@ -840,7 +1036,7 @@ with tabs[3]:
         from data.model_maps import MAP_MODELS as _MAP_MODELS
 
         # CAM first, then global + blends, then ensembles
-        MAP_MODEL_ORDER = ["RRFS", "HREF", "REFS", "HRRR", "RAP", "NAM", "GFS", "AI-GraphCast", "AI-Pangu", "AI-FourCastNet", "ECMWF", "AIFS", "AIFS-ENS", "NBM", "CFS", "GEFS", "GEFS-Spread"]
+        MAP_MODEL_ORDER = ["RRFS", "HREF", "REFS", "HRRR", "RAP", "NAM", "GFS", "AI-GraphCast", "AI-Pangu", "AI-FourCastNet", "AI-Aurora", "ECMWF", "AIFS", "AIFS-ENS", "NBM", "CFS", "GEFS", "GEFS-Spread"]
         MAP_MODEL_ORDER = [m for m in MAP_MODEL_ORDER if m in _MAP_MODELS]
         mv1, mv2, mv3, mv4 = st.columns([2, 3, 2, 1])
         # versioned keys: stale replayed state dies here instead of crashing
@@ -871,6 +1067,15 @@ with tabs[3]:
             )
             maps_fh = mv3.selectbox("Forecast hour", fh_opts,
                                     index=min(2, len(fh_opts) - 1), key=f"maps_fh{mk}")
+            maps_region = st.radio(
+                "Map region",
+                ["etn", "us"],
+                format_func=lambda r: {"us": "US (CONUS)", "etn": "East Tennessee"}[r],
+                horizontal=True,
+                key="maps_region",
+                help="East Tennessee zooms to the southern Appalachians with "
+                     "10 m coastline detail; US renders the full CONUS panel.",
+            )
         except KeyError:
             if not st.session_state.get("maps_keys_v2"):
                 st.session_state.maps_keys_v2 = True
@@ -880,17 +1085,17 @@ with tabs[3]:
 
         # remember last selection so the map persists across reruns
         if show:
-            st.session_state["maps_rendered"] = (maps_model, maps_prod, maps_fh)
+            st.session_state["maps_rendered"] = (maps_model, maps_prod, maps_fh, maps_region)
         cur = st.session_state.get("maps_rendered")
         if cur:
-            cm, cp, cf = cur
+            cm, cp, cf, creg = (list(cur) + ["etn"])[:4]
             try:
                 with st.spinner(f"Rendering {cm} {MAP_PRODUCTS[cp]['label']} F{cf:03d} (first render ~1 min, then cached)..."):
                     cyc = find_cycle(cm)
                     if cyc is None:
                         st.warning(f"{cm} unavailable right now (NOAA bucket unreachable?).")
                     else:
-                        png, meta = render_product_map(cm, cyc, cf, cp)
+                        png, meta = render_product_map(cm, cyc, cf, cp, region=creg)
                         st.image(png, use_container_width=True)
                         st.caption(
                             f"{MAP_PRODUCTS[cp]['desc']} \u00b7 init {meta['cycle']} \u00b7 valid {meta['valid']} \u00b7 "
@@ -983,8 +1188,8 @@ setInterval(() => {{
             format_func=lambda k: MAP_PRODUCTS[k]["label"], key="comp_prod")
         avail = [m for m in MAP_MODEL_ORDER if m in _support[comp_prod]]
         comp_models = cv2.multiselect(
-            "Models (2-4)", avail,
-            default=[m for m in ("RRFS", "HRRR", "GFS") if m in avail][:3],
+            "Models (up to 4 - all models)", avail,
+            default=[m for m in ("RRFS", "HRRR", "GFS", "ECMWF") if m in avail][:4],
             max_selections=4, key="comp_models")
         comp_hour = cv3.select_slider("Target hour", options=list(range(0, 49, 3)), value=24,
                                       key="comp_hour")
@@ -993,26 +1198,29 @@ setInterval(() => {{
         cs = st.session_state.get("comp_show")
         if cs:
             cp2, cm2, ch2 = cs
-            cols = st.columns(max(1, len(cm2)))
-            for col, m in zip(cols, cm2):
-                with col:
-                    try:
-                        mm_def2 = _MAP_MODELS[m]
-                        fh_opts2 = [h for h in range(0, mm_def2["max_hour"] + 1, mm_def2["hour_step"])
-                                    if h > 0 or m not in ("HREF", "REFS")]  # HREF/REFS start at f01
-                        fh2 = min(fh_opts2, key=lambda h: abs(h - ch2))
-                        with st.spinner(f"{m} F{fh2:03d}..."):
-                            cyc2 = cached_cycle(m)
-                            if cyc2 is None:
-                                st.warning(f"{m} unavailable right now.")
-                                continue
-                            png2, meta2 = render_product_map(m, cyc2, fh2, cp2)
+            if len(cm2) >= 2:
+                with st.spinner("Rendering the 4-pane comparison (first render can take a couple of minutes)..."):
+                    cycles2, fhs2, errs = {}, {}, []
+                    for m in cm2:
+                        cyc2 = _product_cycle(m, cp2)
+                        if cyc2 is None:
+                            errs.append(f"{m}: cycle unavailable right now")
+                            continue
+                        cycles2[m] = cyc2
+                        fhs2[m] = _model_nearest_fh(m, ch2)
+                    if len(cycles2) >= 2:
+                        png2, meta2 = _render_comparison(
+                            cp2, list(cycles2), cycles2, fhs2,
+                            region=st.session_state.get("maps_region", "etn"))
                         st.image(png2, use_container_width=True)
-                        st.caption(f"**{m}** \u00b7 F{fh2:03d} \u00b7 valid {meta2['valid']}")
-                    except Exception as exc:  # noqa: BLE001 - one model failing must not kill the row
-                        st.warning(f"{m}: {exc}")
-            st.caption("Nearest available forecast hour per model \u00b7 first render of each "
-                       "panel can take a couple of minutes, then it's disk-cached.")
+                        st.caption("Nearest available forecast hour per model \u00b7 "
+                                   + ("; ".join(errs) if errs else
+                                      "first render of each panel is disk-cached"))
+                    else:
+                        for e in errs:
+                            st.warning(e)
+            else:
+                st.warning("Pick at least 2 models to compare.")
 
     # --- Section A2: Skew-T soundings (RAP 13 km + MetPy)
     st.markdown("**Skew-T / Log-P sounding - RAP 13 km at this location**")
@@ -1039,6 +1247,80 @@ setInterval(() => {{
                 st.warning(f"Sounding unavailable: {snd.get('error', 'unknown error')}")
         except Exception as exc:  # noqa: BLE001 - soundings are best-effort
             st.warning(f"Sounding failed: {exc}")
+
+    st.divider()
+
+    # --- Section A1b: MPAS + FV3/SHiELD experimental global models ----------
+    st.markdown("**MPAS + FV3 (SHiELD) - experimental global models**")
+    st.caption(
+        "NCAR MPAS-A 3.75 km global convection-permitting (GFS-initialized; archived "
+        "demonstration runs) and GFDL SHiELD, the FV3-core real-time model (live, "
+        "4x daily). Pre-rendered official graphics, no key."
+    )
+    with st.expander("\U0001f30d Open MPAS / SHiELD viewer", expanded=False):
+        from data.shield_mpas import MPAS_PRODUCTS, MPAS_DOMAINS, SHIELD_PRODUCTS, SHIELD_REGIONS
+        sm_src = st.radio("Model source", ["NCAR MPAS (3.75 km global)", "GFDL SHiELD (FV3 core)"],
+                          horizontal=True, key="sm_src")
+        sc1, sc2, sc3 = st.columns([2, 3, 2])
+        if sm_src.startswith("NCAR"):
+            sm_prod = sc1.selectbox("Product", list(MPAS_PRODUCTS),
+                                    format_func=lambda k: MPAS_PRODUCTS[k]["label"], key="sm_prod")
+            sm_dom = sc2.selectbox("Domain", list(MPAS_DOMAINS),
+                                   format_func=lambda k: MPAS_DOMAINS[k], key="sm_dom")
+            sm_len = sc3.select_slider("Loop length (frames)", options=[6, 12, 18, 25], value=12, key="sm_len")
+            if st.button("Load MPAS loop", key="sm_go"):
+                st.session_state["sm_show"] = ("mpas", sm_prod, sm_dom, sm_len)
+        else:
+            sm_prod = sc1.selectbox("Product", list(SHIELD_PRODUCTS),
+                                    format_func=lambda k: SHIELD_PRODUCTS[k]["label"], key="sm_prods")
+            sm_dom = sc2.selectbox("Domain", list(SHIELD_REGIONS),
+                                   format_func=lambda k: SHIELD_REGIONS[k], key="sm_dom2")
+            sm_len = sc3.select_slider("Loop length (frames)", options=[6, 12, 18, 25], value=12, key="sm_len2")
+            if st.button("Load SHiELD loop", key="sm_go2"):
+                st.session_state["sm_show"] = ("shield", sm_prod, sm_dom, sm_len)
+        sm_cur = st.session_state.get("sm_show")
+        if sm_cur:
+            sm_kind, sm_p, sm_d, sm_l = sm_cur
+            try:
+                with st.spinner("Downloading official model graphics (cached after first load)..."):
+                    if sm_kind == "mpas":
+                        bundle = cached_mpas_product(sm_p, sm_d, sm_l)
+                    else:
+                        bundle = cached_shield_product(sm_p, sm_d, sm_l)
+                if bundle and bundle.get("frames"):
+                    import streamlit.components.v1 as _comp
+                    import json as _sjson
+                    _urls = [f["file"] for f in bundle["frames"]]
+                    _labels = [f["label"] for f in bundle["frames"]]
+                    _speed = 900
+                    _comp.html(
+                        f'''<div style="position:relative;background:#0e1117;border-radius:10px;overflow:hidden">
+  <img id="smf" src="{_urls[-1]}" style="width:100%;display:block"/>
+  <div id="smlb" style="position:absolute;top:10px;left:12px;color:#fff;font:600 15px 'Source Sans Pro',sans-serif;
+    background:rgba(13,17,26,.78);padding:3px 12px;border-radius:6px">{_labels[-1]}</div>
+  <div style="position:absolute;top:10px;right:12px;color:#7ee787;font:700 12px 'Source Sans Pro',sans-serif;
+    background:rgba(13,17,26,.78);padding:3px 10px;border-radius:6px">{bundle['label'].split(' (')[0]}</div>
+</div>
+<script>
+const urls = {_sjson.dumps(_urls)};
+const labels = {_sjson.dumps(_labels)};
+let i = urls.length - 1;
+const img = document.getElementById('smf'), lb = document.getElementById('smlb');
+setInterval(() => {{
+  i = (i + 1) % urls.length;
+  const pre = new Image();
+  pre.onload = () => {{ img.src = urls[i]; lb.textContent = labels[i]; }};
+  pre.src = urls[i];
+}}, {_speed});
+</script>''',
+                        height=430,
+                    )
+                    st.caption(f"{bundle['label']} \u00b7 init {bundle['init'][:8]} {bundle['init'][8:]}Z "
+                               f"\u00b7 {_speed} ms/frame")
+                else:
+                    st.warning("No frames available for this product right now.")
+            except Exception as exc:  # noqa: BLE001
+                st.warning(f"MPAS/SHiELD load failed: {exc}")
 
     st.divider()
 
@@ -1071,11 +1353,27 @@ setInterval(() => {{
     st.divider()
 
     # --- Section B: ensemble fan - every model side by side
-    st.markdown("**Multi-model comparison - temperature fan chart (next 48 h)**")
+    st.markdown("**Multi-model comparison - fan chart (next 48 h)**")
     st.caption(
-        "HRRR, RAP, NAM, GFS, GEFS ensemble mean, ECMWF Euro, and the NWS National "
-        "Blend plotted together, with the GEFS ensemble spread band showing "
-        "forecast uncertainty. Tight lines = high confidence; wide = uncertain."
+        "HRRR, RAP, NAM, GFS, RRFS, GEFS ensemble mean, ECMWF Euro, and the NWS "
+        "National Blend plotted together for the variable you pick, with the GEFS "
+        "ensemble spread band showing forecast uncertainty where available. "
+        "Tight lines = high confidence; wide = uncertain."
+    )
+    FAN_VARS = [
+        ("temp", "Temperature"), ("precip", "Precipitation"), ("wind", "Wind speed"),
+        ("dewpoint", "Dewpoint"), ("gust", "Wind gusts"), ("cape", "CAPE (storm energy)"),
+        ("mslp", "Pressure (MSLP)"),
+    ]
+    fan_var = st.selectbox(
+        "Variable",
+        [k for k, _ in FAN_VARS],
+        format_func=lambda k: dict(FAN_VARS)[k],
+        key="fan_var",
+        help="Each model contributes what it publishes; models without the "
+             "variable are simply left off that chart. For precipitation, "
+             "HRRR/RAP show 1-hour amounts and NAM/GFS/RRFS show accumulation "
+             "since their init - bars, not lines.",
     )
     fan_btn_col, fan_info_col = st.columns([1, 3])
     if fan_btn_col.button("Build fan chart", width="stretch", key="fan_build"):
@@ -1083,7 +1381,7 @@ setInterval(() => {{
     if st.session_state.get("fan_show"):
         try:
             with st.spinner("Reading every model at this location (first build ~1-2 min, then cached)..."):
-                fan = cached_fan(LAT, LON)
+                fan = cached_fan(LAT, LON, var_key=fan_var)
             if not fan["models"]:
                 st.warning("No model data available right now.")
             else:
@@ -1116,22 +1414,42 @@ setInterval(() => {{
                             frames.append(spread_frames)
                 if frames:
                     all_df = pd.concat(frames, ignore_index=True)
-                    spread_band = alt.Chart(all_df[all_df["Model"] == "GEFS spread"]).mark_area(
-                        opacity=0.25, color="#888888"
-                    ).encode(x="t:T", y="value:Q")
-                    model_lines = alt.Chart(all_df[all_df["Model"] != "GEFS spread"]).mark_line(
-                        point=True
-                    ).encode(
-                        x=alt.X("t:T", title="Valid time (UTC)"),
-                        y=alt.Y("value:Q", title="Temperature (\u00b0F)"),
-                        color="Model:N",
-                        tooltip=["Model:N", "value:Q", "t:T"],
-                    ).properties(title="Model temperature consensus at " + NAME, height=320)
-                    st.altair_chart((spread_band + model_lines).interactive(), use_container_width=True)
+                    var_label = dict(FAN_VARS).get(fan_var, fan_var)
+                    unit = fan.get("unit") or ""
+                    is_precip = fan_var == "precip"
+                    if is_precip:
+                        # accumulated amounts compare as bars per model, no spread band
+                        line_df = all_df[all_df["Model"] != "GEFS spread"]
+                        chart = alt.Chart(line_df).mark_bar(size=18).encode(
+                            x=alt.X("t:T", title="Valid time (UTC)"),
+                            y=alt.Y("value:Q", title=f"{var_label} ({unit})"),
+                            color="Model:N",
+                            xOffset="Model:N",
+                            tooltip=["Model:N", "value:Q", "t:T"],
+                        ).properties(
+                            title=f"Model {var_label.lower()} at {NAME} "
+                                  f"(bars = accumulation window per model)",
+                            height=320,
+                        )
+                        st.altair_chart(chart, use_container_width=True)
+                    else:
+                        spread_band = alt.Chart(all_df[all_df["Model"] == "GEFS spread"]).mark_area(
+                            opacity=0.25, color="#888888"
+                        ).encode(x="t:T", y="value:Q")
+                        model_lines = alt.Chart(all_df[all_df["Model"] != "GEFS spread"]).mark_line(
+                            point=True
+                        ).encode(
+                            x=alt.X("t:T", title="Valid time (UTC)"),
+                            y=alt.Y("value:Q", title=f"{var_label} ({unit})"),
+                            color="Model:N",
+                            tooltip=["Model:N", "value:Q", "t:T"],
+                        ).properties(title=f"Model {var_label.lower()} consensus at {NAME}", height=320)
+                        st.altair_chart((spread_band + model_lines).interactive(), use_container_width=True)
                     if fan["errors"]:
                         st.caption("Unavailable this cycle: " + ", ".join(sorted(fan["errors"])) + ".")
                     else:
-                        st.caption("All 7 sources fetched successfully this cycle.")
+                        contributing = len({s["model_key"] for s in fan["models"]})
+                        st.caption(f"All {contributing} sources fetched successfully this cycle.")
                 else:
                     st.warning("Models returned no usable points this cycle.")
         except Exception as exc:  # noqa: BLE001 - fan is best-effort
@@ -1246,7 +1564,7 @@ with tabs[4]:
     with n_left:
         nat_product = st.radio(
             "National map product",
-            ["SPC Outlook", "WPC QPF (rain)", "WPC Hazards"],
+            ["SPC Outlook", "Upper Air Maps", "NHC Maps", "WPC QPF (rain)", "WPC Hazards"],
             horizontal=True,
             key="nat_product_pick",
         )
@@ -1269,32 +1587,40 @@ with tabs[4]:
             wpc_polys = cached_wpc_qpf(["Day 1", "Day 2", "Day 3"].index(qpf_day) + 1)["features"]
         elif nat_product == "WPC Hazards":
             wpc_overlays = cached_wpc_sigwx()
+        elif nat_product == "NHC Maps":
+            wpc_overlays = nhc_outlook_overlays()
+            wpc_polys = nhc_wind_radii_overlays(nhc)
         map_result = animated_radar(
             LAT, LON,
             past_frames=past_frames,
-            future_frames=[],
-            alerts_geojson=alert_geoms + storm_alerts,
+            future_frames=[] if st.session_state.past_only else cached_nowcast_frames() + hrrr["frames"],
+            alerts_geojson=alert_geoms + storm_alerts + cached_us_warnings(),
             satellite_frames=[],
             nws_frames=nws_radar,
-            future_pending=False,
+            future_pending=(not st.session_state.past_only) and bool(hrrr["total"]) and hrrr["ready"] < hrrr["total"],
             threat=level,
             threat_score=overall,
             ai_summary=None,
             auto_play=False,
-            initial_mode="radar",
+            initial_mode={"SPC Outlook": st.session_state.get("map_mode", "radar"),
+                         "Upper Air Maps": st.session_state.get("map_mode", "radar"),
+                         "NHC Maps": "nhc",
+                         "WPC QPF (rain)": "wpc", "WPC Hazards": "wpc"}[nat_product],
             zoom=4,
-            height=520,
+            height=responsive_map_height(520),
             key="national_map",
             wpc_polygons=wpc_polys,
             wpc_overlays=wpc_overlays,
             spc_features=nat_feats,
+            obs_stations=obs_stations,
             mapbox_token=MB,
             map_options=MAP_OPTS,
         )
         handle_map_click(map_result)
         st.caption(
-            "SPC outlook polygons (official category colors) \u00b7 NHC cone of uncertainty + "
-            "forecast track for every active storm \u00b7 NWS watches/warnings."
+            "SPC outlook polygons (official category colors) \u00b7 NHC tropical outlooks + "
+            "cone of uncertainty + 34/50/64-kt wind radii \u00b7 NWS watches/warnings \u00b7 "
+            "future radar: HRRR +48 h model forecast via the in-map layer menu."
         )
     with n_right:
         st.subheader("Active tropical systems")
@@ -1325,6 +1651,38 @@ with tabs[4]:
                 st.warning(f"WPC image unavailable (HTTP {wr.status_code}).")
         except requests.RequestException as exc:
             st.warning(f"WPC image failed: {exc}")
+
+        st.subheader("Upper air maps")
+        ua_maps = cached_upper_air_maps()
+        if ua_maps:
+            ua_levels = []
+            seen_lv = set()
+            for m in ua_maps:
+                if m["level"] not in seen_lv:
+                    seen_lv.add(m["level"])
+                    ua_levels.append(m["level"])
+            ua_level = st.selectbox(
+                "Level", ua_levels,
+                format_func=lambda lv: next(
+                    (m["levelLabel"] for m in ua_maps if m["level"] == lv), lv),
+                key="nat_ua_level",
+            )
+            ua_times = [m for m in ua_maps if m["level"] == ua_level]
+            ua_time = st.select_slider(
+                "Valid time", ua_times,
+                format_func=lambda m: m["time"].replace("T", " ").replace(":00Z", "Z"),
+                key="nat_ua_time",
+            )
+            try:
+                ur = requests.get(ua_time["url"], headers={"User-Agent": "tennessee-weather-network/1.0"}, timeout=20)
+                if ur.ok:
+                    st.image(ur.content, caption=ua_time["title"], use_container_width=True)
+                else:
+                    st.warning(f"Upper-air map unavailable (HTTP {ur.status_code}).")
+            except requests.RequestException as exc:
+                st.warning(f"Upper-air map failed: {exc}")
+        else:
+            st.caption("SPC upper-air analyses unavailable right now.")
 
 # ============================================================ Tab 5: Forecast & Alerts
 with tabs[5]:

@@ -7,3 +7,4 @@ streamlit.log
 mapbox_token.txt
 # Freebuff workspace metadata
 .freebuff/
+docs/

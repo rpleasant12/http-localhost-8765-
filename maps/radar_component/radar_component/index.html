@@ -80,16 +80,37 @@
     box-shadow: none; font-family: "Source Sans Pro", sans-serif;
   }
   .obs-label::before { display: none; }
+  /* ---- mobile / touch devices: compact controls, large touch targets ---- */
+  @media (max-width: 640px), (pointer: coarse) {
+    .ctl {
+      left: 6px; bottom: 6px; padding: 6px 8px; gap: 6px;
+      max-width: calc(100% - 12px); border-radius: 8px;
+    }
+    .ctl button { padding: 8px 18px; font-size: 17px; }
+    input[type=range] { width: 100%; min-width: 110px; max-width: 240px; height: 26px; }
+    select { font-size: 13px; padding: 6px 8px; max-width: 160px; }
+    .frame-label { min-width: 58px; font-size: 13px; }
+    .badge { top: 6px; right: 6px; font-size: 13px; padding: 4px 10px; }
+    .legend { bottom: 70px; right: 6px; font-size: 10.5px; padding: 4px 8px; line-height: 1.55; }
+    .ai-panel { max-width: 52vw; font-size: 11px; top: 6px; left: 6px; padding: 6px 9px; }
+    .pending-pill { bottom: 110px; left: 6px; font-size: 11px; }
+    .fs-btn { top: 44px; right: 6px; width: 38px; height: 38px; font-size: 19px; }
+    .leaflet-control-zoom a { width: 32px !important; height: 32px !important;
+      line-height: 32px !important; font-size: 19px !important; }
+    .leaflet-bar { border-radius: 6px; }
+  }
 </style>
 </head>
 <body>
 <div id="map"></div>
 <div class="ctl" id="ctl">
   <select id="mode">
-    <option value="radar" selected>Radar</option>
+    <option value="radar" selected>Real-Time Radar (RainViewer)</option>
+    <option value="future">Future Radar (forecast)</option>
     <option value="nws">NWS Radar (official)</option>
-    <option value="mrms">MRMS Radar (official)</option>
+    <option value="mrms">MRMS (official NSSL)</option>
     <option value="satellite">Satellite GeoColor</option>
+    <option value="nhc">NHC Tropics</option>
     <option value="wpc">WPC Maps</option>
   </select>
   <select id="base">
@@ -187,13 +208,14 @@ let overlayOpacity = 0.85;
 let showAlertsOn = true;
 let wpcLayer = null, wpcOverlayLayer = null, baseLayer = null, mapboxToken = "";
 let mode = "radar";
-let radarFrames = [], satFrames = [], futureFrames = [], mrmsFrames = [], nwsFrames = [];
+let radarFrames = [], satFrames = [], futureFrames = [], mrmsFrames = [], nwsFrames = [], mrmsLabel = null;
 let satMode = "gibs"; // which satellite product the Python side built frames for
 let currentIdx = -1, playTimer = null, playing = false;
 let lastAlertsJson = "", lastAiText = "", lastFutureSig = "", lastSevSig = "", lastMrmsSig = "", lastNwsSig = "";
 let lastWpcSig = "", lastWpcOvSig = "";
 let lastSatSig = ""; // satellite product + frames signature (rebuild trigger)
 let lastRadarSig = "";
+let lastInitialMode = null; // app-requested default layer (follows sidebar picker)
 let intervalMs = 700;
 
 const el = (id) => document.getElementById(id);
@@ -202,6 +224,7 @@ const el = (id) => document.getElementById(id);
 function onRender(msg) {
   const cfg = (msg.args && msg.args.args) ? msg.args.args : msg.args;
   if (!cfg) return;
+  window.__lastCfg = cfg;
   try {
     _onRenderInner(cfg);
   } catch (err) {
@@ -217,6 +240,26 @@ function _onRenderInner(cfg) {
   // populate the satellite picker BEFORE initMap so a band-key initial mode resolves
   if (cfg.satModes) applySatModes(cfg.satModes);
   if (!map) initMap(cfg);
+
+  // The sidebar's default-layer picker can change initialMode between renders;
+  // follow it unless the user has picked a different layer in the map menu.
+  if (cfg.initialMode && knownModes().indexOf(cfg.initialMode) >= 0
+      && cfg.initialMode !== lastInitialMode) {
+    if (lastInitialMode === null || cfg.initialMode === mode) {
+      // first config, or user hasn't diverged: adopt the app's choice
+      if (mode !== cfg.initialMode) {
+        mode = cfg.initialMode;
+        el("mode").value = mode;
+        currentIdx = -1;
+        pauseIfNeeded();
+        syncWpcVisibility();
+        if (mode === "obs") showObsOnly();
+        else if (frameLayers().length) showFrame(frameLayers().length - 1);
+        updateLegend();
+      }
+    }
+    lastInitialMode = cfg.initialMode;
+  }
 
   // token may arrive/update on later renders - swap the basemap live
   if (cfg.mapboxToken && cfg.mapboxToken !== mapboxToken) {
@@ -315,11 +358,13 @@ function _onRenderInner(cfg) {
 
   // MRMS official mosaic frames (lazy imageOverlays like the future radar)
   const mrms = cfg.mrmsFrames || [];
+  if (cfg.mrmsLabel && cfg.mrmsLabel !== mrmsLabel) { mrmsLabel = cfg.mrmsLabel; updateLegend(); }
   const msig = mrms.map((f) => f.id + (f.pngUrl ? 1 : 0)).join(",");
   if (msig !== lastMrmsSig) {
     lastMrmsSig = msig;
     mrmsFrames.forEach((f) => { if (f.layer && map.hasLayer(f.layer)) map.removeLayer(f.layer); });
     mrmsFrames = mrms.map((f) => Object.assign({ layer: null, failed: 0, kind: "mrms" }, f));
+    currentIdx = -1; // let the auto-show below re-display the newest scan
   }
 
   // NWS WMS official mosaic frames (same lazy imageOverlay pipeline)
@@ -329,6 +374,7 @@ function _onRenderInner(cfg) {
     lastNwsSig = nsig;
     nwsFrames.forEach((f) => { if (f.layer && map.hasLayer(f.layer)) map.removeLayer(f.layer); });
     nwsFrames = nws.map((f) => Object.assign({ layer: null, failed: 0, kind: "nws" }, f));
+    currentIdx = -1; // let the auto-show below re-display the newest scan
   }
 
   // Future frames: rendered server-side in background, loaded lazily by URL
@@ -361,6 +407,8 @@ function _onRenderInner(cfg) {
   // MRMS as default: show the newest official scan once it has rendered
   if (mode === "mrms" && mrmsFrames.length && currentIdx === -1) showFrame(mrmsFrames.length - 1);
   if (mode === "nws" && nwsFrames.length && currentIdx === -1) showFrame(nwsFrames.length - 1);
+  // radar/future mode with no frame shown yet (auto-play off): land on newest
+  if ((mode === "radar" || mode === "future") && layers.length && currentIdx === -1 && !playing) showFrame(layers.length - 1);
   // start playback on load if requested
   if (cfg.autoPlay && !playing && layers.length > 1) play();
 }
@@ -391,8 +439,9 @@ function frameLayers() {
   if (mode === "obs") return [];
   if (mode === "mrms") return mrmsFrames;
   if (mode === "nws") return nwsFrames;
+  if (mode === "future") return futureFrames;
   if (SAT_MODES.indexOf(mode) >= 0) return satFrames;
-  return radarFrames.concat(futureFrames);
+  return radarFrames; // real-time mode: past RainViewer frames only
 }
 
 /* ------------------------- station observations ------------------------- */
@@ -448,11 +497,12 @@ function applyAlertsVisibility() {
   else if (map.hasLayer(alertLayer)) map.removeLayer(alertLayer);
 }
 
-/* show/hide the static WPC layers when toggling into/out of the wpc mode */
+/* show/hide the static WPC/NHC layers when toggling into/out of those modes */
 function syncWpcVisibility() {
   const show = mode === "wpc";
-  if (wpcLayer) { if (show) { wpcLayer.addTo(map); } else { map.removeLayer(wpcLayer); } }
-  if (wpcOverlayLayer) { if (show) { wpcOverlayLayer.addTo(map); } else { map.removeLayer(wpcOverlayLayer); } }
+  const nhc = mode === "nhc";
+  if (wpcLayer) { if (show || nhc) { wpcLayer.addTo(map); } else { map.removeLayer(wpcLayer); } }
+  if (wpcOverlayLayer) { if (show || nhc) { wpcOverlayLayer.addTo(map); } else { map.removeLayer(wpcOverlayLayer); } }
 }
 
 function rvUrl(framePath) {
@@ -490,11 +540,21 @@ function setBase(kind) {
   baseLayer.addTo(map);
 }
 
+function knownModes() {
+  return ["radar", "future", "mrms", "nws", "obs", "nhc", "wpc"].concat(SAT_MODES);
+}
+
 function initMap(cfg) {
-  const known = ["radar", "mrms", "obs"].concat(SAT_MODES);
-  mode = known.indexOf(cfg.initialMode) >= 0 ? cfg.initialMode : "radar";
-  map = L.map("map", { zoomControl: true, attributionControl: true, zoomSnap: 0.5, maxZoom: MAX_ZOOM })
-    .setView([cfg.lat, cfg.lon], cfg.zoom || 7);
+  mode = knownModes().indexOf(cfg.initialMode) >= 0 ? cfg.initialMode : "radar";
+  lastInitialMode = cfg.initialMode || mode;
+  const isCoarse = window.matchMedia("(pointer: coarse)").matches;
+  map = L.map("map", {
+    zoomControl: true, attributionControl: true, zoomSnap: 0.5, maxZoom: MAX_ZOOM,
+    // touch defaults (pinch-zoom, one-finger pan, double-tap zoom) + snappy
+    // inertia tuned down on touch so flicks don't overshoot
+    touchZoom: true,
+    inertia: !isCoarse,
+  }).setView([cfg.lat, cfg.lon], cfg.zoom || 7);
   map.on("zoomend", () => { if (mode === "obs" && obsLayer) buildObsLayer(); });
   mapboxToken = cfg.mapboxToken || "";
   refreshBaseOptions();
@@ -557,7 +617,7 @@ function pauseIfNeeded() {
 }
 
 function updateLegend() {
-  const titles = { radar: "Radar (dBZ)", mrms: "NOAA MRMS Radar (dBZ)", nws: "NWS NEXRAD Mosaic (dBZ)", wpc: "WPC national products",
+  const titles = { radar: "Real-time radar (dBZ)", future: "Future radar - model forecast (dBZ)", mrms: (mrmsLabel || "NOAA MRMS Radar (dBZ)"), nws: "NWS NEXRAD Mosaic (dBZ)", nhc: "NHC Tropics - outlook + wind radii", wpc: "WPC national products",
     satellite: "Satellite - GeoColor", obs: "Station observations (\u00b0F dot = temperature)" };
   const flat = SAT_MODES.indexOf(mode) >= 0 || mode === "obs";
   el("legendTitle").textContent = titles[mode] || SAT_LABELS[mode]
@@ -587,15 +647,16 @@ function showFrame(idx) {
   el("frameLabel").textContent = (f.label || "") + (pendingNow ? " \u23f3" : "");
   el("scrub").value = idx;
   const isFuture = f.kind === "future";
-  el("futureTag").textContent = isFuture ? "FORECAST" : "";
-  el("srcTag").textContent = f.kind === "past" ? "RainViewer NEXRAD"
+  el("futureTag").textContent = (isFuture || mode === "future") ? "FORECAST" : "";
+  el("srcTag").textContent = f.kind === "past" ? "RainViewer NEXRAD (real-time)"
     : f.kind === "nws" ? "NWS NEXRAD mosaic (WMS)"
     : f.kind === "future" ? (f.model === "rvnow" ? "RainViewer nowcast"
       : f.model === "nam" ? "NAM 3km + AI" : "HRRR + AI")
     : f.kind === "mrms" ? "NOAA MRMS mosaic"
+    : (mode === "nhc") ? "NHC outlook + wind radii"
     : SAT_MODES.indexOf(mode) >= 0 ? ("GOES-19 ABI \u00b7 " + (SAT_LABELS[mode] || mode))
     : mode === "obs" ? "NWS station observations"
-    : mode === "wpc" ? "WPC SPC NHC" : "GOES-East GeoColor";
+    : mode === "wpc" ? "WPC SPC NHC" : mode === "nhc" ? "NHC - National Hurricane Center" : "GOES-East GeoColor";
   drawCells(isFuture ? f : null);
   // kick lazy load of the NEXT frame while playing
   if (isFuture) {
@@ -605,14 +666,21 @@ function showFrame(idx) {
 }
 
 function ensureOverlay(f) {
-  if (f.layer || (f.failed || 0) >= 3) return;
+  if (f.layer || (f.failed || 0) >= 6) return;
   if (!f.pngUrl || !f.bounds) return;
   const layer = L.imageOverlay(f.pngUrl, [[f.bounds[0], f.bounds[1]], [f.bounds[2], f.bounds[3]]], { opacity: 0 });
   layer.on("load", () => { layer.setOpacity(overlayOpacity); });
   layer.on("error", () => {
     f.failed = (f.failed || 0) + 1;
     f.layer = null;
-    if (f.failed < 3 && f.pngUrl) setTimeout(() => ensureOverlay(f), 1500 * f.failed);
+    if (f.failed < 6 && f.pngUrl) setTimeout(() => {
+      ensureOverlay(f);
+      // a retried overlay must be re-attached if this frame is on display
+      if (f.layer && mode !== "obs") {
+        const cur = frameLayers()[currentIdx];
+        if (cur === f && !map.hasLayer(f.layer)) f.layer.addTo(map);
+      }
+    }, 1500 * f.failed);
   });
   f.layer = layer;
 }
@@ -657,7 +725,7 @@ function updatePendingPill() {
   const remaining = futureFrames.filter((f) => !f.pngUrl).length;
   const mrmsPending = mode === "mrms" && mrmsFrames.length === 0;
   const nwsPending = mode === "nws" && nwsFrames.length === 0;
-  if (mode === "radar" && remaining > 0) {
+  if (mode === "future" && remaining > 0) {
     pill.textContent = `⏳ Rendering ${remaining} more future hour(s)... they will appear automatically`;
     pill.style.display = "block";
   } else if (mrmsPending) {
@@ -685,9 +753,20 @@ function play() {
   playTimer = setInterval(() => {
     const layers = frameLayers(); // fresh each tick: frame list can grow while playing
     if (idx >= layers.length) {
-      clearInterval(playTimer);
-      setTimeout(() => { if (playing) play(); }, 900);
-      return;
+      // End of the current timeline. Real-time and Future radar are one
+      // continuous timeline: crossing the "Now" boundary flips the layer
+      // mode and keeps going instead of restarting the loop.
+      if (playing && mode === "radar" && futureFrames.length) {
+        mode = "future"; el("mode").value = "future";
+        idx = 0; updateLegend(); updatePendingPill();
+      } else if (playing && mode === "future") {
+        mode = "radar"; el("mode").value = "radar";
+        idx = 0; updateLegend(); updatePendingPill();
+      } else {
+        clearInterval(playTimer);
+        setTimeout(() => { if (playing) play(); }, 900);
+        return;
+      }
     }
     showFrame(idx);
     idx += 1;
@@ -709,18 +788,27 @@ el("scrub").addEventListener("input", (e) => { pauseIfNeeded(); showFrame(Number
 function setAlerts(alerts) {
   if (alertLayer) map.removeLayer(alertLayer);
   alertLayer = L.featureGroup().addTo(map);
+  // Permanent code labels (TOR/SVR...) are great on a local map but turn to
+  // mush when every US warning is drawn - so on big feeds label only the
+  // high-impact event types.
+  const PRIORITY_LABELS = new Set(["Tornado Warning", "Severe Thunderstorm Warning",
+    "Flash Flood Warning", "Tornado Watch", "Severe Thunderstorm Watch",
+    "Hurricane Warning", "Tropical Storm Warning", "Extreme Heat Warning"]);
+  const labelAll = alerts.length <= 60;
   alerts.forEach((a) => {
     if (!a.geometry || !a.geometry.coordinates) return;
-    const st = EVENT_STYLE[a.event] || { color: SEV_FALLBACK[a.severity] || "#4fc3f7", code: null };
+    const st = EVENT_STYLE[a.event] || { color: a.color || SEV_FALLBACK[a.severity] || "#4fc3f7", code: null };
     const isWarning = (a.event || "").indexOf("Warning") >= 0 && a.event !== "Special Weather Statement";
+    const torTag = a.tor ? (a.tor === "POSSIBLE" ? " · TORNADO POSSIBLE" : " · TORNADO " + a.tor) : "";
     try {
       const g = L.geoJSON(a.geometry, {
         style: { color: st.color, weight: isWarning ? 3 : 2, dashArray: isWarning ? null : "6 4",
                  fillOpacity: isWarning ? 0.1 : 0.06, fillColor: st.color },
-      }).bindPopup("<b style=\"color:" + st.color + "\">" + (a.event || "Alert") + "</b><br/>"
+      }).bindPopup("<b style=\"color:" + st.color + "\">" + (a.event || "Alert") + "</b>" + torTag + "<br/>"
+                   + (a.headline ? "<small>" + a.headline + "</small><br/>" : "")
                    + (a.areaDesc || "") + (a.expires ? "<br/><small>Expires " + a.expires + "</small>" : ""));
       g.addTo(alertLayer);
-      if (isWarning && st.code) {
+      if (isWarning && st.code && (labelAll || PRIORITY_LABELS.has(a.event))) {
         // permanent short label centered on the polygon's outer ring
         try {
           const ring = a.geometry.type === "Polygon" ? a.geometry.coordinates[0]
@@ -760,7 +848,7 @@ function setWpcPolygons(feats) {
       }
     } catch (e) {}
   });
-  if (mode === "wpc") wpcLayer.addTo(map);
+  if (mode === "wpc" || mode === "nhc") wpcLayer.addTo(map);
 }
 
 function setWpcOverlays(overlays) {
@@ -772,7 +860,7 @@ function setWpcOverlays(overlays) {
     L.imageOverlay(o.href, [[o.bounds[0], o.bounds[1]], [o.bounds[2], o.bounds[3]]],
       { opacity: 0.85, interactive: false }).addTo(wpcOverlayLayer);
   });
-  if (mode === "wpc") wpcOverlayLayer.addTo(map);
+  if (mode === "wpc" || mode === "nhc") wpcOverlayLayer.addTo(map);
 }
 
 function setSevere(sev, spcFeatures) {

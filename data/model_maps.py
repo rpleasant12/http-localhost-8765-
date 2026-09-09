@@ -93,6 +93,8 @@ MAP_MODELS = {
         "cycles": [0, 1, 2, 3, 4],
         "max_hour": 18,
         "hour_step": 1,
+        # 2dfld file carries the surface fields (CAPE/MSLMA/GUST) the prslev file lacks
+        "file_type_base": {"2dfld": ("wrfprsf", "wrfsfcf")},
     },
     "HRRR": {
         "label": "HRRR (3 km CONUS CAM, hourly)",
@@ -135,6 +137,12 @@ MAP_MODELS = {
     },
     "AI-GraphCast": {
         "label": "GraphCast AI - GFS init (DeepMind, 0.25\u00b0 global)",
+        "style": "aiwp",
+        "max_hour": 240,
+        "hour_step": 6,
+    },
+    "AI-Aurora": {
+        "label": "Aurora AI - GFS init (Microsoft, 0.25\u00b0 global)",
         "style": "aiwp",
         "max_hour": 240,
         "hour_step": 6,
@@ -200,6 +208,7 @@ PRODUCTS_BY_MODEL = {
     "AI-GraphCast": ["500_vort", "500_tmp", "850_tmp", "sfc_mslp", "ai_precip"],
     "AI-Pangu": ["500_vort", "500_tmp", "850_tmp", "sfc_mslp"],
     "AI-FourCastNet": ["500_vort", "500_tmp", "850_tmp", "sfc_mslp", "pwat"],
+    "AI-Aurora": ["500_vort", "500_tmp", "850_tmp", "sfc_mslp"],
     "HREF": ["cam_pmmn", "cam_mean_500", "cam_mean_srh", "cam_prob_uphl", "cam_prob_ltng",
              "mucape"],
     "REFS": ["cam_pmmn", "cam_mean_500", "cam_mean_srh", "cam_prob_uphl", "cam_prob_ltng",
@@ -297,6 +306,7 @@ PRODUCTS = {
         "label": "MUCAPE - Most-Unstable CAPE",
         "desc": "Instability for the most unstable parcel (J/kg) - storm fuel",
         "vars": [("CAPE", "90-0 mb above ground")],
+        "file_type": {"HRRR": ("wrfprsf", "wrfsfcf")},  # HRRR CAPE lives in surface files
     },
     "sfc_gust": {
         "label": "Surface Wind Gusts + Winds",
@@ -376,8 +386,15 @@ PRODUCTS = {
 }
 
 
-def find_cycle(model):
-    """Most recent cycle datetime for which this model has an .idx."""
+def find_cycle(model, product=None):
+    """Most recent cycle datetime for which this model has an .idx.
+
+    product-aware probing: the newest cycle is only useful if the file this
+    PRODUCT lives in exists (e.g. HRRR uploads the pressure file before the
+    surface file, so MUCAPE needs to fall back to an older cycle while
+    500-vorticity can use the newest). Falls back to the generic probe when
+    no product is given or the product has no file-type swap.
+    """
     m = MAP_MODELS[model]
     now = dt.datetime.now(dt.timezone.utc)
     if model == "NBM":
@@ -397,7 +414,10 @@ def find_cycle(model):
         if m.get("synoptic"):
             c = c.replace(hour=(c.hour // 6) * 6)
         try:
-            r = requests.get(_idx_url(model, c, probe), headers=UA, timeout=15)
+            if product:
+                r = requests.get(_idx_url(model, c, probe, product), headers=UA, timeout=15)
+            else:
+                r = requests.get(_idx_url(model, c, probe), headers=UA, timeout=15)
             if r.ok:
                 return c
         except requests.RequestException:
@@ -436,6 +456,9 @@ def _idx_url(model, cycle, fh, product=None):
     swap = (PRODUCTS.get(product) or {}).get("file_type", {}).get(model)
     if swap:
         base = base.replace(swap[0], swap[1])
+    elif model == "RRFS" and product in ("mucape", "cape_wind", "sfc_gust", "sfc_mslp"):
+        # RRFS splits files: surface fields live in the 2dfld staging file
+        base = base.replace("prslev.3km", "2dfld.3km")
     return f"{base}{m['step_fmt'].format(fh=fh)}{m['suffix']}.idx"
 
 
@@ -734,11 +757,22 @@ def _fetch_fields_herbie(model, cycle, fh, product):
         except Exception:  # noqa: BLE001 - one bad message must not kill the map
             continue
         for sn, values in decoded.items():
+            values = np.asarray(values)
+            if values.ndim > 2:      # multi-level message: take the nearest level
+                values = values.reshape(-1, *values.shape[-2:])[0]
+            elif values.ndim != 2:
+                continue
             fields[_CANON.get(sn, sn)] = values[::dec_step, ::dec_step]
         lat, lon = lat2[::dec_step, ::dec_step], lon2[::dec_step, ::dec_step]
     if lat is None or not fields:
         return None
-    if ecmwf_family and "HGT" in fields:
+    # require every requested variable - partial Herbie decodes (NAM drops
+    # some fields on some cycles) would crash the renderer or ship a broken
+    # map; returning None lets the caller fall back to an older cycle
+    if not ecmwf_family:
+        wanted = {alias.get(s, s) for s, _ in vars_needed}
+        if not wanted.issubset(fields.keys()):
+            return None
         fields["HGT"] = fields["HGT"] / 9.80665   # ECMWF 'z' is geopotential, not height
     return {"fields": fields, "lat": lat, "lon": lon}
 
@@ -826,6 +860,13 @@ def fetch_product_fields(model, cycle, fh, product):
         lat, lon = lat2[::dec_step, ::dec_step], lon2[::dec_step, ::dec_step]
     if lat is None or len(fields) < 1:
         return None
+    # require EVERY requested variable to have decoded - a partial decode
+    # (e.g. NAM via Herbie occasionally drops some fields) would otherwise
+    # render without contours/barbs or crash; falling back to an older cycle
+    # with a complete file is better than shipping a broken map
+    wanted = {alias.get(s, s) for s, _ in vars_needed}
+    if not wanted.issubset(fields.keys()):
+        return None
     if product.startswith("cam_prob"):
         # normalize the probability message: single field -> PROB, fraction -> percent
         vals = next(iter(fields.values()))
@@ -886,10 +927,26 @@ def _fetch_ecmwf_fields(cycle, fh, product, model_dir="ifs/0p25/oper", tag="oper
 
 
 # ---------------------------------------------------------------- plotting
-def render_product_map(model, cycle, fh, product, out_dir=MAP_DIR):
-    """Render one map; returns (png_path, meta). Cached on disk per cycle/fh."""
+# Map regions: 'us' = full CONUS (default), 'etn' = zoomed Eastern Tennessee
+# and the surrounding southern Appalachians. Extents are lon/lat in PlateCarree.
+MAP_REGIONS = {
+    "us": {"label": "US (CONUS)", "extent": [-125, -66, 23, 51]},
+    "etn": {"label": "East Tennessee", "extent": [-92, -74, 30, 42]},
+}
+DEFAULT_REGION = "etn"
+
+
+def render_product_map(model, cycle, fh, product, out_dir=MAP_DIR, region=DEFAULT_REGION):
+    """Render one map; returns (png_path, meta). Cached on disk per cycle/fh.
+
+    Cycle fallback: if this product's file doesn't exist for the given cycle
+    at this hour (NOAA publishes HRRR surface files progressively), walk back
+    to the previous cycle where the whole run is available so the requested
+    valid time still renders instead of erroring.
+    """
     os.makedirs(out_dir, exist_ok=True)
-    png = os.path.join(out_dir, f"{model}_{product}_f{fh:03d}_{cycle:%Y%m%d%H}.png")
+    reg = MAP_REGIONS.get(region, MAP_REGIONS[DEFAULT_REGION])
+    png = os.path.join(out_dir, f"{model}_{product}_f{fh:03d}_{cycle:%Y%m%d%H}_{region}.png")
     if os.path.exists(png) and os.path.getsize(png) > 10_000:
         valid = cycle + dt.timedelta(hours=fh)
         return png, {"cycle": cycle.strftime("%Y-%m-%d %H:%M UTC"), "fh": fh,
@@ -904,6 +961,20 @@ def render_product_map(model, cycle, fh, product, out_dir=MAP_DIR):
 
     data = fetch_product_fields(model, cycle, fh, product)
     if data is None:
+        # progressive publication: this cycle's file for this product isn't up
+        # yet - fall back to older cycles (same valid time, older init)
+        m0 = MAP_MODELS[model]
+        for back in m0.get("cycles", [])[1:5]:
+            alt = (cycle - dt.timedelta(hours=back)).replace(minute=0, second=0, microsecond=0)
+            if m0.get("synoptic"):
+                alt = alt.replace(hour=(alt.hour // 6) * 6)
+            if alt < cycle - dt.timedelta(hours=12):
+                break
+            data = fetch_product_fields(model, alt, fh, product)
+            if data is not None:
+                cycle = alt
+                break
+    if data is None:
         raise RuntimeError("No decodable data for this model/hour (NOAA bucket issue?)")
     fields, lat, lon = data["fields"], data["lat"], data["lon"]
     f = fields.get
@@ -913,12 +984,16 @@ def render_product_map(model, cycle, fh, product, out_dir=MAP_DIR):
 
     proj = ccrs.LambertConformal(central_longitude=-96, central_latitude=39)
     trans = ccrs.PlateCarree()
+    # zoomed regions get a tighter projection center so the panel stays square
+    if region == "etn":
+        proj = ccrs.LambertConformal(central_longitude=-85, central_latitude=36)
     fig = plt.figure(figsize=(13, 8), dpi=110)
     ax = plt.axes(projection=proj)
-    ax.set_extent([-125, -66, 23, 51], crs=trans)
-    ax.add_feature(cfeature.STATES.with_scale("50m"), linewidth=0.5, edgecolor="#666666")
-    ax.add_feature(cfeature.COASTLINE.with_scale("50m"), linewidth=0.6)
-    ax.add_feature(cfeature.BORDERS.with_scale("50m"), linewidth=0.8)
+    ax.set_extent(reg["extent"], crs=trans)
+    coast = "10m" if region == "etn" else "50m"  # finer detail when zoomed
+    ax.add_feature(cfeature.STATES.with_scale(coast), linewidth=0.5, edgecolor="#666666")
+    ax.add_feature(cfeature.COASTLINE.with_scale(coast), linewidth=0.6)
+    ax.add_feature(cfeature.BORDERS.with_scale(coast), linewidth=0.8)
 
     # subsample stride for barbs based on grid density
     stride = max(1, int(max(lat.shape) / 45))
@@ -926,6 +1001,10 @@ def render_product_map(model, cycle, fh, product, out_dir=MAP_DIR):
         stride = 10**9  # no winds in NBM COG products
 
     def heights(ax, h, level_mb, interval=60):
+        if h is None:
+            # some model/cycle combos (e.g. NAM via Herbie) omit HGT for this
+            # level - skip the contours rather than failing the whole render
+            return None
         hd = h / 10.0  # meters -> decameters
         cs = ax.contour(lon, lat, hd, levels=np.arange(480, 612, interval / 10),
                         colors="black", linewidths=1.0, transform=trans)
@@ -1136,8 +1215,9 @@ def render_product_map(model, cycle, fh, product, out_dir=MAP_DIR):
               "nbm_gust": "NBM Wind Gust (pre-blended)",
               "nbm_cape": "NBM SBCAPE (pre-blended)",
               "nbm_refc": "NBM Max Simulated Reflectivity"}.get(product, product)
+    region_lbl = reg["label"] if region != DEFAULT_REGION else ""
     ax.set_title(
-        f"{prod_label}\n"
+        f"{prod_label}{' \u2014 ' + region_lbl if region_lbl else ''}\n"
         f"{m['label']} \u00b7 init {cycle:%Y-%m-%d %H}Z \u00b7 F{fh:03d} \u00b7 valid {valid:%Y-%m-%d %H}Z",
         fontsize=11, loc="left",
     )
@@ -1149,7 +1229,7 @@ def render_product_map(model, cycle, fh, product, out_dir=MAP_DIR):
     plt.close(fig)
     valid = cycle + dt.timedelta(hours=fh)
     return png, {"cycle": cycle.strftime("%Y-%m-%d %H:%M UTC"), "fh": fh,
-                 "valid": valid.strftime("%Y-%m-%d %H:%M UTC")}
+                 "valid": valid.strftime("%Y-%m-%d %H:%M UTC"), "region": region}
 
 
 def clear_map_cache():

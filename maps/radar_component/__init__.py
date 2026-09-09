@@ -30,6 +30,7 @@ def animated_radar(
     obs_stations=None,
     map_options=None,
     mrms_frames=None,
+    mrms_label=None,
     nws_frames=None,
     future_pending=False,
     threat=None,
@@ -65,6 +66,8 @@ def animated_radar(
     future_frames:    [{'id', 'label', 'time', 'model', 'pngUrl' (or None while
                         pending), 'bounds': [S,W,N,E], 'cells', 'tracks'}]
     alerts_geojson:   list of {'event', 'severity', 'areaDesc', 'geometry', 'expires'} dicts
+                      - optional enrichment keys: 'headline', 'tor' (radar-
+                        detected tornado tag), 'color' (official NWS fill)
     severe:           {'hailPoints': [...], 'rotPoints': [...]} or None
     spc_features:     SPC outlook polygons [{'label','label2','fill','geometry'}]
     mapbox_token:     Mapbox access token - enables Mapbox basemaps when set
@@ -82,6 +85,7 @@ def animated_radar(
         "obsStations": obs_stations or [],
         "mapOptions": map_options or {},
         "mrmsFrames": mrms_frames or [],
+        "mrmsLabel": mrms_label or "NOAA MRMS Radar (dBZ)",
         "nwsFrames": nws_frames or [],
         "futureFrames": future_frames,
         "futurePending": future_pending,

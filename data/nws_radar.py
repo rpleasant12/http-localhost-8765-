@@ -71,9 +71,10 @@ def get_nws_frames():
         except ValueError:
             continue
         mins = int(max(0, (now - scan).total_seconds() // 60))
+        hhmm = scan.astimezone().strftime("%H:%M")
         out.append({
             "id": "nws_" + scan.strftime("%Y%m%d%H%M"),
-            "label": "Now" if mins < 4 else f"-{mins}m",
+            "label": f"Now {hhmm}" if mins < 4 else hhmm,
             "time": scan.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "iso": t,
         })

@@ -81,12 +81,13 @@ def get_active_alerts(lat, lon):
     return alerts
 
 
-def city_forecasts(cities=None):
+def city_forecasts(cities=None, max_periods=14):
     """NWS point forecast for every East TN city, fetched in parallel.
 
-    Returns [{'city','lat','lon','periods': [first 4 NWS periods]}] - periods
-    carry name/temp(F)/wind/shortForecast. Cities whose forecast fails come
-    back with periods=[] (rendered as '-').
+    Returns [{'city','lat','lon','periods': [NWS day/night periods]}] -
+    max_periods=14 covers the full 7-day day/night sequence. Periods carry
+    name/temp(F)/wind/shortForecast/detailedForecast/pop. Cities whose
+    forecast fails come back with periods=[] (rendered as '-').
     """
     cities = cities or EAST_TN_CITIES
 
@@ -98,7 +99,11 @@ def city_forecasts(cities=None):
             "tempF": p.get("temperature"),
             "wind": f"{p.get('windSpeed', '')} {p.get('windDirection', '')}".strip(),
             "short": p.get("shortForecast", ""),
-        } for p in periods_src[:4]]
+            "detailed": p.get("detailedForecast", ""),
+            "pop": p.get("probabilityOfPrecipitation", {}).get("value")
+                   if isinstance(p.get("probabilityOfPrecipitation"), dict)
+                   else p.get("probabilityOfPrecipitation"),
+        } for p in periods_src[:max_periods]]
         return {"city": city, "lat": lat, "lon": lon, "periods": periods}
 
     with ThreadPoolExecutor(max_workers=8) as ex:

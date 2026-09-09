@@ -23,6 +23,7 @@ AIWP_CODES = {
     "AI-GraphCast": "GRAP_v100_GFS",
     "AI-Pangu": "PANG_v100_GFS",
     "AI-FourCastNet": "FOUR_v200_GFS",
+    "AI-Aurora": "AURO_v100_GFS",
 }
 
 _LOCK = threading.Lock()

@@ -51,9 +51,11 @@ MODELS = {
             "temp": {"msgs": [("TMP", "surface")], "label": "Temperature (2 m)", "unit": "\u00b0F", "convert": "k2f"},
             "wind": {"msgs": [("UGRD", "10 m above ground"), ("VGRD", "10 m above ground")],
                      "label": "Wind speed (10 m)", "unit": "mph", "convert": "ms2mph", "combine": "speed"},
+            "dewpoint": {"msgs": [("DPT", "2 m above ground")], "label": "Dewpoint (2 m)", "unit": "°F", "convert": "k2f"},
             "gust": {"msgs": [("GUST", "surface")], "label": "Wind gusts", "unit": "mph", "convert": "ms2mph"},
             "cape": {"msgs": [("CAPE", "surface")], "label": "CAPE (storm energy)", "unit": "J/kg", "convert": "none"},
             "mslp": {"msgs": [("MSLMA", "mean sea level")], "label": "Mean sea-level pressure", "unit": "inHg", "convert": "pa2inhg"},
+            "precip": {"msgs": [("APCP", "surface")], "label": "Precip (1 h acc)", "unit": "in", "convert": "mm2in"},
         },
     },
     "RAP": {
@@ -70,10 +72,12 @@ MODELS = {
             "temp": {"msgs": [("TMP", "2 m above ground")], "label": "Temperature (2 m)", "unit": "\u00b0F", "convert": "k2f"},
             "wind": {"msgs": [("UGRD", "10 m above ground"), ("VGRD", "10 m above ground")],
                      "label": "Wind speed (10 m)", "unit": "mph", "convert": "ms2mph", "combine": "speed"},
+            "dewpoint": {"msgs": [("DPT", "2 m above ground")], "label": "Dewpoint (2 m)", "unit": "°F", "convert": "k2f"},
             "gust": {"msgs": [("GUST", "surface")], "label": "Wind gusts", "unit": "mph", "convert": "ms2mph"},
             "cape": {"msgs": [("CAPE", "surface")], "label": "CAPE (storm energy)", "unit": "J/kg", "convert": "none"},
             "mslp": {"msgs": [("PRMSL", "mean sea level"), ("MSLMA", "mean sea level")],
                      "label": "Mean sea-level pressure", "unit": "inHg", "convert": "pa2inhg"},
+            "precip": {"msgs": [("APCP", "surface")], "label": "Precip (1 h acc)", "unit": "in", "convert": "mm2in"},
         },
     },
     "NAM": {
@@ -94,6 +98,7 @@ MODELS = {
             "cape": {"msgs": [("CAPE", "surface")], "label": "CAPE (storm energy)", "unit": "J/kg", "convert": "none"},
             "mslp": {"msgs": [("PRMSL", "mean sea level"), ("MSLMA", "mean sea level")],
                      "label": "Mean sea-level pressure", "unit": "inHg", "convert": "pa2inhg"},
+            "precip": {"msgs": [("APCP", "surface")], "label": "Precip (acc since init)", "unit": "in", "convert": "mm2in"},
         },
     },
     "GFS": {
@@ -110,10 +115,12 @@ MODELS = {
             "temp": {"msgs": [("TMP", "2 m above ground")], "label": "Temperature (2 m)", "unit": "\u00b0F", "convert": "k2f"},
             "wind": {"msgs": [("UGRD", "10 m above ground"), ("VGRD", "10 m above ground")],
                      "label": "Wind speed (10 m)", "unit": "mph", "convert": "ms2mph", "combine": "speed"},
+            "dewpoint": {"msgs": [("DPT", "2 m above ground")], "label": "Dewpoint (2 m)", "unit": "°F", "convert": "k2f"},
             "gust": {"msgs": [("GUST", "surface")], "label": "Wind gusts", "unit": "mph", "convert": "ms2mph"},
             "cape": {"msgs": [("CAPE", "surface")], "label": "CAPE (storm energy)", "unit": "J/kg", "convert": "none"},
             "mslp": {"msgs": [("PRMSL", "mean sea level"), ("MSLMA", "mean sea level")],
                      "label": "Mean sea-level pressure", "unit": "inHg", "convert": "pa2inhg"},
+            "precip": {"msgs": [("APCP", "surface")], "label": "Precip (acc since init)", "unit": "in", "convert": "mm2in"},
         },
     },
     "HREF": {
@@ -209,6 +216,7 @@ MODELS = {
             "wind": {"msgs": [("UGRD", "10 m above ground"), ("VGRD", "10 m above ground")],
                      "label": "Wind speed (10 m)", "unit": "mph", "convert": "ms2mph", "combine": "speed"},
             "gust": {"msgs": [("GUST", "surface")], "label": "Wind gusts", "unit": "mph", "convert": "ms2mph"},
+            "precip": {"msgs": [("APCP", "surface")], "label": "Precip (acc since init)", "unit": "in", "convert": "mm2in"},
         },
     },
     "CFS": {
@@ -626,6 +634,8 @@ def _convert(val, convert):
         return val / 10.0
     if convert == "geo2dam":
         return val / 9.80665 / 10.0
+    if convert == "mm2in":
+        return val / 25.4  # accumulated precip mm -> inches
     return val
 
 
@@ -795,10 +805,10 @@ def get_ensemble_fan(lat, lon, var_key="temp", max_hours=48, fresh=False):
     """Multi-model comparison at a point: one series per FAN_MODELS model.
 
     Returns {'models': [series dicts], 'spread': GEFS spread series or None,
-             'unit', 'errors': {model: msg}}
+             'unit', 'var_key', 'errors': {model: msg}}
     """
-    unit = MODELS["GFS"]["vars"]["temp"]["unit"] if var_key == "temp" else ""
     models_out, errors = [], {}
+    unit = ""
     for mk in FAN_MODELS:
         if var_key not in MODELS[mk]["vars"]:
             continue
@@ -808,11 +818,14 @@ def get_ensemble_fan(lat, lon, var_key="temp", max_hours=48, fresh=False):
             errors[mk] = s["error"]
         else:
             models_out.append(s)
+            if not unit:
+                unit = s["unit"]
     spread = get_series(FAN_SPREAD_MODEL, var_key, lat, lon, max_hours=max_hours, fresh=fresh, stride=6)
     if "error" in spread:
         errors[FAN_SPREAD_MODEL] = spread["error"]
         spread = None
-    return {"models": models_out, "spread": spread, "unit": unit, "errors": errors}
+    return {"models": models_out, "spread": spread, "unit": unit,
+            "var_key": var_key, "errors": errors}
 
 
 def clear_model_cache():

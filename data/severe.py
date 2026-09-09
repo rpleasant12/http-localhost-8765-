@@ -22,6 +22,13 @@ HRRR_BUCKET = "https://noaa-hrrr-bdp-pds.s3.amazonaws.com"
 SPC_COLORS = {
     "TSTM": "#c1e9c1", "MRGL": "#66cdaa", "SLGT": "#ffff00",
     "ENH": "#ff8c00", "MDT": "#ff0000", "HIGH": "#ff00ff",
+}
+# probability palettes are per-hazard (SPC uses different ramps)
+SPC_TORN_COLORS = {
+    "0.02": "#adff2f", "0.05": "#32cd32", "0.10": "#ffff00",
+    "0.15": "#ff8c00", "0.30": "#ff0000", "0.45": "#ff00ff", "0.60": "#c71585",
+}
+SPC_PROB_COLORS = {  # hail + wind share one ramp
     "0.05": "#adff2f", "0.15": "#ffff00", "0.30": "#ff8c00",
     "0.45": "#ff0000", "0.60": "#ff00ff",
 }
@@ -36,13 +43,16 @@ def _fetch_spc(product):
         d = r.json()
     except (requests.RequestException, ValueError):
         return None
+    palette = (SPC_TORN_COLORS if "torn" in product
+               else SPC_PROB_COLORS if "hail" in product or "wind" in product
+               else SPC_COLORS)
     feats = []
     for f in d.get("features", []):
         p = f.get("properties", {})
         feats.append({
             "label": p.get("LABEL"),
             "label2": p.get("LABEL2") or p.get("LABEL"),
-            "fill": SPC_COLORS.get(p.get("LABEL"), "#888888"),
+            "fill": palette.get(p.get("LABEL"), "#888888"),
             "geometry": f.get("geometry"),
             "expire": p.get("EXPIRE"),
         })
@@ -56,11 +66,13 @@ def _fetch_spc(product):
 
 
 def spc_outlooks():
-    """Day1-3 categorical and Day1 hail/tornado outlook GeoJSON."""
+    """SPC outlook GeoJSON: Day1-3 categorical + Day1-2 tornado/hail/wind probs."""
     out = {}
     for key, product in (
         ("day1", "day1otlk_cat"), ("day2", "day2otlk_cat"), ("day3", "day3otlk_cat"),
         ("day1_hail", "day1otlk_hail"), ("day1_torn", "day1otlk_torn"),
+        ("day1_wind", "day1otlk_wind"), ("day2_hail", "day2otlk_hail"),
+        ("day2_torn", "day2otlk_torn"), ("day2_wind", "day2otlk_wind"),
     ):
         out[key] = _fetch_spc(product)
     return out
@@ -94,9 +106,13 @@ def _pip(lat, lon, geom):
 
 
 def spc_risk_at(lat, lon, outlooks=None):
-    """Highest SPC risk category at a point: {'cat', 'hail', 'torn', 'summary'}."""
+    """Highest SPC risk at a point: {'cat','hail','torn','wind','summary'}.
+
+    Probability labels are fractions (0.02 = 2%), so they are converted to
+    whole percents for display.
+    """
     outlooks = outlooks or spc_outlooks()
-    result = {"cat": None, "hail": None, "torn": None}
+    result = {"cat": None, "hail": None, "torn": None, "wind": None}
     d1 = outlooks.get("day1")
     if d1:
         best = -1
@@ -106,7 +122,7 @@ def spc_risk_at(lat, lon, outlooks=None):
                 if rank >= best:
                     best = rank
                     result["cat"] = f
-    for key, field in (("day1_hail", "hail"), ("day1_torn", "torn")):
+    for key, field in (("day1_hail", "hail"), ("day1_torn", "torn"), ("day1_wind", "wind")):
         src = outlooks.get(key)
         if not src:
             continue
@@ -123,9 +139,11 @@ def spc_risk_at(lat, lon, outlooks=None):
     if result["cat"]:
         bits.append(result["cat"]["label2"] or result["cat"]["label"])
     if result["hail"]:
-        bits.append(f"{result['hail']['label']}% hail")
+        bits.append(f"{float(result['hail']['label']) * 100:g}% hail")
     if result["torn"]:
-        bits.append(f"{result['torn']['label']}% tornado")
+        bits.append(f"{float(result['torn']['label']) * 100:g}% tornado")
+    if result["wind"]:
+        bits.append(f"{float(result['wind']['label']) * 100:g}% wind")
     result["summary"] = " \u00b7 ".join(bits) if bits else "No severe risk area drawn for this spot"
     return result
 

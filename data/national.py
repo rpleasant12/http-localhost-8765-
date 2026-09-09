@@ -11,75 +11,12 @@ import io
 import json
 import os
 import re
+import time
 import zipfile
 
 import requests
 
 UA = {"User-Agent": "tennessee-weather-network/1.0 (local demo)"}
-SPC_BASE = "https://www.spc.noaa.gov/products/outlook"
-NHC_STORMS = "https://www.nhc.noaa.gov/CurrentStorms.json"
-SIGWX_URL = "https://www.wpc.ncep.noaa.gov/kml/noaa_chart/WPC_Day1-3_SigWx_latest.kml"
-QPF_URL = "https://www.wpc.ncep.noaa.gov/kml/qpf/QPF24hr_Day{day}_latest.kmz"
-
-# ---------------------------------------------------------------- SPC
-
-def spc_outlooks():
-    """Day1/Day2/Day3 categorical outlook GeoJSONs -> {'day1': {...}, ...}.
-
-    Each value: {'features': [ {'label','fill','geometry'} ], 'issue': str}
-    """
-    out = {}
-    for day, prod in (("day1", "day1otlk_cat"), ("day2", "day2otlk_cat"), ("day3", "day3otlk_cat")):
-        try:
-            r = requests.get(f"{SPC_BASE}/{prod}.nolyr.geojson", headers=UA, timeout=15)
-            if r.status_code != 200:
-                continue
-            gj = r.json()
-            feats = []
-            issue = ""
-            for f in gj.get("features", []):
-                props = f.get("properties", {}) or {}
-                label = str(props.get("LABEL") or props.get("LABEL2") or "").upper()
-                fill = props.get("fill")
-                if f.get("geometry"):
-                    feats.append({"label": label, "fill": fill, "geometry": f["geometry"]})
-                if not issue:
-                    issue = str(props.get("ISSUE") or "")
-            out[day] = {"features": feats, "issue": issue}
-        except (requests.RequestException, ValueError):
-            continue
-    return out
-
-
-RISK_ORDER = ["TSTM", "MRGL", "SLGT", "ENH", "MDT", "HIGH"]
-RISK_COLORS = {"TSTM": "#c1e9c1", "MRGL": "#66a366", "SLGT": "#ffe066", "ENH": "#e69138",
-               "MDT": "#ff4747", "HIGH": "#cc00ff"}
-
-
-def spc_risk_at(outlooks, lat, lon, day="day1"):
-    """Categorical risk at a point from the outlook polygons ('' if none)."""
-    data = (outlooks or {}).get(day)
-    if not data:
-        return ""
-    try:
-        from shapely.geometry import Point, shape
-
-        pt = Point(lon, lat)
-        best = ""
-        for f in data["features"]:
-            try:
-                if shape(f["geometry"]).contains(pt):
-                    lab = f["label"]
-                    if lab in RISK_ORDER and (not best or
-                                              RISK_ORDER.index(lab) > RISK_ORDER.index(best)):
-                        best = lab
-            except Exception:  # noqa: BLE001
-                continue
-        return best
-    except ImportError:
-        return ""
-
-
 # ---------------------------------------------------------------- NHC
 
 
@@ -158,6 +95,9 @@ def nhc_storms():
             "movement": f'{s.get("movementSpeed", "")} kt @ {s.get("movementDir", "")} deg',
             "lastUpdate": s.get("lastUpdate", "")[:16].replace("T", " ") + "Z",
             "advisoryUrl": (s.get("publicAdvisory") or {}).get("url"),
+            "forecastGraphicsUrl": (s.get("forecastGraphics") or {}).get("url"),
+            "windKmz": ((s.get("initialWindExtent") or {}).get("kmzFile")
+                        or (s.get("forecastWindRadiiGIS") or {}).get("kmzFile")),
             "features": [],
         }
         # cone polygon + official forecast track/points come in two KMZs
@@ -348,3 +288,229 @@ def wpc_catalog():
          "desc": "WPC medium-range surface forecast, days 5-6.",
          "url": "https://www.wpc.ncep.noaa.gov/medr/9lhwbg_conus_sm.jpg"},
     ]
+
+
+# ---------------------------------------------------------------- US warnings
+WWA_URL = ("https://mapservices.weather.noaa.gov/eventdriven/rest/services/"
+           "WWA/watch_warn_adv/MapServer/1/query")
+
+# Marine product families are dropped: they dominate the feed (hundreds of
+# Small Craft Advisories / Gale records) and are meaningless on a CONUS map.
+_MARINE_TYPES = ("Small Craft", "Gale", "Marine", "Rip Current", "High Surf",
+                 "Beach Hazards", "Hazardous Seas", "Coastal Flood", "Brisk Wind",
+                 "Small Craft", "Lake Effect Snow")
+_WWA_WHERE = " AND ".join(
+    f"prod_type NOT LIKE '%{t}%'" for t in sorted(set(_MARINE_TYPES))
+)
+
+_WWA_CACHE = {"t": 0.0, "features": None}
+_TTL = 180  # 3 min - NWS spatial refreshes ~every minute
+
+# NWS standard fill colors for the common products (severe first)
+ALERT_COLORS = {
+    "Tornado Warning": "#ff0000",
+    "Severe Thunderstorm Warning": "#ffa500",
+    "Flash Flood Warning": "#8b0000",
+    "Flash Flood Watch": "#2e8b57",
+    "Flood Warning": "#00ff00",
+    "Flood Advisory": "#00ff7f",
+    "Flood Watch": "#2e8b57",
+    "Tornado Watch": "#ffff00",
+    "Severe Thunderstorm Watch": "#db7093",
+    "Special Marine Warning": "#ffa500",
+    "Extreme Wind Warning": "#ff8c00",
+    "Special Weather Statement": "#ffe4b5",
+    "Winter Storm Warning": "#ff69b4",
+    "Winter Weather Advisory": "#7b68ee",
+    "Ice Storm Warning": "#8b008b",
+    "High Wind Warning": "#daa520",
+    "Wind Advisory": "#d2b48c",
+    "Dense Fog Advisory": "#708090",
+    "Heat Advisory": "#ff7f50",
+    "Excessive Heat Warning": "#c71585",
+    "Red Flag Warning": "#ff1493",
+    "Freeze Warning": "#483d8b",
+    "Frost Advisory": "#6495ed",
+    "Air Quality Alert": "#808080",
+}
+
+# priority for sorting: tornado > severe > flash flood > other warnings > watches
+def alert_rank(event):
+    e = (event or "").lower()
+    if "tornado warning" in e:
+        return 0
+    if "severe thunderstorm warning" in e or "extreme wind" in e:
+        return 1
+    if "flash flood warning" in e:
+        return 2
+    if e.endswith("warning") or "warning" in e:
+        return 3
+    if "watch" in e:
+        return 5
+    return 6
+
+
+def _alert_index():
+    """cap-urn -> alert properties from api.weather.gov's active index.
+
+    The WWA spatial layer carries geometry but no area description, headline
+    or severity; the api.weather.gov index has those. Joining on the CAP urn
+    (WWA's cap_id = api.weather.gov id minus its prefix) gives real county
+    names, tornado-detection tags and headlines - best effort, {} on failure.
+    """
+    idx = {}
+    base = "https://api.weather.gov/alerts/active"
+    # the default page caps ~400 and pagination headers are gone; the severe
+    # events that matter are fetched explicitly so their county details land
+    urls = [base] + [f"{base}?event={ev.replace(' ', '+')}" for ev in (
+        "Tornado Warning", "Severe Thunderstorm Warning", "Flash Flood Warning",
+        "Tornado Watch", "Severe Thunderstorm Watch", "Flash Flood Watch",
+        "Extreme Wind Warning", "Special Marine Warning")]
+    try:
+        for url in urls:
+            try:
+                r = requests.get(url, headers={**UA, "Accept": "application/geo+json"}, timeout=60)
+                r.raise_for_status()
+                d = r.json()
+            except (requests.RequestException, ValueError):
+                continue
+            for f in d.get("features", []):
+                p = f.get("properties") or {}
+                aid = p.get("id") or ""
+                urn = aid.rsplit("/alerts/", 1)[-1]
+                if urn:
+                    idx[urn] = p
+    except Exception:  # noqa: BLE001 - best-effort enrichment only
+        pass
+    return idx
+
+
+def alert_color(event):
+    """Official-ish NWS fill color for an event name."""
+    if (event or "") in ALERT_COLORS:
+        return ALERT_COLORS[event]
+    e = (event or "").lower()
+    if "tornado" in e:
+        return "#ff0000"
+    if "severe thunderstorm" in e:
+        return "#ffa500"
+    if "flash flood" in e:
+        return "#8b0000"
+    if "flood" in e:
+        return "#00ff00"
+    if e.endswith("warning"):
+        return "#ff9f43"
+    if "watch" in e:
+        return "#ffd54f"
+    return "#c0c0c0"  # advisory / other
+
+
+def us_warnings():
+    """All active US watches/warnings/advisories as GeoJSON features (no key).
+
+    Official NWS Spatial (mapservices.weather.noaa.gov WWA/watch_warn_adv
+    layer 1) with server-side simplification (maxAllowableOffset 2000, ~
+    400 KB) so ~900 polygons render smoothly. Marine products are filtered
+    out. Enriched from api.weather.gov's active index (joined on CAP urn):
+    real areaDesc (counties), headline, severity, tornadoDetection.
+    Features carry: event, code, kind, color, severity, areaDesc, headline,
+    tor (radar/observed tag or ''), expires, url, geometry.
+    Sorted worst-first. [] when both services are unreachable.
+    """
+    now = time.time()
+    if _WWA_CACHE["features"] is not None and now - _WWA_CACHE["t"] < _TTL:
+        return _WWA_CACHE["features"]
+
+    params = {
+        "f": "geojson",
+        "where": _WWA_WHERE,
+        "outFields": "prod_type,phenom,sig,url,expiration,onset,wfo,cap_id,event",
+        "maxAllowableOffset": 2000,
+    }
+    feats = []
+    try:
+        r = requests.get(WWA_URL, params=params, headers=UA, timeout=90)
+        r.raise_for_status()
+        idx = _alert_index()
+        for f in r.json().get("features", []):
+            p = f.get("properties") or {}
+            prod = p.get("prod_type") or "Alert"
+            urn = (p.get("cap_id") or "").rsplit("/alerts/", 1)[-1]
+            meta = idx.get(urn) or {}
+            params_a = meta.get("parameters") or {}
+            feats.append({
+                "event": meta.get("event") or prod,
+                "code": (p.get("phenom") or "").upper() + ("W" if prod.endswith("Warning") else "A" if prod.endswith("Advisory") else "Y"),
+                "kind": ("warning" if prod.endswith("Warning") else
+                         "watch" if prod.endswith("Watch") else "advisory"),
+                "color": alert_color(meta.get("event") or prod),
+                "severity": meta.get("severity") or ("Extreme" if "tornado" in prod.lower() else "Severe" if prod.endswith("Warning") else "Minor"),
+                "areaDesc": meta.get("areaDesc") or (f"WFO {p.get('wfo') or '?'}" if (p.get("wfo") or "").strip() else ""),
+                "headline": (meta.get("headline") or ""),
+                "tor": (params_a.get("tornadoDetection") or [""])[0] if isinstance(params_a.get("tornadoDetection"), list) else (params_a.get("tornadoDetection") or ""),
+                "expires": (p.get("expiration") or "")[:16].replace("T", " "),
+                "url": p.get("url") or meta.get("@id") or "",
+                "geometry": f.get("geometry"),
+            })
+        feats.sort(key=lambda x: alert_rank(x.get("event")))
+    except (requests.RequestException, ValueError):
+        feats = []
+    _WWA_CACHE["t"] = now
+    _WWA_CACHE["features"] = feats
+    return feats
+
+
+# ---------------------------------------------------------------- Upper air
+OBSWX_URL = "https://www.spc.noaa.gov/obswx/maps/"
+
+UA_LEVELS = {
+    "sfc": "Surface analysis",
+    "925": "925 mb - low levels",
+    "850": "850 mb - ridges / LLJ",
+    "700": "700 mb - moisture / upslope",
+    "500": "500 mb - vorticity / shortwaves",
+    "300": "300 mb - jet stream",
+    "250": "250 mb - jet stream (deep)",
+}
+
+_OBSWX_CACHE = {"t": 0.0, "maps": None}
+
+
+def upper_air_maps():
+    """SPC observed upper-air analyses (00Z/12Z), latest first.
+
+    Scrapes spc.noaa.gov/obswx/maps/ for the available level/time GIFs.
+    Returns [{"level","levelLabel","time","url","title"}] sorted newest first,
+    [] when the page is unreachable. No key, plain NOAA graphics.
+    """
+    now = time.time()
+    if _OBSWX_CACHE["maps"] is not None and now - _OBSWX_CACHE["t"] < 900:
+        return _OBSWX_CACHE["maps"]
+
+    maps = []
+    try:
+        r = requests.get(OBSWX_URL, headers=UA, timeout=25)
+        r.raise_for_status()
+        seen = set()
+        for level, ymd, hh in re.findall(
+                r"/obswx/maps/(\w+)_(\d{6})_(\d{2})\.gif", r.text):
+            key = (level, ymd, hh)
+            if key in seen:
+                continue
+            seen.add(key)
+            valid = dt.datetime.strptime("20" + ymd + hh, "%Y%m%d%H")
+            maps.append({
+                "level": level,
+                "levelLabel": UA_LEVELS.get(level, level + " mb"),
+                "time": valid.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "url": f"{OBSWX_URL}{level}_{ymd}_{hh}.gif",
+                "title": (f"SPC {UA_LEVELS.get(level, level)} analysis - "
+                          f"{valid:%a %H:%M}Z"),
+            })
+    except (requests.RequestException, ValueError):
+        maps = []
+    maps.sort(key=lambda m: (m["time"], list(UA_LEVELS).index(m["level"])
+                             if m["level"] in UA_LEVELS else 99), reverse=True)
+    _OBSWX_CACHE["t"] = now
+    _OBSWX_CACHE["maps"] = maps
+    return maps

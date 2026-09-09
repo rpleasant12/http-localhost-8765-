@@ -38,6 +38,77 @@ except Exception:  # noqa: BLE001 - herbie optional at import time
 SAVE_DIR = os.path.join("static", "herbie")
 
 
+def prune_grib_cache(max_mb=600, keep_days=2):
+    """Delete cached GRIB subsets from cycles older than keep_days.
+
+    Herbie subsets can add up fast (a full AIFS day was 2.3 GB once), and a
+    bloated static/ trips Streamlit's 1 GB static-serving cap - which breaks
+    every PNG overlay served from /app/static. Runs at import and from the
+    renderer loop; cheap because it only stats date-named folders.
+    """
+    import shutil
+    import time as _time
+
+    now = _time.time()
+    removed = 0
+    try:
+        roots = os.listdir(SAVE_DIR)
+    except OSError:
+        return 0
+    for name in roots:
+        path = os.path.join(SAVE_DIR, name)
+        if not os.path.isdir(path):
+            continue
+        # model dirs contain date-named cycle folders (YYYYMMDD)
+        if len(name) == 8 and name.isdigit():
+            continue  # handled below via model dirs
+        for cyc in os.listdir(path):
+            cpath = os.path.join(path, cyc)
+            if not (len(cyc) == 8 and cyc.isdigit() and os.path.isdir(cpath)):
+                continue
+            age_days = (now - os.path.getmtime(cpath)) / 86400.0
+            if age_days > keep_days:
+                try:
+                    shutil.rmtree(cpath, ignore_errors=True)
+                    removed += 1
+                except OSError:
+                    pass
+    # absolute cap: if the cache still exceeds max_mb, drop oldest cycle dirs
+    def _dir_mb(p):
+        total = 0
+        for root, _dirs, files in os.walk(p):
+            for fn in files:
+                try:
+                    total += os.path.getsize(os.path.join(root, fn))
+                except OSError:
+                    pass
+        return total / (1024 * 1024)
+
+    if _dir_mb(SAVE_DIR) > max_mb:
+        cycle_dirs = []
+        for model in os.listdir(SAVE_DIR):
+            mpath = os.path.join(SAVE_DIR, model)
+            if not os.path.isdir(mpath):
+                continue
+            for cyc in os.listdir(mpath):
+                cpath = os.path.join(mpath, cyc)
+                if len(cyc) == 8 and cyc.isdigit() and os.path.isdir(cpath):
+                    cycle_dirs.append((cyc, cpath))
+        cycle_dirs.sort()
+        for _cyc, cpath in cycle_dirs:
+            if _dir_mb(SAVE_DIR) <= max_mb:
+                break
+            shutil.rmtree(cpath, ignore_errors=True)
+            removed += 1
+    return removed
+
+
+try:  # keep the disk footprint bounded on every import
+    prune_grib_cache()
+except Exception:  # noqa: BLE001 - never block startup on cache cleanup
+    pass
+
+
 def herbie_kwargs(model, cycle, swap=None, surface=False):
     """-> kwargs for Herbie(), or None when the model stays on its legacy fetcher.
 
