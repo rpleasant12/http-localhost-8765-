@@ -1214,10 +1214,23 @@ async function siteRefresh() {{
 }}
 siteRefresh();
 setInterval(siteRefresh, 180000);
-/* page auto-refresh: soft (map pages define onDataRefresh) or full reload */
+/* page auto-refresh: soft (map pages define onDataRefresh) or hard reload.
+   Hard reloads MUST cache-bust: GitHub Pages sends max-age=600, so a plain
+   location.reload() can serve the same stale HTML for up to 10 minutes. */
+function hardReload() {{
+  try {{
+    const u = new URL(location.href);
+    u.searchParams.set("t", Date.now());
+    location.replace(u);
+  }} catch (_e) {{ location.reload(); }}
+}}
 let AUTO_LEFT = 90;
 const autoCnt = document.getElementById("autoCnt"), autoChk = document.getElementById("autoChk");
-document.getElementById("refreshBtn").onclick = () => location.reload();
+document.getElementById("refreshBtn").onclick = () => {{
+  const b = document.getElementById("refreshBtn");
+  if (b) {{ b.textContent = "\u2026"; }}
+  hardReload();
+}};
 try {{ autoChk.checked = localStorage.getItem("tnwxAuto") !== "off"; }} catch (_e) {{}}
 autoChk.onchange = () => {{ AUTO_LEFT = 90; try {{ localStorage.setItem("tnwxAuto", autoChk.checked ? "on" : "off"); }} catch (_e) {{}} }};
 setInterval(() => {{
@@ -1226,7 +1239,7 @@ setInterval(() => {{
   if (autoCnt) autoCnt.textContent = AUTO_LEFT;
   if (AUTO_LEFT <= 0) {{
     AUTO_LEFT = 90;
-    if (typeof onDataRefresh === "function") siteRefresh(); else location.reload();
+    if (typeof onDataRefresh === "function") siteRefresh(); else hardReload();
   }}
 }}, 1000);
 {_MAP_CONTROLS_JS}

@@ -5,7 +5,7 @@ on:
     branches: [main]
   workflow_dispatch:
   schedule:
-    - cron: "0 */6 * * *"   # refresh live data every 6 hours
+    - cron: "*/30 * * * *"   # refresh live data every 30 minutes
 
 permissions:
   contents: read
