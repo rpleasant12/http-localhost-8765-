@@ -61,6 +61,30 @@ def main():
     from website import generate_site, _seed_model_maps, _render_index
     from fb_page import regenerate
 
+    def _future_radar_step(batch=8):
+        """Advance the future-radar renderer (HRRR 0-18 h + NAM nest 19-48 h).
+
+        The Streamlit app also runs this in a thread, but that dies with the
+        app process and its exceptions are swallowed - so the updater owns it
+        too: each cycle discovers the newest cycles and renders a batch,
+        keeping the future loop fresh even when the app is closed.
+        """
+        try:
+            import warnings
+            warnings.filterwarnings("ignore")
+            from data.radar_frames import (get_future_frames_cached,
+                                           _save_descriptors,
+                                           render_future_frames)
+            descriptors = get_future_frames_cached(max_hours=48)
+            if descriptors:
+                _save_descriptors(descriptors)
+                # descriptors run nearest-valid-hour first, so the HEAD is
+                # where new HRRR hours appear; render_future_frames' own
+                # max_hours slices the tail, so cap by slicing here instead
+                render_future_frames(descriptors[:batch])
+        except Exception as exc:  # noqa: BLE001
+            _log(f"future radar step failed: {exc}")
+
     def _render_queue_step(per_cycle=3):
         """Render the next un-rendered (model, product, region) combos so the
         static site's catalog explorer fills out over time."""
@@ -107,6 +131,7 @@ def main():
                     _seed_model_maps()   # fills the models-page gallery
                     generate_site()
                 _render_queue_step()  # progressively render the full catalog
+                _future_radar_step()  # keep future radar (HRRR+NAM) fresh
                 if os.path.isdir("docs"):   # keep the Pages package current
                     try:
                         import github_deploy

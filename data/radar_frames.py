@@ -361,7 +361,13 @@ DESCRIPTORS_PATH = os.path.join(FRAME_DIR, "descriptors.json")
 
 def _frame_id(descriptor):
     """Stable id per (model, cycle, forecast-hour) so renders survive restarts."""
-    return f"{descriptor.get('model', 'hrrr')}_{descriptor['cycle']}_{descriptor['fh']:02d}"
+    # fh/cycle arrive as strings from some discovery paths - coerce here so
+    # a str never crashes the background renderer with a format ValueError
+    try:
+        fh = int(descriptor.get("fh", 0))
+    except (TypeError, ValueError):
+        fh = 0
+    return f"{descriptor.get('model', 'hrrr')}_{descriptor['cycle']}_{fh:02d}"
 
 
 def _load_registry():

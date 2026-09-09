@@ -2510,9 +2510,74 @@ document.querySelectorAll(".cftoggle").forEach(b => b.onclick = () => {{
 
 
 # ---------------------------------------------------------------- build
+_DISK_BUDGETS = {          # max bytes per cache dir (age prunes handle the rest)
+    # Streamlit disables static serving when static/ passes 1 GB TOTAL, so
+    # these must sum well under that (currently ~920 MB worst case)
+    "nexrad_sites": 350_000_000,
+    "mrms": 150_000_000,
+    "goes": 100_000_000,
+    "hrrr": 60_000_000,
+    "herbie": 40_000_000,    # GRIB download cache - re-downloadable, not served
+    "soundings": 60_000_000,
+    "aimodels": 60_000_000,
+    "model_maps": 60_000_000,
+    "nws_radar": 40_000_000,
+}
+
+
+def enforce_disk_budget():
+    """Keep rendered-frame caches under size budgets (oldest files first).
+
+    Streamlit DISABLES static file serving when the folder passes 1 GB,
+    which silently breaks every app map - so this runs every site cycle.
+    Per-directory budgets sum to well under the limit even with slack.
+    """
+    removed = 0
+    for sub, budget in _DISK_BUDGETS.items():
+        root = os.path.join("static", sub)
+        if not os.path.isdir(root):
+            continue
+        entries = []
+        total = 0
+        for dirpath, _, files in os.walk(root):
+            for fn in files:
+                p = os.path.join(dirpath, fn)
+                try:
+                    st = os.stat(p)
+                    entries.append((st.st_mtime, st.st_size, p))
+                    total += st.st_size
+                except OSError:
+                    continue
+        if total <= budget:
+            continue
+        entries.sort()                       # oldest first
+        for _, size, p in entries:
+            if total <= budget:
+                break
+            try:
+                os.remove(p)
+                total -= size
+                removed += 1
+            except OSError:
+                continue
+    if removed:
+        _log_disk(f"disk budget: removed {removed} old frame files")
+    return removed
+
+
+def _log_disk(msg):
+    line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}"
+    try:
+        with open(os.path.join(".freebuff", "site-updater.log"), "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass
+
+
 def generate_site():
     """Collect live data and write the whole site. Returns SITE_DIR or None."""
     try:
+        enforce_disk_budget()
         d = collect_data()
         d["models"] = _model_manifest()
         d["psu"] = _psu_manifest()
