@@ -35,6 +35,11 @@ jobs:
       - name: Build the site with live data
         run: python github_deploy.py --pages --warm-seconds 240
 
+      - name: Configure Pages (auto-enable on first run)
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
