@@ -566,6 +566,13 @@ def collect_data():
     except Exception:  # noqa: BLE001
         pass
 
+    lightning = {"frames": []}
+    try:
+        from data.lightning import bundle as glm_bundle
+        lightning = glm_bundle()
+    except Exception:  # noqa: BLE001
+        pass
+
     return {
         "generated": dt.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"),
         "pageName": config.PAGE_NAME,
@@ -634,6 +641,7 @@ def collect_data():
         "forecastCharts": charts,
         "mos": mos,
         "meso": meso,
+        "lightning": lightning,
     }
 
 
@@ -1009,6 +1017,19 @@ _CSS = """
   .navctl button { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:4px 10px; cursor:pointer; font-size:14px; }
   .autolbl { color:var(--dim); font-size:12px; display:flex; align-items:center; gap:4px; }
   .map-dark .leaflet-tile-pane { filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(1.05); }
+  /* radar load-state badge (set by the player: ok / loading / empty) */
+  #map { position: relative; }
+  #map::after {
+    content: "";
+    position: absolute; top: 8px; left: 8px; z-index: 800;
+    background: rgba(10, 14, 20, .75); color: #9fe199; border: 1px solid rgba(255,255,255,.15);
+    border-radius: 6px; padding: 2px 9px; font-size: 11.5px; pointer-events: none;
+  }
+  #map[data-radar-state="loading"]::after { content: "radar loading\u2026"; color: #ffd54f; }
+  #map[data-radar-state="empty"]::after { content: "radar unavailable - retrying"; color: #ff8a80; }
+  #map[data-radar-state="ok"]::after { content: "radar live"; color: #9fe199; }
+  /* hide Leaflet's default home marker (the player draws its own) */
+  .leaflet-marker-icon.home-marker { display: none; }
   .leaflet-control-attribution { background:rgba(14,17,23,.8) !important; color:var(--dim) !important; }
   .mapctlbtn { background:#1d2432; border:1px solid var(--line); border-radius:6px; color:#eee;
     padding:5px 9px; font-size:15px; cursor:pointer; margin-bottom:6px; box-shadow:0 1px 4px rgba(0,0,0,.4); text-align:center; }
@@ -1077,6 +1098,12 @@ function addMapControls(map, home, homeZoom) {
     setBase(saved && BASEMAPS[saved] ? saved : ((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark"), map);
     sel.onchange = e => setBase(e.target.value, map);
   } else setBase((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark", map);
+  if (typeof drawHomeMarker === "function") drawHomeMarker(map, home);
+}
+function drawHomeMarker(map, home) {
+  if (map._tnwxHome) return;
+  map._tnwxHome = L.circleMarker(home, { radius: 7, color: "#fff", weight: 2,
+    fillColor: "#ff5252", fillOpacity: 1 }).addTo(map).bindTooltip(DATA_PLACE || "Home");
 }
 """
 
@@ -1109,7 +1136,7 @@ let DATA = null, map, curLayers = [], frames = [], idx = 0, timer = null, playin
 const frameEl = document.getElementById("frame");
 
 function initMap() {{
-  window.DATA_LAT = DATA.lat; window.DATA_LON = DATA.lon;
+  window.DATA_LAT = DATA.lat; window.DATA_LON = DATA.lon; window.DATA_PLACE = DATA.place;
   map = L.map("map", {{ zoomSnap: 0.5, maxZoom: 21 }}).setView([DATA.lat, DATA.lon], 6);
   addMapControls(map, [DATA.lat, DATA.lon], 6);
   L.circleMarker([DATA.lat, DATA.lon], {{ radius: 7, color: "#fff", weight: 2, fillColor: "#ff5252", fillOpacity: 1 }})
@@ -1117,6 +1144,22 @@ function initMap() {{
 }}
 function fmt(ts) {{ return new Date(ts * 1000).toLocaleTimeString([], {{ hour: "2-digit", minute: "2-digit", hour12: false }}); }}
 function clear() {{ for (const l of curLayers) {{ try {{ map.removeLayer(l); }} catch (_e) {{}} }} curLayers = []; }}
+let glmLayer = null;
+function drawGlm(ts) {{
+  const box = document.getElementById("ly_glm");
+  if (glmLayer) {{ map.removeLayer(glmLayer); glmLayer = null; }}
+  if (box && !box.checked) return;
+  const frames = (DATA.lightning && DATA.lightning.frames) || [];
+  if (!frames.length) return;
+  let f = frames[0];
+  for (const fr of frames) {{
+    const t = Date.parse((fr.time || "").replace("Z", "+00:00"));
+    if (!isNaN(t) && Math.abs(t - ts) < Math.abs(Date.parse((f.time || "").replace("Z", "+00:00")) - ts)) f = fr;
+  }}
+  const b = f.bounds;
+  const lb = (Array.isArray(b) && !Array.isArray(b[0])) ? L.latLngBounds([[b[0], b[1]], [b[2], b[3]]]) : b;
+  glmLayer = L.imageOverlay(f.pngUrl, lb, {{ opacity: Math.min(1, OPACITY() + 0.15), interactive: false }}).addTo(map);
+}}
 function show(i) {{
   idx = i; clear();
   const f = frames[i]; if (!f) return;
@@ -1126,12 +1169,28 @@ function show(i) {{
     curLayers.push(L.tileLayer("https://tilecache.rainviewer.com" + f.path + spec.path + ts + ".png",
       {{ opacity: OPACITY(), maxNativeZoom: 10, maxZoom: 21 }}).addTo(map));
     frameEl.textContent = fmt(f.time);
+    drawGlm(f.time * 1000);
+    setRadarState("loading");
+    const probe = new Image();
+    probe.onload = () => setRadarState("ok");
+    probe.onerror = () => setRadarState("empty");
+    probe.src = "https://tilecache.rainviewer.com" + f.path + spec.path + ts + ".png";
   }} else if (f.pngUrl && f.bounds) {{
     const b = f.bounds;
     const lb = (Array.isArray(b) && !Array.isArray(b[0])) ? L.latLngBounds([[b[0], b[1]], [b[2], b[3]]]) : b;
-    curLayers.push(L.imageOverlay(f.pngUrl, lb, {{ opacity: OPACITY(), maxZoom: 21 }}).addTo(map));
+    setRadarState("loading");
+    const ly = L.imageOverlay(f.pngUrl, lb, {{ opacity: OPACITY(), maxZoom: 21 }}).addTo(map);
+    const el = ly.getElement();
+    if (el) {{
+      el.onload = () => setRadarState("ok");
+      el.onerror = () => setRadarState("empty");
+    }}
+    curLayers.push(ly);
     frameEl.textContent = f.label || "";
-  }} else {{ frameEl.textContent = "rendering\\u2026"; }}
+    const t = Date.parse((f.time || "").replace("Z", "+00:00"));
+    if (!isNaN(t)) drawGlm(t);
+  }} else {{ frameEl.textContent = "rendering\\u2026"; setRadarState("empty"); }}
+  preload(idx);
   if (document.getElementById("pend")) {{
     const r = DATA.radar || {{}};
     document.getElementById("pend").textContent = (typeof queuedNote !== "undefined" && queuedNote) ||
@@ -1140,6 +1199,28 @@ function show(i) {{
   }}
 }}
 function play() {{ playing = true; document.getElementById("play").textContent = "\\u23f8"; timer = setInterval(() => show((idx + 1) % frames.length), 700); }}
+/* preload: warm the next 3 frames so stepping/animation never stalls on a
+   cold fetch; broken URLs are retried once on their next turn */
+const _preloaded = new Set();
+function preload(i) {{
+  if (!frames.length) return;
+  for (let k = 1; k <= 3; k++) {{
+    const f = frames[(i + k) % frames.length];
+    if (!f || !f.pngUrl) continue;
+    const url = f.pngUrl;
+    if (_preloaded.has(url)) continue;
+    _preloaded.add(url);
+    const im = new Image();
+    im.onload = () => {{}};
+    im.onerror = () => _preloaded.delete(url);
+    im.src = url;
+  }}
+}}
+function setRadarState(state) {{
+  const mapEl = document.getElementById("map");
+  if (!mapEl) return;
+  mapEl.dataset.radarState = state;   // ok | loading | empty (CSS badge)
+}}
 function pause() {{ playing = false; document.getElementById("play").textContent = "\\u25b6"; clearInterval(timer); }}
 function framesFor(k) {{
   const spec = LAYERS[k] || {{}};
@@ -1161,7 +1242,8 @@ function build() {{
   for (const fb of (spec0.fallbacks || [])) if (!frames.length && framesFor(fb).length) {{ kind = fb; break; }}
   frames = framesFor(kind);
   const sel = document.getElementById("layer"); if (sel && sel.value !== kind) sel.value = kind;
-  if (!frames.length) {{ frameEl.textContent = "no frames yet"; return; }}
+  if (!frames.length) {{ frameEl.textContent = "no frames yet"; setRadarState("empty"); return; }}
+  setRadarState("loading");
   if (!timer) {{ show(frames.length - 1); if (playing) play(); }} else show(frames.length - 1);
 }}
 function refresh(d) {{ DATA = d; if (map) build(); }}
@@ -1489,6 +1571,7 @@ def page_radar(d):
     <input type="range" id="opacity" min="20" max="100" value="80"/>
   </div>
   <div class="ctl" style="margin-top:12px">
+    <label><input type="checkbox" id="ly_glm" checked/> ⚡ Lightning (GLM)</label>
     <label><input type="checkbox" id="ly_obs" checked/> Observations</label>
     <select id="obsSel">
       <option value="tn">East Tennessee stations</option>
@@ -1496,7 +1579,7 @@ def page_radar(d):
     </select>
   </div>
   <div class="src" id="pend"></div>
-  <div class="src">Radar: RainViewer global NEXRAD composite + NOAA MRMS / NWS WMS mosaics. Future radar: HRRR 3 km (0-18 h) + NAM 3 km nest (18-48 h). Individual sites: every NWS radar serves 5 modes — super-res reflectivity, velocity, hybrid scan, 1-hour + storm-total precip — full 460 km range, all animated. MRMS picker: height levels 0.5–15 km, dual-pol (ZDR/RhoHV), azimuthal shear, rotation tracks, hail, echo tops, precip. Everything renders in over the first few update cycles.</div>
+  <div class="src">⚡ Lightning: GOES-19 Geostationary Lightning Mapper flash density (NOAA STAR, ~5-min cadence) — overlays every radar layer. Future radar: HRRR 3 km (0-18 h) + NAM 3 km nest (18-48 h). Individual sites: every NWS radar serves 5 modes — super-res reflectivity, velocity, hybrid scan, 1-hour + storm-total precip — full 460 km range, all animated. MRMS picker: height levels 0.5–15 km, dual-pol (ZDR/RhoHV), azimuthal shear, rotation tracks, hail, echo tops, precip. Everything renders in over the first few update cycles.</div>
 </div>
 
 <script>
@@ -1605,6 +1688,7 @@ async function boot() {{
     if (e.target.checked && !map.hasLayer(obsLayer)) obsLayer.addTo(map);
     if (!e.target.checked && map.hasLayer(obsLayer)) map.removeLayer(obsLayer);
   }};
+  document.getElementById("ly_glm").onchange = () => show(idx);
   setInterval(async () => {{ refresh(await (await fetch(SITE_DATA_URL, {{cache: "no-store"}})).json()); drawObs(); fillSitePicker(); }}, 180000);
 }}
 boot();
