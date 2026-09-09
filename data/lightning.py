@@ -205,6 +205,104 @@ def refresh(max_frames=FRAME_COUNT):
     return stamps
 
 
+def _row_to_lat(row):
+    """PNG row (Leaflet order, N top, linear Mercator y) -> latitude."""
+    import math
+    s, w, n, e = BOUNDS
+    y_hi, y_lo = _merc_y(n), _merc_y(s)
+    y = y_hi - (row + 0.5) / SIZE[1] * (y_hi - y_lo)
+    return math.degrees(2 * math.atan(math.exp(y)) - math.pi / 2)
+
+
+def _col_to_lon(col):
+    s, w, n, e = BOUNDS
+    return w + (col + 0.5) / SIZE[0] * (e - w)
+
+
+def storm_history(max_frames=FRAME_COUNT, min_cell_px=12):
+    """Last hour of GLM flash activity, per storm, from the rendered frames.
+
+    Counts flash pixels per 5-minute frame (whole CONUS), then groups the
+    hour's flashes into individual storm cells via connected components on
+    the union mask - so a cell that flickers between scans still gets one
+    continuous history. Returns {asOf, frames, cells, totals} where each
+    cell carries lat/lon, per-frame flash counts, peak, and a trend
+    (Building / Steady / Fading from the last 3 frames vs the first 3).
+    """
+    import numpy as np
+    from PIL import Image
+    from scipy.ndimage import label
+
+    reg = _load_registry()
+    stamps = sorted(s for s, v in reg.items()
+                    if v.get("status") == "done")[-max_frames:]
+    masks, counts = {}, {}
+    for s in stamps:
+        p = os.path.join(FRAME_DIR, f"glm_{s}.png")
+        if not os.path.exists(p):
+            continue
+        try:
+            with Image.open(p) as im:
+                a = np.asarray(im.split()[-1])          # alpha = flash mask
+        except OSError:
+            continue
+        m = a > 64
+        if m.any():
+            masks[s] = m
+            counts[s] = int(m.sum())
+    if not counts:
+        return {"asOf": None, "frames": [], "cells": [], "totals": {}}
+
+    stamps = sorted(counts)
+    labels, n_cells = None, 0
+    if stamps:
+        union = np.zeros_like(next(iter(masks.values())))
+        for m in masks.values():
+            union |= m
+        labels, n_cells = label(union, structure=np.ones((3, 3)))
+
+    cells = []
+    if n_cells:
+        ids, cnts = np.unique(labels[labels > 0], return_counts=True)
+        for cid, area in zip(ids, cnts):
+            if area < min_cell_px:
+                continue
+            rows, cols = np.nonzero(labels == cid)
+            r0, c0 = int(rows.mean()), int(cols.mean())
+            lat, lon = _row_to_lat(r0), _col_to_lon(c0)
+            # per-frame flash count inside this cell's footprint
+            per_frame = []
+            cell_mask = labels == cid
+            for s in stamps:
+                per_frame.append(int((masks[s] & cell_mask).sum()))
+            km_lat = 111.32 * (BOUNDS[2] - BOUNDS[0]) / SIZE[1]
+            km_lon = 111.32 * (BOUNDS[3] - BOUNDS[1]) / SIZE[0] * max(
+                0.2, __import__("math").cos(__import__("math").radians(lat)))
+            radius = (area * km_lat * km_lon / 3.14159) ** 0.5
+            recent = sum(per_frame[-3:]) / 3.0
+            older = sum(per_frame[:3]) / 3.0
+            trend = (recent / older) if older > 0 else (4.0 if recent > 0 else 1.0)
+            cells.append({
+                "id": int(cid), "lat": round(lat, 2), "lon": round(lon, 2),
+                "radiusKm": round(min(radius, 90.0), 1),
+                "now": per_frame[-1], "peak": max(per_frame),
+                "trend": round(trend, 2), "history": per_frame,
+                "active": per_frame[-1] > 0,
+            })
+    cells.sort(key=lambda c: -c["peak"])
+
+    frames = [{"label": _parse_stamp(s).strftime("%H:%M"), "count": counts[s]}
+              for s in stamps]
+    latest = counts[stamps[-1]]
+    return {
+        "asOf": _parse_stamp(stamps[-1]).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "frames": frames,
+        "cells": cells[:10],
+        "totals": {"latest": latest, "peak": max(counts.values()),
+                   "storms": len(cells)},
+    }
+
+
 def bundle():
     """Payload for the maps: {frames: [{id,label,time,pngUrl,bounds}], bounds}."""
     try:

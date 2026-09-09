@@ -572,6 +572,12 @@ def collect_data():
         lightning = glm_bundle()
     except Exception:  # noqa: BLE001
         pass
+    ltg_history = {"frames": [], "cells": []}
+    try:
+        from data.lightning import storm_history as _ltg_hist
+        ltg_history = _ltg_hist()
+    except Exception:  # noqa: BLE001
+        pass
 
     return {
         "generated": dt.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"),
@@ -628,6 +634,7 @@ def collect_data():
             "tnAlerts": tn,
             "md": md,
             "reports": reports,
+            "ltgHistory": ltg_history,
         },
         "tropical": {
             "storms": storms,
@@ -977,6 +984,13 @@ _CSS = """
   .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; }
   .kpi { background:#10151f; border:1px solid var(--line); border-radius:12px; padding:10px; text-align:center; }
   .kpi b { display:block; font-size:22px; } .kpi span { color:var(--dim); font-size:12px; }
+  .ltg-row { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; margin-top:10px; }
+  .ltg-cell { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px 10px; min-width:130px; flex:0 0 auto; }
+  .ltg-cell b { display:block; font-size:15px; }
+  .ltg-cell .h { color:var(--dim); font-size:11px; }
+  .ltg-bars { display:flex; align-items:flex-end; gap:2px; height:34px; margin-top:6px; }
+  .ltg-bars i { flex:1 1 0; min-width:4px; background:#ffeb3b; border-radius:2px 2px 0 0; opacity:.9; }
+  .ltg-badge { font-size:11px; font-weight:800; padding:2px 8px; border-radius:8px; color:#102015; }
   #map { height:clamp(340px,56vh,580px); border-radius:12px; z-index:0; }
   .ctl { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:10px; }
   .ctl button { background:#2b80ff; color:#fff; border:none; border-radius:8px; padding:9px 20px; font-size:16px; cursor:pointer; }
@@ -1103,7 +1117,7 @@ function addMapControls(map, home, homeZoom) {
 function drawHomeMarker(map, home) {
   if (map._tnwxHome) return;
   map._tnwxHome = L.circleMarker(home, { radius: 7, color: "#fff", weight: 2,
-    fillColor: "#ff5252", fillOpacity: 1 }).addTo(map).bindTooltip(DATA_PLACE || "Home");
+    fillColor: "#ff5252", fillOpacity: 1 }).addTo(map).bindTooltip((typeof DATA_PLACE !== "undefined" && DATA_PLACE) || "Home");
 }
 """
 
@@ -2256,6 +2270,39 @@ def page_severe(d):
     for m in md[:1]:
         md_html = f'<div class="card"><h2>📍 Latest SPC Mesoscale Discussion</h2><div class="pre">{html.escape(m.get("text", ""))}</div></div>'
 
+    ltg = sev.get("ltgHistory") or {}
+    ltg_cells = [c for c in (ltg.get("cells") or []) if c.get("peak", 0) > 0]
+    ltg_cells = ltg_cells[:8]
+    ltg_tot = ltg.get("totals") or {}
+
+    def _ltg_trend(t):
+        if t >= 1.4: return ("⚡ Building", "#ff1744")
+        if t >= 0.75: return ("Steady", "#ffd54f")
+        return ("Fading", "#81c784")
+
+    def _spark(hist, peak):
+        if not hist or peak <= 0: return ""
+        bars = "".join(f'<i style="height:{max(6, int(100 * v / peak))}%"></i>' for v in hist)
+        return f'<div class="ltg-bars">{bars}</div>'
+
+    ltg_cell_html = "".join(
+        f'<div class="ltg-cell"><b>{_ltg_trend(c["trend"])[0]}</b>'
+        f'<span class="h">{c["now"]:,} det. · peak {c["peak"]:,} · trend {c["trend"]:,.2f}×</span>'
+        f'{_spark(c.get("history"), c["peak"])}</div>'
+        for c in ltg_cells)
+    if ltg_cells:
+        ltg_html = (f'<div class="card"><h2>⚡ Lightning activity - last hour</h2>'
+                    f'<div class="kpis">'
+                    f'<div class="kpi"><span>Detections in latest scan</span><b style="color:#ffeb3b">{ltg_tot.get("latest", 0):,}</b></div>'
+                    f'<div class="kpi"><span>Hour peak</span><b style="color:#ffb74d">{ltg_tot.get("peak", 0):,}</b></div>'
+                    f'<div class="kpi"><span>Storms tracked</span><b style="color:#4da3ff">{ltg_tot.get("storms", 0)}</b></div>'
+                    f'</div>'
+                    f'<div class="ltg-row">{ltg_cell_html}</div>'
+                    f'<div class="src">GOES-19 GLM flash density · 5-minute scans · bar strip = flashes per scan over the last hour · as of {(ltg.get("asOf") or "-")}</div></div>')
+    else:
+        ltg_html = ('<div class="card"><h2>⚡ Lightning activity - last hour</h2>'
+                    '<div class="src">No lightning detected in the last hour of GOES-19 GLM scans.</div></div>')
+
     body = f"""
 <header class="hero"><h1>🚨 Severe storms</h1>
 <div class="sub">Official NWS watches/warnings · SPC outlooks & MCDs · storm reports · MRMS severe products — updated {d["generated"]}</div></header>
@@ -2285,11 +2332,13 @@ def page_severe(d):
     </select>
     <label><input type="checkbox" id="ly_reports" checked/> Storm reports</label>
     <label><input type="checkbox" id="ly_cells" checked/> AI cells</label>
+    <label><input type="checkbox" id="ly_ltg"/> Lightning (GLM)</label>
   </div>
-  <div class="src">{len(ww)} warning polygons · {len(outlooks)} outlook areas · {len(tn)} TN alerts · basemap {'Mapbox' if _MAPBOX_TOKEN else 'OpenStreetMap'}</div>
+  <div class="src">{len(ww)} warning polygons · {len(outlooks)} outlook areas · {len(tn)} TN alerts · {len(ltg.get('frames') or [])} lightning scans · basemap {'Mapbox' if _MAPBOX_TOKEN else 'OpenStreetMap'}</div>
 </div>
 
 <div class="card"><h2>📊 Storm reports today (SPC)</h2>{rep_html}</div>
+{ltg_html}
 <div class="card"><h2>🎩 SPC risk at home</h2><div class="kpis">{spc_html or '<span class="src">SPC data unavailable.</span>'}</div></div>
 <div class="card"><h2>⚠️ Tennessee alerts (all counties)</h2><div class="alerts">{tn_html}</div></div>
 {md_html}
@@ -2375,8 +2424,14 @@ async function boot() {{
     L.circleMarker([c.lat, c.lon], {{ radius: 8, color: "#fff", weight: 1.5,
       fillColor: c.dbz >= 55 ? "#ff1744" : c.dbz >= 45 ? "#ffb74d" : "#aed581", fillOpacity: .85 }})
       .bindTooltip("AI cell " + c.dbz.toFixed(0) + " dBZ")));
+  layers.ltg = L.layerGroup((S.ltgHistory && S.ltgHistory.cells || []).filter(c => c.active).map(c =>
+    L.circleMarker([c.lat, c.lon], {{ radius: Math.max(6, Math.min(24, Math.sqrt(c.peak) / 1.6)),
+      color: c.trend >= 1.4 ? "#ff1744" : "#ffeb3b", weight: 2, dashArray: c.trend < 0.75 ? "4 4" : null,
+      fillColor: c.trend >= 1.4 ? "#ff5252" : "#ffeb3b", fillOpacity: .35 }})
+      .bindTooltip("Lightning: " + c.now.toLocaleString() + " detections now · peak " + c.peak.toLocaleString()
+        + (c.trend >= 1.4 ? " · ⚡ BUILDING" : c.trend < 0.75 ? " · fading" : " · steady"))));
   toggle("ly_ww", layers.ww); toggle("ly_reports", layers.reports); toggle("ly_cells", layers.cells);
-  for (const id of ["ly_ww", "ly_spc", "ly_reports", "ly_cells"])
+  for (const id of ["ly_ww", "ly_spc", "ly_reports", "ly_cells", "ly_ltg"])
     document.getElementById(id).onchange = () => toggle(id, layers[id]);
 }}
 boot();
