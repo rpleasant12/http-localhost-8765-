@@ -309,6 +309,8 @@ def render_html(d):
   .mctl button { background: #2b80ff; border: none; color: #fff; cursor: pointer; font-size: 16px; padding: 8px 18px; }
   #modelImg { width: 100%; border-radius: 12px; background: #0e1117; min-height: 220px; }
   .stepper { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+  .stepper button { background: #1b1f27; color: #eee; border: 1px solid rgba(255,255,255,.2); border-radius: 8px; padding: 8px 14px; font-size: 14px; cursor: pointer; }
+  .stepper button:active { transform: scale(.97); }
   .src { color: #7d8794; font-size: 12px; }
   footer { text-align: center; color: #7d8794; font-size: 12.5px; padding: 18px 8px 26px; line-height: 1.8; }
   footer a { color: #4da3ff; text-decoration: none; }
@@ -351,7 +353,9 @@ def render_html(d):
     <h2>📡 Live radar</h2>
     <div id="map"></div>
     <div class="mapctl">
+      <button id="back" title="Previous frame">⏮</button>
       <button id="play">⏸</button>
+      <button id="fwd" title="Next frame">⏭</button>
       <span class="frame" id="frame">--:--</span>
       <select id="layer">
         <option value="radar">Radar</option>
@@ -363,7 +367,7 @@ def render_html(d):
       </select>
       <input type="range" id="opacity" min="20" max="100" value="80"/>
     </div>
-    <div class="src">Radar: RainViewer global NEXRAD composite (last 2 h + 30 min nowcast) · Map: CARTO/OSM · Drag to pan, pinch or scroll to zoom.</div>
+    <div class="src">⏮ ⏸ ⏭ step through frames · Radar: RainViewer global NEXRAD composite (last 2 h + 30 min nowcast) · Map: CARTO/OSM · Drag to pan, pinch or scroll to zoom.</div>
   </div>
 
   <nav class="models">
@@ -392,7 +396,9 @@ def render_html(d):
     </div>
     <img id="modelImg" loading="lazy" alt="model map"/>
     <div class="stepper">
+      <button id="mBack" title="Previous frame">◀</button>
       <select id="mFrame"></select>
+      <button id="mFwd" title="Next frame">▶</button>
       <span class="src" id="mInfo"></span>
     </div>
     <div class="src" id="mMsg">Pick any model + product (500 mb, 850 mb, composite radar, jet levels, severe fields &amp; more) and hit Render — every model the network runs is here, including AI models and MPAS/FV3.</div>
@@ -469,6 +475,16 @@ function pause() {
 }
 let userPaused = false;
 playBtn.onclick = () => { userPaused = playing; playing ? pause() : play(); };
+const backBtn = document.getElementById("back");
+const fwdBtn = document.getElementById("fwd");
+function stepFrame(d) {
+  if (!frames.length) return;
+  userPaused = true;          // manual step stops the auto-advance
+  pause();
+  show((idx + d + frames.length) % frames.length);
+}
+backBtn.onclick = () => stepFrame(-1);
+fwdBtn.onclick = () => stepFrame(1);
 document.getElementById("layer").onchange = (e) => { layerKind = e.target.value; build(); };
 document.getElementById("base").onchange = (e) => setBase(e.target.value);
 opacityEl.oninput = () => { if (curLayer) curLayer.setOpacity(opacityEl.value / 100); };
@@ -547,6 +563,15 @@ function mStop() {
 }
 mPlay.onclick = () => (mPlaying ? mStop() : mStart());
 mFrame.onchange = () => { const f = mFrames.find(x => String(x.fh) === mFrame.value); if (f) mShow(mFrames.indexOf(f)); };
+const mBack = document.getElementById("mBack");
+const mFwd = document.getElementById("mFwd");
+function mStepBtn(d) {
+  if (!mFrames.length) return;
+  mStop();
+  mShow((mIdx + d + mFrames.length) % mFrames.length);
+}
+mBack.onclick = () => mStepBtn(-1);
+mFwd.onclick = () => mStepBtn(1);
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) mStop(); else if (mPlaying) mStop(), mStart();
 });

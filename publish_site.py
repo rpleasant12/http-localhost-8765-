@@ -13,6 +13,7 @@ Run by site_updater after each successful repackage; best-effort always.
 """
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -94,7 +95,7 @@ def publish(check_only=False):
                 dst = os.path.join(wt, rel, f)
                 if os.path.isfile(dst):
                     os.remove(dst)
-                os.replace(src, dst)
+                shutil.copy2(src, dst)   # COPY: docs/ stays intact for serving
         r = _run(["git", "add", "-A", "."], cwd=wt)
         if r.returncode != 0:
             print("publish: git add failed:", r.stderr[-300:])

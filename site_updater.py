@@ -12,6 +12,8 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from fb_page import regenerate   # noqa: E402 - used in both loop paths
+
 SITE_INTERVAL = 120   # regenerate the site every 2 min (data fetch ~5 s)
 FB_INTERVAL = 300     # regenerate the Facebook page every 5 min
 PIDFILE = os.path.join(".freebuff", "site-updater.pid")
@@ -162,6 +164,11 @@ def main():
                 _satellite_step()     # keep GOES bands (IR/WV/visible) fresh
                 if os.path.isdir("docs"):   # keep the Pages package current
                     try:
+                        try:
+                            regenerate()   # fb page FIRST so the package carries it
+                            _log("facebook page regenerated")
+                        except Exception as exc:  # noqa: BLE001
+                            _log(f"fb page FAILED: {exc}")
                         import github_deploy
                         github_deploy.package()
                         _log("docs/ repackaged")
@@ -179,10 +186,12 @@ def main():
             fails += 1
             _log(f"site generation FAILED ({fails} in a row): {exc}")
         if time.time() - last_fb >= FB_INTERVAL:
+            # safety net when site generation fails (the healthy path regenerates
+            # the fb page inside the site cycle above)
             try:
                 regenerate()
                 last_fb = time.time()
-                _log("facebook page regenerated")
+                _log("facebook page regenerated (standalone)")
             except Exception as exc:  # noqa: BLE001
                 _log(f"fb page FAILED: {exc}")
         time.sleep(SITE_INTERVAL)
