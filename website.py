@@ -1325,6 +1325,62 @@ def page_index(d):
         cells_html = (f'<h2>🧠 AI storm tracker</h2><p class="src">{html.escape(storm.get("summary") or "")}</p>'
                       f'<table class="cells"><tr><th>#</th><th>Peak echo</th><th>Location</th></tr>{rows}</table>')
 
+    CITY_JS = r"""<script>
+/* City weather selector: current + 7-day for any East TN city, from data.json
+   (obs.cities + cityForecasts) - re-renders on every live data refresh. */
+function _esc(s) { return (s == null ? "" : String(s)).replace(/[&<>\"]|\//g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","/":"\/"}[c])); }
+function _wicon(t) {
+  t = (t || "").toLowerCase();
+  if (/tornado|hurricane/.test(t)) return "\ud83c\udd2b";
+  if (/thunder|storm|tstorm/.test(t)) return "\u26a1";
+  if (/snow|flurr|sleet|freez|wintry/.test(t)) return "\u2744\ufe0f";
+  if (/fog|haze|smoke/.test(t)) return "\ud83c\udf2b";
+  if (/drizzl|rain|shower/.test(t)) return "\ud83c\udf27";
+  if (/cloud|overcast/.test(t)) return "\u2601\ufe0f";
+  if (/sunny|clear/.test(t)) return "\u2600\ufe0f";
+  return "\ud83c\udf24";
+}
+function cityRender() {
+  if (typeof SITE_DATA === "undefined" || !SITE_DATA) return;
+  const obs = (SITE_DATA.obs && SITE_DATA.obs.cities) || [];
+  const fcs = SITE_DATA.cityForecasts || [];
+  const sel = document.getElementById("citySel");
+  if (!sel || !obs.length) return;
+  if (!sel.options.length) {
+    obs.forEach(o => { const op = document.createElement("option"); op.value = o.city; op.textContent = o.city; sel.appendChild(op); });
+    let saved = null; try { saved = localStorage.getItem("tnwxCity"); } catch (_e) {}
+    if (saved && obs.some(o => o.city === saved)) sel.value = saved;
+    else { const g = obs.find(o => /Greeneville/i.test(o.city)); if (g) sel.value = g.city; }
+    sel.onchange = () => { try { localStorage.setItem("tnwxCity", sel.value); } catch (_e) {} cityRender(); };
+  }
+  const o = obs.find(x => x.city === sel.value) || obs[0];
+  const fc = fcs.find(x => x.city === o.city) || { periods: [] };
+  const t = o.tempF == null ? "--" : Math.round(o.tempF);
+  document.getElementById("cityNow").innerHTML =
+    '<div class="big">' + t + '&deg;F</div><div>' +
+    '<div style="font-size:18px;color:#cdd7e4">' + _wicon(o.desc) + " " + _esc(o.desc || "no observation") + "</div>" +
+    '<div class="meta">\ud83d\udca7 Dew point ' + (o.dewF == null ? "n/a" : Math.round(o.dewF)) + "&deg;F \u00b7 \ud83d\udca8 " +
+    _esc((o.windDir || "") + (o.windMph == null ? "" : " " + Math.round(o.windMph) + " mph")) +
+    " \u00b7 Humidity " + (o.rh == null ? "n/a" : Math.round(o.rh)) + "%" +
+    "<br/>Obs " + _esc(o.stationName || "-") + (o.miles != null ? " \u00b7 " + o.miles + " mi away" : "") +
+    (o.time ? " \u00b7 " + _esc(o.time) : "") + "</div></div>";
+  const days = []; const seen = new Set();
+  for (const p of fc.periods) {
+    if (!p || !p.name || seen.has(p.name) || /Night/i.test(p.name)) continue;
+    seen.add(p.name); days.push(p); if (days.length === 7) break;
+  }
+  document.getElementById("cityDays").innerHTML = days.map(p =>
+    '<div class="day"><div class="tx" style="font-weight:700;color:#cdd7e4">' + _esc(p.name) + "</div>" +
+    '<div style="font-size:30px;margin:4px 0">' + _wicon(p.short) + "</div>" +
+    '<div class="hi">' + (p.tempF == null ? "-" : Math.round(p.tempF)) + "&deg;F</div>" +
+    '<div class="tx">' + _esc(p.short || "") + "</div>" +
+    '<div style="color:#7d8794;font-size:12px">\ud83d\udca7 ' + (p.pop || 0) + "% \u00b7 \ud83d\udca8 " + _esc(p.wind || "") + "</div></div>"
+  ).join("") || '<span class="src">City forecast unavailable right now.</span>';
+}
+window.onDataRefresh = function () { cityRender(); };
+cityRender();
+</script>"""
+
     body = f"""
 <header class="hero">
   <h1>🌦️ <span style="color:var(--acc)">{html.escape(config.PAGE_NAME)}</span></h1>
@@ -1345,6 +1401,15 @@ def page_index(d):
 
 <div class="card"><h2>📅 7-day forecast</h2><div class="grid cards7">{days_html}</div></div>
 
+<div class="card"><h2>🏙️ City weather</h2>
+  <p class="src">Pick any East Tennessee city for its live observation and full 7-day forecast.</p>
+  <div class="ctl" style="margin-bottom:8px"><label style="font-weight:600;color:#cdd7e4">City:</label>
+    <select id="citySel" style="min-width:220px;background:#1b2027;color:#e8eef5;border:1px solid #333c46;border-radius:8px;padding:8px 10px"></select>
+  </div>
+  <div class="now" id="cityNow"><span class="src">Loading city weather…</span></div>
+  <div class="grid cards7" id="cityDays" style="margin-top:10px"></div>
+</div>
+
 <div class="card"><h2>🗺️ Explore</h2>
   <p class="src">Everything from the weather center, right here on the site:</p>
   <div class="ctl">
@@ -1357,7 +1422,7 @@ def page_index(d):
   </div>
 </div>
 """
-    return _page("Live", "index.html", body)
+    return _page("Live", "index.html", body, extra_head=CITY_JS)
 
 
 def page_radar(d):

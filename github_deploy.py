@@ -106,9 +106,15 @@ def package():
     # copy every referenced graphic into docs/<dir>/
     n = 0
     for rel in sorted(copy_log):
+        src = os.path.join("static", rel)
+        if not os.path.isfile(src):
+            continue  # source vanished between generation and packaging
         dst = os.path.join(DOCS_DIR, _safe_name(rel))
         os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.copy2(os.path.join("static", rel), dst)
+        try:
+            shutil.copy2(src, dst)
+        except OSError:
+            continue  # writer replaced/locked the file mid-copy
         n += 1
 
     # meso history frames are referenced by JS URL-templates (field_yymmddhh),
