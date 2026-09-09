@@ -17,6 +17,7 @@ import zipfile
 import requests
 
 UA = {"User-Agent": "tennessee-weather-network/1.0 (local demo)"}
+NHC_STORMS = "https://www.nhc.noaa.gov/CurrentStorms.json"
 # ---------------------------------------------------------------- NHC
 
 

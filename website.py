@@ -445,12 +445,33 @@ def collect_data():
         from data.national import nhc_storms
         raw_storms = nhc_storms() or []
         for s in raw_storms[:8]:
-            cone = _geo(s.get("coneGeometry"))
-            track = _geo(s.get("trackGeometry"))
+            feats = s.get("features") or []
+            polys = [f["geometry"] for f in feats if f.get("geometry", {}).get("type") == "Polygon"]
+            lines = [f["geometry"] for f in feats if f.get("geometry", {}).get("type") == "LineString"]
             entry = {k: s.get(k) for k in
                      ("name", "classification", "intensity", "pressure", "lat", "lon")}
-            entry["cone"] = cone
-            entry["track"] = track
+            entry["cone"] = polys[0] if polys else None
+            entry["track"] = lines[0] if lines else None
+            entry["trackFcst"] = lines[1] if len(lines) > 1 else None
+            entry["points"] = [f["geometry"] for f in feats
+                               if f.get("geometry", {}).get("type") == "Point"][:12]
+            entry["movement"] = s.get("movement") or ""
+            entry["lastUpdate"] = s.get("lastUpdate") or ""
+            entry["advisoryUrl"] = s.get("advisoryUrl") or ""
+            # coastal watches/warnings near this storm, matched from NWS alerts
+            slat, slon = s.get("lat"), s.get("lon")
+            near = set()
+            if slat is not None:
+                for a in ww:
+                    ev = a.get("event") or ""
+                    if not any(k in ev for k in ("Hurricane", "Tropical Storm", "Storm Surge")):
+                        continue
+                    g = a.get("geometry") or {}
+                    rings = g.get("coordinates") or []
+                    ring = rings[0] if g.get("type") == "Polygon" else (rings[0][0] if rings else [])
+                    if ring and abs(ring[0][1] - slat) <= 5 and abs(ring[0][0] - slon) <= 6:
+                        near.add(ev)
+            entry["watches"] = sorted(near)
             storms.append(entry)
     except Exception:  # noqa: BLE001
         raw_storms = []
@@ -2202,14 +2223,44 @@ async function boot() {{
   map = L.map("map", {{ zoomSnap: 0.5, maxZoom: 21 }}).setView([25, -78], 4);
   addMapControls(map, [25, -78], 4);
   layers.storms = L.layerGroup();
+  const clsName = c => ({{ "HU": "Hurricane", "MH": "Major Hurricane", "TS": "Tropical Storm",
+    "TD": "Tropical Depression", "SD": "Subtropical Depression", "SS": "Subtropical Storm",
+    "PTC": "Post-tropical Cyclone" }})[c] || c || "Storm";
+  const kt = v => Math.round((parseFloat(v) || 0) * 1.15078);
+  const degToCompass = d => {{
+    const dirs = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+    const n = parseFloat(d);
+    return isNaN(n) ? "" : dirs[Math.round(n / 22.5) % 16];
+  }},
+  stormPopup = s => {{
+    const mv = (s.movement || "").trim();
+    const m = mv.match(/^([\\d.]+)\\s*kt\\s*@\\s*([\\d.]+)\\s*deg$/);
+    const moveTxt = m ? `${{m[1]}} kt (${{kt(m[1])}} mph) toward the ${{degToCompass(m[2])}}`
+                    : (mv || "movement n/a");
+    const watches = (s.watches || []).length
+      ? "<br/><b>⚠️ " + s.watches.join("</b><br/><b>⚠️ ") + "</b>"
+      : "<br/><span class=src>No coastal watches/warnings in effect</span>";
+    return "<b>🌀 " + s.name + " (" + clsName(s.classification) + ")</b>"
+      + "<br/>Winds: <b>" + (s.intensity || "?") + " kt</b> (" + kt(s.intensity) + " mph)"
+      + "<br/>Pressure: <b>" + (s.pressure || "?") + " mb</b>"
+      + "<br/>Movement: <b>" + moveTxt + "</b>"
+      + "<br/>Position: " + (s.lat != null ? Math.abs(s.lat) + (s.lat >= 0 ? "°N" : "°S") : "?")
+      + ", " + (s.lon != null ? Math.abs(s.lon) + (s.lon >= 0 ? "°W" : "°E") : "?")
+      + watches
+      + (s.lastUpdate ? "<br/><span class=src>Advisory " + s.lastUpdate + "</span>" : "")
+      + (s.advisoryUrl ? "<br/><a href='" + s.advisoryUrl + "' target='_blank'>Full NHC advisory ↗</a>" : "");
+  }};
   (T.storms || []).forEach(s => {{
     if (s.lat != null && s.lon != null)
       L.circleMarker([s.lat, s.lon], {{ radius: 9, color: "#fff", weight: 2, fillColor: "#e1bee7", fillOpacity: .95 }})
-        .bindTooltip("🌀 " + s.name + " - " + (s.intensity || "?") + " kt").addTo(layers.storms);
+        .bindTooltip("🌀 " + s.name + " - " + (s.intensity || "?") + " kt")
+        .bindPopup(stormPopup(s), {{ maxWidth: 340 }}).addTo(layers.storms);
     const addG = (g, style) => {{ if (!g) return;
       L.geoJSON({{ type: "Feature", properties: {{}}, geometry: g }}, {{ style }}).addTo(layers.storms); }};
     addG(s.cone, {{ color: "#e1bee7", weight: 1.5, fillOpacity: 0.08 }});
     addG(s.track, {{ color: "#e1bee7", weight: 2.5, dashArray: "6 6" }});
+    addG(s.trackFcst, {{ color: "#ff5252", weight: 3 }});
+    (s.points || []).forEach(p => addG(p, {{ color: "#fff", fillColor: "#e1bee7", weight: 1, fillOpacity: .9 }}));
   }});
   layers.storms.addTo(map);
   layers.wr = L.layerGroup((T.windRadii || []).map(w =>
