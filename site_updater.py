@@ -165,6 +165,12 @@ def main():
                         import github_deploy
                         github_deploy.package()
                         _log("docs/ repackaged")
+                        try:
+                            import publish_site
+                            if publish_site.publish():
+                                _log("gh-pages published")
+                        except Exception as exc:  # noqa: BLE001
+                            _log(f"gh-pages publish failed: {exc}")
                     except Exception as exc:  # noqa: BLE001
                         _log(f"docs repackage failed: {exc}")
             else:

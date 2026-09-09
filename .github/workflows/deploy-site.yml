@@ -1,14 +1,19 @@
 name: Deploy TNWN site to GitHub Pages
 
+# The full site (all pages, live data, every model-map render) is built by
+# the local weather center and published to the gh-pages branch by
+# publish_site.py on every update cycle. This workflow now only MIRRORS
+# that branch into GitHub Pages — CI runners cannot render the GRIB model
+# maps, so building here would strip the models from the public site.
 on:
   push:
     branches: [main]
   workflow_dispatch:
   schedule:
-    - cron: "*/30 * * * *"   # refresh live data every 30 minutes
+    - cron: "*/30 * * * *"   # mirror the continuously updated gh-pages branch
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -17,23 +22,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  mirror:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-          cache: pip
+          ref: gh-pages          # the built site (updated by the weather center)
 
-      - name: Install site dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install requests numpy scipy xarray cfgrib eccodes pyproj Pillow h5py
-
-      - name: Build the site with live data
-        run: python github_deploy.py --pages --warm-seconds 240
+      - name: Check the build is present
+        run: test -f index.html || { echo "gh-pages has no site build yet"; exit 1; }
 
       - name: Configure Pages (auto-enable on first run)
         uses: actions/configure-pages@v5
@@ -43,10 +40,10 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: docs
+          path: .
 
   deploy:
-    needs: build
+    needs: mirror
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -54,25 +51,3 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
-
-  # Portable copy of the built site on the gh-pages branch (single orphan
-  # commit each run, so the branch never grows history). Any free host —
-  # Netlify, Cloudflare Pages, Vercel — can serve directly from this branch.
-  publish-branch:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: github-pages
-          path: artifact
-      - name: Extract built site
-        run: |
-          mkdir site
-          tar -xf artifact/artifact.tar -C site
-      - uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./site
-          force_orphan: true
-          commit_message: "Site build ${{ github.sha }}"
