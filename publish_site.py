@@ -12,11 +12,16 @@ Usage:  python publish_site.py [--check]
 Run by site_updater after each successful repackage; best-effort always.
 """
 import argparse
+import json
 import os
 import shutil
 import subprocess
 import sys
 import time
+
+import urllib.request
+
+REPO_API = "https://api.github.com/repos/rpleasant12/http-localhost-8765-"
 
 MAX_AGE = 3600          # refuse to publish builds older than 1 hour
 MAX_SIZE_MB = 780       # hard cap; full build sits around 700 MB
@@ -24,6 +29,45 @@ MAX_SIZE_MB = 780       # hard cap; full build sits around 700 MB
 
 def _run(args, **kw):
     return subprocess.run(args, capture_output=True, text=True, **kw)
+
+
+def _gh_token():
+    """The push credential (git credential helper), for API dispatches."""
+    try:
+        r = subprocess.run(["git", "credential", "fill"],
+                           input="protocol=https\nhost=github.com\n",
+                           capture_output=True, text=True, timeout=20)
+        for line in r.stdout.splitlines():
+            if line.startswith("password="):
+                return line[len("password="):].strip()
+    except Exception:  # noqa: BLE001 - dispatch is best-effort
+        pass
+    return ""
+
+
+def dispatch_mirror():
+    """Nudge the Pages-mirror workflow to run NOW (best-effort).
+
+    The */30 schedule is throttled/skipped on free accounts, which left the
+    public site lagging the gh-pages branch by whole cycles. The local push
+    credential may trigger workflow_dispatch, which updates Pages within
+    ~2 minutes of every publish.
+    """
+    try:
+        token = _gh_token()
+        if not token:
+            return False
+        req = urllib.request.Request(
+            f"{REPO_API}/actions/workflows/deploy-site.yml/dispatches",
+            data=json.dumps({"ref": "main"}).encode("utf-8"),
+            headers={"Authorization": f"Bearer {token}",
+                     "Accept": "application/vnd.github+json",
+                     "User-Agent": "tnwn-updater"},
+            method="POST")
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.status == 204
+    except Exception:  # noqa: BLE001 - schedule remains as the fallback
+        return False
 
 
 def build_age_seconds():
@@ -109,7 +153,9 @@ def publish(check_only=False):
         if r.returncode != 0:
             print("publish: push failed:", r.stderr[-300:])
             return False
-        print(f"publish: gh-pages updated ({total:.0f} MB, {msg})")
+        nudged = dispatch_mirror()
+        print(f"publish: gh-pages updated ({total:.0f} MB, {msg});"
+              f" pages mirror {'dispatched' if nudged else 'will follow on schedule'}")
         return True
     finally:
         _run(["git", "worktree", "remove", "--force", wt])
