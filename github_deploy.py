@@ -197,6 +197,12 @@ def main():
         site = website.generate_site()
         if site is None:
             print("Site regeneration failed - packaging last build instead.")
+        try:
+            import fb_page
+            p = fb_page.regenerate()
+            print(f"fb page: {p}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"fb page skipped: {exc}")
 
     n = package()
     files = sum(len(fs) for _, _, fs in os.walk(DOCS_DIR))

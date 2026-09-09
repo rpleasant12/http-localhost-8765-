@@ -81,7 +81,8 @@ def collect_weather():
         "dewF": round(_f(dew_c)) if dew_c is not None else None,
         "rh": round((cur.get("relativeHumidity") or {}).get("value") or 0),
         "windDir": cur.get("windDirection", {}).get("value") if cur.get("windDirection") else None,
-        "windMph": round(_mph((cur.get("windSpeed") or {}).get("value"))) if cur.get("windSpeed") else None,
+        "windMph": (round(_mph(cur["windSpeed"].get("value")))
+                    if cur.get("windSpeed") and cur["windSpeed"].get("value") is not None else None),
         "time": (cur.get("timestamp") or "")[:16].replace("T", " ") + "Z",
     }
 
