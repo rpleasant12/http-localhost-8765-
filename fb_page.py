@@ -181,7 +181,13 @@ def render_html(d):
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <meta property="og:title" content="TNWX_PAGE_NAME - Live Radar & Forecast"/>
 <meta property="og:description" content="OG_DESC"/>
-<meta property="og:url" content="OG_URL"/>
+<meta property="og:type" content="website"/>
+<meta property="og:image" content="OG_SITE/og.png?v=OG_STAMP"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta property="og:url" content="OG_SITE/"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="OG_SITE/og.png?v=OG_STAMP"/>
 <meta name="description" content="OG_DESC"/>
 <title>TNWX_PAGE_NAME - Live Radar & Forecast</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -239,6 +245,9 @@ def render_html(d):
   <header>
     <h1>🌧️ <span>TNWX_PAGE_NAME</span></h1>
     <div class="place">PLACE &nbsp;·&nbsp; <a href="OG_URL" target="_blank">Facebook page</a> &nbsp;·&nbsp; updated GEN_TIME</div>
+    <a id="bigShare" href="#" target="_blank" rel="noopener"
+       style="display:inline-block;margin:10px 0 2px;background:#1877f2;color:#fff;font-weight:700;font-size:17px;
+              padding:12px 30px;border-radius:12px;text-decoration:none">📘 Share this page on Facebook</a>
   </header>
 
   <div class="card">
@@ -285,6 +294,13 @@ def render_html(d):
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
+(function () {
+  var pub = "OG_SITE/";
+  var here = location.origin + location.pathname;
+  var target = (location.hostname === "localhost" || location.hostname === "127.0.0.1") && pub !== "/" ? pub : here;
+  var u = "https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(target);
+  ["bigShare"].forEach(function (id) { var a = document.getElementById(id); if (a) a.href = u; });
+})();
 const HOME = [HOME_LAT, HOME_LON];
 const map = L.map("map", { zoomSnap: 0.5, maxZoom: 21 }).setView(HOME, 6);
 const OSM_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -419,6 +435,8 @@ def _fill(template, d):
     for key, val in {
         "TNWX_PAGE_NAME": d["pageName"],
         "OG_URL": d["pageUrl"],
+        "OG_SITE": (getattr(config, "PUBLIC_SITE_URL", "") or "").rstrip("/"),
+        "OG_STAMP": (d.get("generated") or "").replace("-", "").replace(":", "").replace(" ", ""),
         "OG_DESC": html.escape(og_desc, quote=True),
         "PLACE": html.escape(d["place"]),
         "GEN_TIME": d["generated"],
@@ -452,11 +470,76 @@ def render_page(d):
     return _fill(render_html(d), d)
 
 
+def _og_image(d):
+    """Render the 1200x630 Facebook share card (static/fb_og.png).
+
+    Branded card with live temp/conditions/SPC risk so shared links show a
+    real weather snapshot. Best-effort: returns the path or None."""
+    try:
+        import os
+        from PIL import Image, ImageDraw, ImageFont
+
+        def _font(size, bold=False):
+            try:
+                from matplotlib import font_manager
+                path = font_manager.findfont("DejaVu Sans")
+                if bold:
+                    b = os.path.join(os.path.dirname(path), "DejaVuSans-Bold.ttf")
+                    if os.path.isfile(b):
+                        path = b
+                return ImageFont.truetype(path, size)
+            except Exception:  # noqa: BLE001
+                try:
+                    return ImageFont.truetype("arialbd.ttf" if bold else "arial.ttf", size)
+                except Exception:  # noqa: BLE001
+                    return ImageFont.load_default()
+
+        cur = d.get("current") or {}
+        w, h = 1200, 630
+        im = Image.new("RGB", (w, h), (14, 17, 23))
+        dr = ImageDraw.Draw(im)
+        dr.rectangle([0, 0, 14, h], fill=(77, 163, 255))
+        f_title = _font(52, bold=True)
+        f_temp = _font(210, bold=True)
+        f_desc = _font(46)
+        f_meta = _font(30)
+        f_url = _font(28)
+
+        dr.text((70, 56), "Tennessee Weather Network", font=f_title, fill=(77, 163, 255))
+        temp = cur.get("tempF")
+        t_txt = f"{round(temp)}\u00b0F" if temp is not None else "--\u00b0F"
+        dr.text((60, 170), t_txt, font=f_temp, fill=(255, 255, 255))
+        desc = cur.get("text") or "Live East Tennessee weather"
+        dr.text((620, 260), desc[:34], font=f_desc, fill=(205, 215, 228))
+        spc = d.get("spc") or {}
+        if spc.get("label"):
+            dr.rounded_rectangle([620, 340, 620 + 560, 420], 14, fill=spc.get("fill") or (30, 40, 55))
+            dr.text((640, 352), "SPC Day 1", font=_font(24), fill=(14, 17, 23))
+            dr.text((640, 380), str(spc["label"])[:38], font=_font(30, bold=True), fill=(14, 17, 23))
+        alerts = d.get("alerts") or []
+        meta2 = f"{len(alerts)} active alert(s)" if alerts else "No active alerts"
+        dr.text((70, 470), meta2, font=_font(34, bold=True),
+                fill=(255, 120, 120) if alerts else (130, 200, 130))
+        dr.text((70, 528), f"{d.get('place', '')}  \u00b7  updated {d.get('generated', '')}",
+                font=f_meta, fill=(154, 164, 178))
+        dr.text((70, 572), "rpleasant12.github.io/http-localhost-8765-",
+                font=f_url, fill=(120, 140, 165))
+        os.makedirs("static", exist_ok=True)
+        path = os.path.join("static", "fb_og.png")
+        tmp = path + ".tmp"
+        im.save(tmp, "PNG")
+        os.replace(tmp, path)
+        return path
+    except Exception:  # noqa: BLE001 - share card must never break the page
+        return None
+
+
 def regenerate():
     """Collect live data and write static/fb_page.html. Returns the path."""
     try:
         data = collect_weather()
         page = render_page(data)
+        _og_image(data)
     except Exception:  # noqa: BLE001 - never kill the app over the share page
         return None
     os.makedirs("static", exist_ok=True)

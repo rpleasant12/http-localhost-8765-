@@ -110,6 +110,11 @@ def package():
         with open(os.path.join(DOCS_DIR, "fb_page.html"), "w", encoding="utf-8") as f:
             f.write(out)
 
+    # branded share card (og:image), absolute URL on the page so copy it explicitly
+    og_src = os.path.join("static", "fb_og.png")
+    if os.path.isfile(og_src):
+        shutil.copy2(og_src, os.path.join(DOCS_DIR, "og.png"))
+
     # copy every referenced graphic into docs/<dir>/
     n = 0
     for rel in sorted(copy_log):
@@ -199,7 +204,7 @@ def main():
             print("Site regeneration failed - packaging last build instead.")
         try:
             import fb_page
-            p = fb_page.regenerate()
+            p = fb_page.regenerate()   # also renders the og.png share card
             print(f"fb page: {p}")
         except Exception as exc:  # noqa: BLE001
             print(f"fb page skipped: {exc}")
