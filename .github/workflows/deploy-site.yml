@@ -8,7 +8,7 @@ on:
     - cron: "*/30 * * * *"   # refresh live data every 30 minutes
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -54,3 +54,25 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # Portable copy of the built site on the gh-pages branch (single orphan
+  # commit each run, so the branch never grows history). Any free host —
+  # Netlify, Cloudflare Pages, Vercel — can serve directly from this branch.
+  publish-branch:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: github-pages
+          path: artifact
+      - name: Extract built site
+        run: |
+          mkdir site
+          tar -xf artifact/artifact.tar -C site
+      - uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          force_orphan: true
+          commit_message: "Site build ${{ github.sha }}"
