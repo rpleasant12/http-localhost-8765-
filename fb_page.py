@@ -11,6 +11,7 @@ import datetime as dt
 import html
 import json
 import os
+import re
 import threading
 import time
 
@@ -123,6 +124,77 @@ def collect_weather():
     }
 
 
+# ------------------------------------------------------------- model maps
+_MS_RX = re.compile(r"(mpas|shield)_(\w+)_(\w+)_f(\d+)_(\d{10})\.jpg$")
+_MAP_RX = re.compile(r"([A-Za-z0-9\-]+)_(\w+)_f(\d+)_(\d{10})_(\w+)\.png$")
+
+
+def _model_data():
+    """Everything the share page's model explorer needs (all local, fast).
+
+    catalog: model -> [{key, label}] product lists (same source as the
+             models page, incl. MPAS + FV3/SHiELD).
+    rend:    every pre-rendered (model, product, region) combo from
+             static/model_maps - latest cycle, newest 8 frames.
+    ms:      MPAS/SHiELD official frame loops already on disk.
+    """
+    out = {"catalog": {}, "rend": [], "ms": {"mpas": {}, "shield": {}}}
+    try:
+        from data.model_maps import PRODUCTS_BY_MODEL, PRODUCTS
+        for model, prods in PRODUCTS_BY_MODEL.items():
+            out["catalog"][model] = [
+                {"key": p, "label": PRODUCTS.get(p, {}).get("label", p)} for p in prods]
+    except Exception:  # noqa: BLE001 - catalog must not break the page
+        pass
+    try:
+        from data.shield_mpas import MPAS_PRODUCTS, SHIELD_PRODUCTS
+        out["catalog"]["MPAS"] = [
+            {"key": k, "label": v["label"]} for k, v in MPAS_PRODUCTS.items()]
+        out["catalog"]["FV3 (SHiELD)"] = [
+            {"key": k, "label": v["label"]} for k, v in SHIELD_PRODUCTS.items()]
+    except Exception:  # noqa: BLE001
+        pass
+
+    combos = {}
+    try:
+        names = os.listdir(os.path.join("static", "model_maps"))
+    except OSError:
+        names = []
+    for fn in names:
+        m = _MAP_RX.match(fn)
+        if not m:
+            continue
+        model, prod, fh, cyc, region = m.groups()
+        combos.setdefault((model, prod, region), []).append((cyc, int(fh), fn))
+    for (model, prod, region), items in combos.items():
+        newest = max(c for c, _f, _n in items)
+        frames = sorted((f, fn) for c, f, fn in items if c == newest)[-8:]
+        out["rend"].append({
+            "model": model, "product": prod, "region": region, "cycle": newest,
+            "frames": [{"fh": fh, "url": f"../model_maps/{fn}"} for fh, fn in frames],
+        })
+
+    try:
+        ainames = os.listdir(os.path.join("static", "aimodels"))
+    except OSError:
+        ainames = []
+    groups = {}
+    for fn in ainames:
+        m = _MS_RX.match(fn)
+        if not m:
+            continue
+        kind, key, _dom, fh, init = m.groups()
+        groups.setdefault((kind, key, init), []).append((int(fh), fn))
+    for (kind, key, init), items in groups.items():
+        frames = sorted(items)[:12]
+        bucket = out["ms"][kind].setdefault(key, {"init": init, "frames": []})
+        if len(frames) > len(bucket["frames"]):
+            bucket["init"] = init
+            bucket["frames"] = [
+                {"fh": fh, "url": f"../aimodels/{fn}"} for fh, fn in frames]
+    return out
+
+
 # ---------------------------------------------------------------- html
 def _alert_color(sev, event):
     e = (event or "").lower()
@@ -230,6 +302,13 @@ def render_html(d):
   .mapctl select { background: #1b1f27; color: #eee; border: 1px solid rgba(255,255,255,.2); border-radius: 6px; padding: 7px 8px; font-size: 14px; }
   .mapctl input[type=range] { flex: 1; min-width: 110px; accent-color: #2b80ff; height: 26px; }
   .frame { min-width: 84px; text-align: center; font-weight: 700; font-size: 16px; color: #ffd54f; }
+  nav.models { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; padding: 0 0 6px; }
+  nav.models a { background: #1b2230; border: 1px solid rgba(255,255,255,.1); color: #cdd7e4; border-radius: 999px; padding: 7px 14px; font-size: 13.5px; text-decoration: none; }
+  .mctl { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 10px 0; }
+  .mctl select, .mctl button { background: #1b1f27; color: #eee; border: 1px solid rgba(255,255,255,.2); border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+  .mctl button { background: #2b80ff; border: none; color: #fff; cursor: pointer; font-size: 16px; padding: 8px 18px; }
+  #modelImg { width: 100%; border-radius: 12px; background: #0e1117; min-height: 220px; }
+  .stepper { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
   .src { color: #7d8794; font-size: 12px; }
   footer { text-align: center; color: #7d8794; font-size: 12.5px; padding: 18px 8px 26px; line-height: 1.8; }
   footer a { color: #4da3ff; text-decoration: none; }
@@ -285,6 +364,38 @@ def render_html(d):
       <input type="range" id="opacity" min="20" max="100" value="80"/>
     </div>
     <div class="src">Radar: RainViewer global NEXRAD composite (last 2 h + 30 min nowcast) · Map: CARTO/OSM · Drag to pan, pinch or scroll to zoom.</div>
+  </div>
+
+  <nav class="models">
+    <a href="OG_SITE/index.html">🏠 Home</a>
+    <a href="OG_SITE/radar.html">📡 Radar + future</a>
+    <a href="OG_SITE/models.html">🧮 All model maps</a>
+    <a href="OG_SITE/satellite.html">🛰️ Satellite</a>
+    <a href="OG_SITE/tropical.html">🌀 NHC tropical</a>
+    <a href="OG_SITE/severe.html">🚨 Severe storms</a>
+    <a href="OG_SITE/meso.html">🗺️ Mesoanalysis</a>
+    <a href="OG_SITE/obs.html">🌡️ Obs + Skew-T</a>
+    <a href="OG_SITE/charts.html">📈 Charts + MOS</a>
+  </nav>
+
+  <div class="card">
+    <h2>🧮 Forecast model maps — all models</h2>
+    <div class="mctl">
+      <select id="mModel"></select>
+      <select id="mProd"></select>
+      <select id="mRegion">
+        <option value="etn">East Tennessee</option>
+        <option value="us">US (CONUS)</option>
+      </select>
+      <button id="mGo">Render</button>
+      <button id="mPlay">⏸</button>
+    </div>
+    <img id="modelImg" loading="lazy" alt="model map"/>
+    <div class="stepper">
+      <select id="mFrame"></select>
+      <span class="src" id="mInfo"></span>
+    </div>
+    <div class="src" id="mMsg">Pick any model + product (500 mb, 850 mb, composite radar, jet levels, severe fields &amp; more) and hit Render — every model the network runs is here, including AI models and MPAS/FV3.</div>
   </div>
 
   <footer>
@@ -385,6 +496,100 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) { pause(); }
   else if (!userPaused) { play(); }
 });
+
+/* ---------------- model map explorer (every model x product) ---------------- */
+const MD = MODEL_DATA;
+const mModel = document.getElementById("mModel"), mProd = document.getElementById("mProd");
+const mGo = document.getElementById("mGo"), mPlay = document.getElementById("mPlay");
+const mFrame = document.getElementById("mFrame"), mImg = document.getElementById("modelImg");
+const mMsg = document.getElementById("mMsg"), mInfo = document.getElementById("mInfo");
+const mRegion = document.getElementById("mRegion");
+
+function fillMProds() {
+  const prods = MD.catalog[mModel.value] || [];
+  mProd.innerHTML = prods.map(p => `<option value="${p.key}">${p.label}</option>`).join("")
+    || `<option value="">(no products)</option>`;
+}
+(function initModels() {
+  if (!Object.keys(MD.catalog).length) {
+    mMsg.textContent = "Model catalog unavailable in this build.";
+    mGo.disabled = true;
+    return;
+  }
+  const names = Object.keys(MD.catalog).sort((a, b) => {
+    const pri = m => (m.startsWith("AI-") ? 2 : (m === "HRRR" ? 0 : 1));
+    return pri(a) - pri(b) || a.localeCompare(b);
+  });
+  mModel.innerHTML = names.map(m =>
+    `<option value="${m}">${m === "MPAS" ? "NCAR MPAS (global 3.75 km)" : m === "FV3 (SHiELD)" ? "GFDL FV3 (SHiELD)" : m}</option>`).join("");
+  fillMProds();
+})();
+mModel.onchange = fillMProds;
+
+let mFrames = [], mIdx = 0, mTimer = null, mPlaying = false;
+function mShow(i) {
+  mIdx = i;
+  const f = mFrames[i];
+  if (!f) return;
+  mImg.src = f.url;
+  mFrame.value = String(f.fh);
+  mInfo.textContent = `F${String(f.fh).padStart(3, "0")} · ${i + 1}/${mFrames.length}`;
+}
+function mStep() { mShow((mIdx + 1) % mFrames.length); }
+function mStart() {
+  if (mFrames.length < 2) return;
+  mPlaying = true; mPlay.textContent = "⏸";
+  mTimer = setInterval(mStep, 800);
+}
+function mStop() {
+  mPlaying = false; mPlay.textContent = "▶";
+  clearInterval(mTimer);
+}
+mPlay.onclick = () => (mPlaying ? mStop() : mStart());
+mFrame.onchange = () => { const f = mFrames.find(x => String(x.fh) === mFrame.value); if (f) mShow(mFrames.indexOf(f)); };
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) mStop(); else if (mPlaying) mStop(), mStart();
+});
+
+function msFramesFor(model, prod) {
+  const key = model === "MPAS" ? "mpas" : (model.indexOf("FV3") === 0 ? "shield" : null);
+  if (!key) return [];
+  return ((MD.ms[key] || {})[prod] || {}).frames || [];
+}
+mGo.onclick = () => {
+  const m = mModel.value, p = mProd.value, r = mRegion.value;
+  if (!m || !p) return;
+  mStop();
+  const msF = msFramesFor(m, p).slice().sort((a, b) => a.fh - b.fh);
+  const c = MD.rend.find(x => x.model === m && x.product === p && x.region === r);
+  mFrames = (msF.length ? msF : (c ? c.frames : [])).slice();
+  if (mFrames.length) {
+    const cyc = c ? c.cycle : "";
+    mMsg.textContent = `${m} · ${mProd.options[mProd.selectedIndex] ? mProd.options[mProd.selectedIndex].text : p}` +
+      (cyc ? ` · init ${cyc.slice(-6, -2)}Z ${cyc.slice(-2)}Z` : "") +
+      ` · ${mFrames.length} frame(s) — ${msF.length ? "official pre-rendered loop" : (msF.length || (c && c.frames.length > 1) ? "playing" : "single frame")}`;
+    mFrame.innerHTML = mFrames.map(f =>
+      `<option value="${f.fh}">F${String(f.fh).padStart(3, "0")}</option>`).join("");
+    mShow(mFrames.length - 1);
+    mStart();
+  } else {
+    mMsg.textContent = `${m} ${p} (${r}) is not pre-rendered in this build yet — more combos are added every update cycle. Try another product or check back soon.`;
+    mImg.removeAttribute("src"); mInfo.textContent = "";
+  }
+};
+/* open on HRRR composite radar, East TN - falls back to whatever is on disk */
+(function autoOpen() {
+  const find = (m, p, r) => MD.rend.find(x => x.model === m && x.product === p && x.region === r);
+  if (find("HRRR", "refc", "etn")) {
+    mModel.value = "HRRR"; fillMProds(); mProd.value = "refc"; mRegion.value = "etn";
+  } else if (MD.rend.length) {
+    const f = MD.rend[0];
+    mModel.value = f.model; fillMProds(); mProd.value = f.product; mRegion.value = f.region;
+  } else {
+    return;
+  }
+  mGo.click();
+})();
 </script>
 </body>
 </html>"""
@@ -451,6 +656,7 @@ def _fill(template, d):
         "DAYS_BLOCK": days_block,
         "HOME_LAT": f'{d["lat"]:.4f}',
         "HOME_LON": f'{d["lon"]:.4f}',
+        "MODEL_DATA": json.dumps(_model_data(), separators=(",", ":")),
     }.items():
         out = out.replace(key, str(val))
     return out
