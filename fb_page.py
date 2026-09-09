@@ -365,8 +365,6 @@ def render_html(d):
         <option value="dark">Dark map</option>
         <option value="light">Light map</option>
       </select>
-      <label style="color:#9aa4b2;font-size:13px;display:flex;align-items:center;gap:5px">
-        <input type="checkbox" id="glm" checked/> ⚡ Lightning</label>
       <input type="range" id="opacity" min="20" max="100" value="80"/>
     </div>
     <div class="src">⏮ ⏸ ⏭ step through frames · Radar: RainViewer global NEXRAD composite (last 2 h + 30 min nowcast) · Map: CARTO/OSM · Drag to pan, pinch or scroll to zoom.</div>
@@ -407,7 +405,7 @@ def render_html(d):
   </div>
 
   <footer>
-    Data: National Weather Service · NOAA · NOAA STAR GLM lightning · RainViewer — no APIs harmed, no keys used.<br/>
+    Data: National Weather Service · NOAA · RainViewer — no APIs harmed, no keys used.<br/>
     Auto-regenerated every few minutes by the TNWN weather center. <a href="OG_URL" target="_blank">Tennessee Weather Network on Facebook</a>
   </footer>
 </div>
@@ -436,41 +434,9 @@ L.circleMarker(HOME, { radius: 7, color: "#fff", weight: 2, fillColor: "#ff5252"
   .bindTooltip("PLACE", { permanent: false });
 
 let frames = [], idx = 0, playing = true, timer = null, layerKind = "radar", curLayer = null;
-let glmLayer = null, glmFrames = [];
 const frameEl = document.getElementById("frame");
 const playBtn = document.getElementById("play");
 const opacityEl = document.getElementById("opacity");
-const glmBox = document.getElementById("glm");
-
-async function loadGlm() {
-  try {
-    /* the CDN listing is a rotating file; fetch through allorigins if CORS fails */
-    let text = null;
-    try {
-      const r = await fetch("https://cdn.star.nesdis.noaa.gov/GOES19/GLM/CONUS/EXTENT3/", {cache: "no-store"});
-      if (r.ok) text = await r.text();
-    } catch (_e) {}
-    if (text == null) {
-      const r2 = await fetch("https://api.allorigins.win/raw?url=" +
-        encodeURIComponent("https://cdn.star.nesdis.noaa.gov/GOES19/GLM/CONUS/EXTENT3/"));
-      if (!r2.ok) return;
-      text = await r2.text();
-    }
-    if (!text) return;
-    const names = (text || "").match(/20\\d{9}_GOES19-GLM-CONUS-EXTENT3-1250x750\\.jpg/g) || [];
-    glmFrames = [...new Set(names)].sort().slice(-8).map(s => ({
-      t: Date.parse(s.slice(0, 4) + "-" + s.slice(4, 7) + "-" + s.slice(7, 9) + "T" + s.slice(9, 11) + ":" + s.slice(11, 13) + ":00Z"),
-      url: "https://cdn.star.nesdis.noaa.gov/GOES19/GLM/CONUS/EXTENT3/" + s
-    })).filter(f => !isNaN(f.t));
-  } catch (_e) { /* lightning is best-effort */ }
-}
-function drawGlm(ts) {
-  if (glmLayer) { map.removeLayer(glmLayer); glmLayer = null; }
-  if (!glmBox.checked || !glmFrames.length) return;
-  let f = glmFrames[0];
-  for (const g of glmFrames) if (Math.abs(g.t - ts) < Math.abs(f.t - ts)) f = g;
-  glmLayer = L.imageOverlay(f.url, [[9.108, -136.564], [50.854, -37.813]], { opacity: .9, interactive: false }).addTo(map);
-}
 
 function tileUrl(path, ts) {
   return "https://tilecache.rainviewer.com" + path + "/256/{z}/{x}/{y}/2/1_1_" + ts + ".png";
@@ -498,7 +464,6 @@ function show(i) {
   if (!f) return;
   curLayer = L.tileLayer(tileUrl(f.path, f.time + ""), { opacity: opacityEl.value / 100, maxNativeZoom: 10, maxZoom: 21 }).addTo(map);
   frameEl.textContent = fmt(f.time) + (f.kind === "nowcast" ? "+" : "");
-  drawGlm(f.time * 1000);
 }
 function play() {
   playing = true; playBtn.textContent = "⏸";
@@ -542,9 +507,7 @@ async function build() {
   } catch (e) { frameEl.textContent = "offline"; }
 }
 build();
-loadGlm();
 setInterval(build, 5 * 60 * 1000);   // fresh frames every 5 min
-setInterval(loadGlm, 5 * 60 * 1000); // fresh lightning every 5 min
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) { pause(); }
   else if (!userPaused) { play(); }

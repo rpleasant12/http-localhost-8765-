@@ -1161,8 +1161,9 @@ function clear() {{ for (const l of curLayers) {{ try {{ map.removeLayer(l); }} 
 let glmLayer = null;
 function drawGlm(ts) {{
   const box = document.getElementById("ly_glm");
+  if (!box) return;   /* lightning overlay is radar-page only */
   if (glmLayer) {{ map.removeLayer(glmLayer); glmLayer = null; }}
-  if (box && !box.checked) return;
+  if (!box.checked) return;
   const frames = (DATA.lightning && DATA.lightning.frames) || [];
   if (!frames.length) return;
   let f = frames[0];
@@ -2159,7 +2160,6 @@ const MS = {json.dumps(d.get("mpasShield") or {})};
 def page_tropical(d):
     trop = d.get("tropical") or {}
     storms = trop.get("storms") or []
-    gfx = trop.get("graphics") or []
 
     storm_html = ""
     for s in storms:
@@ -2169,11 +2169,6 @@ def page_tropical(d):
                        f'{s.get("lat", "?")}, {s.get("lon", "?")} · cone + track + wind field on the map</span></div>')
     if not storm_html:
         storm_html = '<div class="alert ok">No active tropical storms (NHC).</div>'
-
-    gfx_html = "".join(
-        f'<div class="card"><h2>{html.escape(g["title"])}</h2>'
-        f'<img class="natimg" loading="lazy" src="{g["url"]}" alt="{html.escape(g["title"])}"/></div>'
-        for g in gfx)
 
     body = f"""
 <header class="hero"><h1>🌀 NHC Tropical</h1>
@@ -2190,7 +2185,6 @@ def page_tropical(d):
 </div>
 
 <div class="card"><h2>🌀 Active storms</h2>{storm_html}</div>
-{gfx_html}
 
 <script>
 const TROP = {json.dumps(trop)};
@@ -2332,9 +2326,8 @@ def page_severe(d):
     </select>
     <label><input type="checkbox" id="ly_reports" checked/> Storm reports</label>
     <label><input type="checkbox" id="ly_cells" checked/> AI cells</label>
-    <label><input type="checkbox" id="ly_ltg"/> Lightning (GLM)</label>
   </div>
-  <div class="src">{len(ww)} warning polygons · {len(outlooks)} outlook areas · {len(tn)} TN alerts · {len(ltg.get('frames') or [])} lightning scans · basemap {'Mapbox' if _MAPBOX_TOKEN else 'OpenStreetMap'}</div>
+  <div class="src">{len(ww)} warning polygons · {len(outlooks)} outlook areas · {len(tn)} TN alerts · basemap {'Mapbox' if _MAPBOX_TOKEN else 'OpenStreetMap'}</div>
 </div>
 
 <div class="card"><h2>📊 Storm reports today (SPC)</h2>{rep_html}</div>
@@ -2424,14 +2417,8 @@ async function boot() {{
     L.circleMarker([c.lat, c.lon], {{ radius: 8, color: "#fff", weight: 1.5,
       fillColor: c.dbz >= 55 ? "#ff1744" : c.dbz >= 45 ? "#ffb74d" : "#aed581", fillOpacity: .85 }})
       .bindTooltip("AI cell " + c.dbz.toFixed(0) + " dBZ")));
-  layers.ltg = L.layerGroup((S.ltgHistory && S.ltgHistory.cells || []).filter(c => c.active).map(c =>
-    L.circleMarker([c.lat, c.lon], {{ radius: Math.max(6, Math.min(24, Math.sqrt(c.peak) / 1.6)),
-      color: c.trend >= 1.4 ? "#ff1744" : "#ffeb3b", weight: 2, dashArray: c.trend < 0.75 ? "4 4" : null,
-      fillColor: c.trend >= 1.4 ? "#ff5252" : "#ffeb3b", fillOpacity: .35 }})
-      .bindTooltip("Lightning: " + c.now.toLocaleString() + " detections now · peak " + c.peak.toLocaleString()
-        + (c.trend >= 1.4 ? " · ⚡ BUILDING" : c.trend < 0.75 ? " · fading" : " · steady"))));
   toggle("ly_ww", layers.ww); toggle("ly_reports", layers.reports); toggle("ly_cells", layers.cells);
-  for (const id of ["ly_ww", "ly_spc", "ly_reports", "ly_cells", "ly_ltg"])
+  for (const id of ["ly_ww", "ly_spc", "ly_reports", "ly_cells"])
     document.getElementById(id).onchange = () => toggle(id, layers[id]);
 }}
 boot();
