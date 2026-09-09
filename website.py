@@ -1182,6 +1182,13 @@ def _page(title, active, body, extra_head=""):
 <html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>{html.escape(title)} - {config.PAGE_NAME}</title>
+<meta property="og:title" content="{html.escape(title)} - {config.PAGE_NAME}"/>
+<meta property="og:type" content="website"/>
+<meta property="og:description" content="Live radar, future cast, satellite, forecast models, severe weather and East Tennessee forecasts - free, no keys, always updating."/>
+<meta property="og:url" content="{getattr(config, 'PUBLIC_SITE_URL', '')}"/>
+<meta property="og:site_name" content="{config.PAGE_NAME}"/>
+<meta name="twitter:card" content="summary"/>
+<meta name="description" content="Live East Tennessee weather: radar, future cast, satellite, all forecast models, severe weather, and city forecasts. Updated continuously."/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 {MAPBOX_JS}{extra_head}
 <style>{_CSS}</style>

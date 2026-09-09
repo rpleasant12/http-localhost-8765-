@@ -103,6 +103,13 @@ def package():
     with open(os.path.join(DOCS_DIR, "data.json"), "w", encoding="utf-8") as f:
         json.dump(data, f)
 
+    # the stand-alone Facebook post page lives outside static/site
+    fb_src = os.path.join("static", "fb_page.html")
+    if os.path.isfile(fb_src):
+        out = rewrite(open(fb_src, encoding="utf-8").read(), copy_log)
+        with open(os.path.join(DOCS_DIR, "fb_page.html"), "w", encoding="utf-8") as f:
+            f.write(out)
+
     # copy every referenced graphic into docs/<dir>/
     n = 0
     for rel in sorted(copy_log):
