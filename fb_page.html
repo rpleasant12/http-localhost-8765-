@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta property="og:title" content="Tennessee Weather Network - Live Radar & Forecast"/>
+<meta property="og:description" content="1 active alert(s) - 70F - Fog - Live radar, forecast and alerts for East Tennessee"/>
+<meta property="og:type" content="website"/>
+<meta property="og:image" content="https://rpleasant12.github.io/http-localhost-8765-/og.png?v=202609130624"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta property="og:url" content="https://rpleasant12.github.io/http-localhost-8765-/"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="https://rpleasant12.github.io/http-localhost-8765-/og.png?v=202609130624"/>
+<meta name="description" content="1 active alert(s) - 70F - Fog - Live radar, forecast and alerts for East Tennessee"/>
+<title>Tennessee Weather Network - Live Radar & Forecast</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Segoe UI", system-ui, sans-serif; background: #0e1117; color: #e8edf4; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 16px; }
+  header { text-align: center; padding: 18px 8px 6px; }
+  header h1 { margin: 0; font-size: clamp(22px, 5vw, 34px); }
+  header h1 span { color: #4da3ff; }
+  header .place { color: #9aa4b2; margin-top: 4px; font-size: 14px; }
+  header a { color: #4da3ff; text-decoration: none; }
+  .card { background: #161b26; border: 1px solid rgba(255,255,255,.08); border-radius: 14px; padding: 16px; margin: 14px 0; }
+  h2 { font-size: 17px; margin: 0 0 10px; color: #cdd7e4; }
+  .now { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; }
+  .now .big { font-size: clamp(40px, 10vw, 64px); font-weight: 800; }
+  .now .desc { font-size: 18px; color: #cdd7e4; }
+  .now .meta { color: #9aa4b2; font-size: 14px; line-height: 1.7; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .day { background: #10151f; border: 1px solid rgba(255,255,255,.07); border-radius: 12px; padding: 12px; text-align: center; }
+  .dname { font-weight: 700; color: #cdd7e4; }
+  .dicon { font-size: 34px; margin: 6px 0; }
+  .dhi { font-size: 26px; font-weight: 800; }
+  .dtext { color: #9aa4b2; font-size: 13px; min-height: 32px; }
+  .dmeta { color: #7d8794; font-size: 12px; margin-top: 4px; }
+  .alerts { display: grid; gap: 8px; }
+  .alert { background: #10151f; border-radius: 10px; padding: 10px 12px; display: grid; gap: 2px; }
+  .alert b { color: #fff; }
+  .alert span { color: #9aa4b2; font-size: 13px; }
+  .alert i { color: #7d8794; font-size: 12px; font-style: normal; }
+  .alert.ok { border-left: 6px solid #2e7d32 !important; color: #a5d6a7; }
+  .spc { display: inline-flex; flex-direction: column; align-items: center; border-radius: 12px; padding: 10px 26px; color: #102015; }
+  .spc span { font-size: 11px; font-weight: 700; letter-spacing: .4px; }
+  .spc b { font-size: 26px; font-weight: 900; }
+  #map { height: clamp(300px, 45vh, 460px); border-radius: 12px; z-index: 0; }
+  .mapctl { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; }
+  .mapctl button { background: #2b80ff; color: #fff; border: none; border-radius: 8px; padding: 9px 20px; font-size: 16px; cursor: pointer; }
+  .mapctl button:active { transform: scale(.97); }
+  .mapctl select { background: #1b1f27; color: #eee; border: 1px solid rgba(255,255,255,.2); border-radius: 6px; padding: 7px 8px; font-size: 14px; }
+  .mapctl input[type=range] { flex: 1; min-width: 110px; accent-color: #2b80ff; height: 26px; }
+  .frame { min-width: 84px; text-align: center; font-weight: 700; font-size: 16px; color: #ffd54f; }
+  nav.models { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; padding: 0 0 6px; }
+  nav.models a { background: #1b2230; border: 1px solid rgba(255,255,255,.1); color: #cdd7e4; border-radius: 999px; padding: 7px 14px; font-size: 13.5px; text-decoration: none; }
+  .mctl { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 10px 0; }
+  .mctl select, .mctl button { background: #1b1f27; color: #eee; border: 1px solid rgba(255,255,255,.2); border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+  .mctl button { background: #2b80ff; border: none; color: #fff; cursor: pointer; font-size: 16px; padding: 8px 18px; }
+  #modelImg { width: 100%; border-radius: 12px; background: #0e1117; min-height: 220px; }
+  .stepper { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+  .stepper button { background: #1b1f27; color: #eee; border: 1px solid rgba(255,255,255,.2); border-radius: 8px; padding: 8px 14px; font-size: 14px; cursor: pointer; }
+  .stepper button:active { transform: scale(.97); }
+  .src { color: #7d8794; font-size: 12px; }
+  footer { text-align: center; color: #7d8794; font-size: 12.5px; padding: 18px 8px 26px; line-height: 1.8; }
+  footer a { color: #4da3ff; text-decoration: none; }
+  .leaflet-container { background: #0e1117; }
+  /* OSM tiles + CSS invert = keyless dark basemap (CARTO now requires API keys) */
+  .map-dark .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(1.05); }
+  .leaflet-control-attribution { background: rgba(14,17,23,.8) !important; color: #9aa4b2 !important; }
+  .leaflet-control-attribution a { color: #4da3ff !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🌧️ <span>Tennessee Weather Network</span></h1>
+    <div class="place">Greeneville, TN &nbsp;·&nbsp; <a href="https://www.facebook.com/tennesseeweathernetwork" target="_blank">Facebook page</a> &nbsp;·&nbsp; updated 2026-09-13 06:24</div>
+    <a id="bigShare" href="#" target="_blank" rel="noopener"
+       style="display:inline-block;margin:10px 0 2px;background:#1877f2;color:#fff;font-weight:700;font-size:17px;
+              padding:12px 30px;border-radius:12px;text-decoration:none">📘 Share this page on Facebook</a>
+  </header>
+
+  <div class="card">
+    <div class="now">
+      <div class="big">70°F</div>
+      <div>
+        <div class="desc">Fog</div>
+        <div class="meta">💧 Dew point 70°F · 💨 Wind 0 mph · Humidity 100%<br/>Observation 2026-09-13 09:35Z</div>
+      </div>
+      <div class="spc" style="background:#c1e9c1"><span>SPC DAY 1 RISK</span><b>NONE</b></div>
+    </div>
+  </div>
+
+  <div class="card"><h2>⚠️ Active alerts (1)</h2><div class="alerts"><div class="alert" style="border-left:6px solid #c1e9c1"><b>Special Weather Statement</b><span>Cherokee; Clay; Hawkins; Sullivan; Johnson; Northwest Greene; Washington; Unicoi; Northwest Carter; Southeast Carter; Se</span><i>until 2026-09-13 09:00Z</i></div></div></div>
+
+  <div class="card">
+    <h2>📅 3-day forecast</h2>
+    <div class="grid"><div class="day"><div class="dname">Overnight</div><div class="dicon">🌫️</div><div class="dhi">65°F</div><div class="dtext">Areas Of Fog</div><div class="dmeta">💨 0 mph · 💧 12%</div></div><div class="day"><div class="dname">Sunday</div><div class="dicon">🌫️</div><div class="dhi">84°F</div><div class="dtext">Patchy Fog then Partly Sunny</div><div class="dmeta">💨 0 to 5 mph · 💧 11%</div></div><div class="day"><div class="dname">Monday</div><div class="dicon">☀️</div><div class="dhi">84°F</div><div class="dtext">Partly Sunny</div><div class="dmeta">💨 0 to 5 mph · 💧 13%</div></div></div>
+  </div>
+
+  <div class="card">
+    <h2>📡 Live radar</h2>
+    <div id="map"></div>
+    <div class="mapctl">
+      <button id="back" title="Previous frame">⏮</button>
+      <button id="play">⏸</button>
+      <button id="fwd" title="Next frame">⏭</button>
+      <span class="frame" id="frame">--:--</span>
+      <select id="layer">
+        <option value="radar">Radar</option>
+        <option value="satellite">Satellite IR</option>
+      </select>
+      <select id="base">
+        <option value="dark">Dark map</option>
+        <option value="light">Light map</option>
+      </select>
+      <input type="range" id="opacity" min="20" max="100" value="80"/>
+    </div>
+    <div class="src">⏮ ⏸ ⏭ step through frames · Radar: RainViewer global NEXRAD composite (last 2 h + 30 min nowcast) · Map: CARTO/OSM · Drag to pan, pinch or scroll to zoom.</div>
+  </div>
+
+  <nav class="models">
+    <a href="https://rpleasant12.github.io/http-localhost-8765-/index.html">🏠 Home</a>
+    <a href="https://rpleasant12.github.io/http-localhost-8765-/radar.html">📡 Radar + future</a>
+    <a href="https://rpleasant12.github.io/http-localhost-8765-/models.html">🧮 All model maps</a>
+    <a href="https://rpleasant12.github.io/http-localhost-8765-/satellite.html">🛰️ Satellite</a>
+    <a href="https://rpleasant12.github.io/http-localhost-8765-/tropical.html">🌀 NHC tropical</a>
+    <a href="https://rpleasant12.github.io/http-localhost-8765-/severe.html">🚨 Severe storms</a>
+    <a href="https://rpleasant12.github.io/http-localhost-8765-/meso.html">🗺️ Mesoanalysis</a>
+    <a href="https://rpleasant12.github.io/http-localhost-8765-/obs.html">🌡️ Obs + Skew-T</a>
+    <a href="https://rpleasant12.github.io/http-localhost-8765-/charts.html">📈 Charts + MOS</a>
+  </nav>
+
+  <div class="card">
+    <h2>🧮 Forecast model maps — all models</h2>
+    <div class="mctl">
+      <select id="mModel"></select>
+      <select id="mProd"></select>
+      <select id="mRegion">
+        <option value="etn">East Tennessee</option>
+        <option value="us">US (CONUS)</option>
+      </select>
+      <button id="mGo">Render</button>
+      <button id="mPlay">⏸</button>
+    </div>
+    <img id="modelImg" loading="lazy" alt="model map"/>
+    <div class="stepper">
+      <button id="mBack" title="Previous frame">◀</button>
+      <select id="mFrame"></select>
+      <button id="mFwd" title="Next frame">▶</button>
+      <span class="src" id="mInfo"></span>
+    </div>
+    <div class="src" id="mMsg">Pick any model + product (500 mb, 850 mb, composite radar, jet levels, severe fields &amp; more) and hit Render — every model the network runs is here, including AI models and MPAS/FV3.</div>
+  </div>
+
+  <footer>
+    Data: National Weather Service · NOAA · RainViewer — no APIs harmed, no keys used.<br/>
+    Auto-regenerated every few minutes by the TNWN weather center. <a href="https://www.facebook.com/tennesseeweathernetwork" target="_blank">Tennessee Weather Network on Facebook</a>
+  </footer>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function () {
+  var pub = "https://rpleasant12.github.io/http-localhost-8765-/";
+  var here = location.origin + location.pathname;
+  var target = (location.hostname === "localhost" || location.hostname === "127.0.0.1") && pub !== "/" ? pub : here;
+  var u = "https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(target);
+  ["bigShare"].forEach(function (id) { var a = document.getElementById(id); if (a) a.href = u; });
+})();
+const HOME = [36.1627, -82.8332];
+const map = L.map("map", { zoomSnap: 0.5, maxZoom: 21 }).setView(HOME, 6);
+const OSM_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const OSM_ATTR = "© OpenStreetMap contributors";
+const mapEl = document.getElementById("map");
+const bases = {
+  dark: L.tileLayer(OSM_URL, { maxNativeZoom: 19, maxZoom: 21, attribution: OSM_ATTR }),
+  light: L.tileLayer(OSM_URL, { maxNativeZoom: 19, maxZoom: 21, attribution: OSM_ATTR }),
+};
+let baseKind = "dark";
+bases.dark.addTo(map);
+mapEl.classList.add("map-dark");
+L.circleMarker(HOME, { radius: 7, color: "#fff", weight: 2, fillColor: "#ff5252", fillOpacity: 1 }).addTo(map)
+  .bindTooltip("Greeneville, TN", { permanent: false });
+
+let frames = [], idx = 0, playing = true, timer = null, layerKind = "radar", curLayer = null;
+const frameEl = document.getElementById("frame");
+const playBtn = document.getElementById("play");
+const opacityEl = document.getElementById("opacity");
+
+function tileUrl(path, ts) {
+  return "https://tilecache.rainviewer.com" + path + "/256/{z}/{x}/{y}/2/1_1_" + ts + ".png";
+}
+function fmt(ts) {
+  return new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+function clearLayers() {
+  Object.values(bases).forEach(b => { if (b && map.hasLayer(b)) map.removeLayer(b); });
+  if (curLayer) { map.removeLayer(curLayer); curLayer = null; }
+}
+function setBase(kind) {
+  const zoom = map.getZoom(), center = map.getCenter();
+  clearLayers();
+  baseKind = kind;
+  bases[kind].addTo(map);
+  mapEl.classList.toggle("map-dark", kind === "dark");
+  map.setView(center, zoom);
+  if (curLayer) show(idx);
+}
+function show(i) {
+  idx = i;
+  if (curLayer) map.removeLayer(curLayer);
+  const f = frames[i];
+  if (!f) return;
+  curLayer = L.tileLayer(tileUrl(f.path, f.time + ""), { opacity: opacityEl.value / 100, maxNativeZoom: 10, maxZoom: 21 }).addTo(map);
+  frameEl.textContent = fmt(f.time) + (f.kind === "nowcast" ? "+" : "");
+}
+function play() {
+  playing = true; playBtn.textContent = "⏸";
+  timer = setInterval(() => show((idx + 1) % frames.length), 700);
+}
+function pause() {
+  playing = false; playBtn.textContent = "▶";
+  clearInterval(timer);
+}
+let userPaused = false;
+playBtn.onclick = () => { userPaused = playing; playing ? pause() : play(); };
+const backBtn = document.getElementById("back");
+const fwdBtn = document.getElementById("fwd");
+function stepFrame(d) {
+  if (!frames.length) return;
+  userPaused = true;          // manual step stops the auto-advance
+  pause();
+  show((idx + d + frames.length) % frames.length);
+}
+backBtn.onclick = () => stepFrame(-1);
+fwdBtn.onclick = () => stepFrame(1);
+document.getElementById("layer").onchange = (e) => { layerKind = e.target.value; build(); };
+document.getElementById("base").onchange = (e) => setBase(e.target.value);
+opacityEl.oninput = () => { if (curLayer) curLayer.setOpacity(opacityEl.value / 100); };
+
+async function build() {
+  try {
+    const r = await fetch("https://api.rainviewer.com/public/weather-maps.json");
+    const j = await r.json();
+    const list = [];
+    ((j.radar || {}).past || []).slice(-12).forEach(f => list.push({ ...f, kind: "past" }));
+    if (layerKind === "radar") ((j.radar || {}).nowcast || []).slice(0, 3).forEach(f => list.push({ ...f, kind: "nowcast" }));
+    if (layerKind === "satellite") {
+      list.length = 0;
+      ((j.satellite || {}).infrared || []).slice(-12).forEach(f => list.push({ ...f, kind: "past" }));
+    }
+    if (!list.length) return;
+    frames = list;
+    show(frames.length - 1);
+    if (!userPaused && !timer) play();
+  } catch (e) { frameEl.textContent = "offline"; }
+}
+build();
+setInterval(build, 5 * 60 * 1000);   // fresh frames every 5 min
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { pause(); }
+  else if (!userPaused) { play(); }
+});
+
+/* ---------------- model map explorer (every model x product) ---------------- */
+const MD = {"catalog":{"GFS":[{"key":"refc","label":"Composite radar - simulated reflectivity"},{"key":"500_vort","label":"500 mb - Heights + Vorticity + Wind"},{"key":"500_tmp","label":"500 mb - Heights + Temperature + Wind"},{"key":"850_tmp","label":"850 mb - Heights + Temperature + Wind"},{"key":"925_tmp","label":"925 mb - Heights + Temperature + Wind"},{"key":"700_rh","label":"700 mb - Relative Humidity + Heights"},{"key":"300_jet","label":"300 mb - Jet Stream (isotachs + heights)"},{"key":"250_jet","label":"250 mb - Heights + Jet Winds"},{"key":"200_jet","label":"200 mb - Heights + Jet Winds"},{"key":"sfc_mslp","label":"Surface - MSLP + Fronts-level winds + Temperature"},{"key":"cape_wind","label":"Surface - CAPE + Winds (instability)"},{"key":"mucape","label":"MUCAPE - Most-Unstable CAPE"},{"key":"pwat","label":"Precipitable Water (PWAT)"},{"key":"sfc_gust","label":"Surface Wind Gusts + Winds"},{"key":"tcdc","label":"Total Cloud Cover"},{"key":"vis","label":"Surface Visibility"},{"key":"snow","label":"Snow Depth (accumulated)"},{"key":"prate","label":"Precipitation Rate"}],"NAM":[{"key":"refc","label":"Composite radar - simulated reflectivity"},{"key":"500_vort","label":"500 mb - Heights + Vorticity + Wind"},{"key":"500_tmp","label":"500 mb - Heights + Temperature + Wind"},{"key":"850_tmp","label":"850 mb - Heights + Temperature + Wind"},{"key":"925_tmp","label":"925 mb - Heights + Temperature + Wind"},{"key":"700_rh","label":"700 mb - Relative Humidity + Heights"},{"key":"300_jet","label":"300 mb - Jet Stream (isotachs + heights)"},{"key":"250_jet","label":"250 mb - Heights + Jet Winds"},{"key":"200_jet","label":"200 mb - Heights + Jet Winds"},{"key":"sfc_mslp","label":"Surface - MSLP + Fronts-level winds + Temperature"},{"key":"cape_wind","label":"Surface - CAPE + Winds (instability)"},{"key":"pwat","label":"Precipitable Water (PWAT)"},{"key":"sfc_gust","label":"Surface Wind Gusts + Winds"},{"key":"tcdc","label":"Total Cloud Cover"},{"key":"vis","label":"Surface Visibility"},{"key":"snow","label":"Snow Depth (accumulated)"}],"RAP":[{"key":"refc","label":"Composite radar - simulated reflectivity"},{"key":"500_vort","label":"500 mb - Heights + Vorticity + Wind"},{"key":"500_tmp","label":"500 mb - Heights + Temperature + Wind"},{"key":"850_tmp","label":"850 mb - Heights + Temperature + Wind"},{"key":"925_tmp","label":"925 mb - Heights + Temperature + Wind"},{"key":"300_jet","label":"300 mb - Jet Stream (isotachs + heights)"},{"key":"250_jet","label":"250 mb - Heights + Jet Winds"},{"key":"200_jet","label":"200 mb - Heights + Jet Winds"},{"key":"sfc_mslp","label":"Surface - MSLP + Fronts-level winds + Temperature"},{"key":"cape_wind","label":"Surface - CAPE + Winds (instability)"},{"key":"mucape","label":"MUCAPE - Most-Unstable CAPE"},{"key":"pwat","label":"Precipitable Water (PWAT)"},{"key":"tcdc","label":"Total Cloud Cover"},{"key":"vis","label":"Surface Visibility"}],"GEFS":[{"key":"500_vort","label":"500 mb - Heights + Vorticity + Wind"},{"key":"500_tmp","label":"500 mb - Heights + Temperature + Wind"},{"key":"850_tmp","label":"850 mb - Heights + Temperature + Wind"},{"key":"925_tmp","label":"925 mb - Heights + Temperature + Wind"},{"key":"700_rh","label":"700 mb - Relative Humidity + Heights"},{"key":"300_jet","label":"300 mb - Jet Stream (isotachs + heights)"},{"key":"250_jet","label":"250 mb - Heights + Jet Winds"},{"key":"200_jet","label":"200 mb - Heights + Jet Winds"},{"key":"sfc_mslp","label":"Surface - MSLP + Fronts-level winds + Temperature"},{"key":"pwat","label":"Precipitable Water (PWAT)"},{"key":"tcdc","label":"Total Cloud Cover"}],"GEFS-Spread":[{"key":"h500_spread","label":"500 mb Height SPREAD (ensemble uncertainty)"}],"ECMWF":[{"key":"500_vort","label":"500 mb - Heights + Vorticity + Wind"},{"key":"500_tmp","label":"500 mb - Heights + Temperature + Wind"},{"key":"850_tmp","label":"850 mb - Heights + Temperature + Wind"},{"key":"300_jet","label":"300 mb - Jet Stream (isotachs + heights)"},{"key":"250_jet","label":"250 mb - Heights + Jet Winds"},{"key":"sfc_mslp","label":"Surface - MSLP + Fronts-level winds + Temperature"},{"key":"pwat","label":"Precipitable Water (PWAT)"},{"key":"tcdc","label":"Total Cloud Cover"}],"RRFS":[{"key":"500_vort","label":"500 mb - Heights + Vorticity + Wind"},{"key":"500_tmp","label":"500 mb - Heights + Temperature + Wind"},{"key":"850_tmp","label":"850 mb - Heights + Temperature + Wind"},{"key":"925_tmp","label":"925 mb - Heights + Temperature + Wind"},{"key":"300_jet","label":"300 mb - Jet Stream (isotachs + heights)"},{"key":"250_jet","label":"250 mb - Heights + Jet Winds"},{"key":"200_jet","label":"200 mb - Heights + Jet Winds"},{"key":"pwat","label":"Precipitable Water (PWAT)"}],"HRRR":[{"key":"refc","label":"Composite radar - simulated reflectivity"},{"key":"500_vort","label":"500 mb - Heights + Vorticity + Wind"},{"key":"500_tmp","label":"500 mb - Heights + Temperature + Wind"},{"key":"850_tmp","label":"850 mb - Heights + Temperature + Wind"},{"key":"925_tmp","label":"925 mb - Heights + Temperature + Wind"},{"key":"700_rh","label":"700 mb - Relative Humidity + Heights"},{"key":"300_jet","label":"300 mb - Jet Stream (isotachs + heights)"},{"key":"250_jet","label":"250 mb - Heights + Jet Winds"},{"key":"200_jet","label":"200 mb - Heights + Jet Winds"},{"key":"sfc_mslp","label":"Surface - MSLP + Fronts-level winds + Temperature"},{"key":"cape_wind","label":"Surface - CAPE + Winds (instability)"},{"key":"mucape","label":"MUCAPE - Most-Unstable CAPE"},{"key":"pwat","label":"Precipitable Water (PWAT)"},{"key":"sfc_gust","label":"Surface Wind Gusts + Winds"},{"key":"tcdc","label":"Total Cloud Cover"},{"key":"vis","label":"Surface Visibility"},{"key":"snow","label":"Snow Depth (accumulated)"},{"key":"prate","label":"Precipitation Rate"}],"NBM":[{"key":"nbm_temp","label":"NBM Temperature \u00b7 Blend of Models"},{"key":"nbm_gust","label":"NBM Wind Gust \u00b7 Blend of Models"},{"key":"nbm_cape","label":"NBM SBCAPE \u00b7 Blend of Models"},{"key":"nbm_refc","label":"NBM Max Simulated Reflectivity \u00b7 Blend of Models"}],"CFS":[{"key":"500_vort","label":"500 mb - Heights + Vorticity + Wind"},{"key":"500_tmp","label":"500 mb - Heights + Temperature + Wind"},{"key":"850_tmp","label":"850 mb - Heights + Temperature + Wind"},{"key":"925_tmp","label":"925 mb - Heights + Temperature + Wind"},{"key":"700_rh","label":"700 mb - Relative Humidity + Heights"},{"key":"300_jet","label":"300 mb - Jet Stream (isotachs + heights)"},{"key":"250_jet","label":"250 mb - Heights + Jet Winds"},{"key":"200_jet","label":"200 mb - Heights + Jet Winds"}],"AIFS":[{"key":"500_vort","label":"500 mb - Heights + Vorticity + Wind"},{"key":"500_tmp","label":"500 mb - Heights + Temperature + Wind"},{"key":"850_tmp","label":"850 mb - Heights + Temperature + Wind"},{"key":"300_jet","label":"300 mb - Jet Stream (isotachs + heights)"},{"key":"sfc_mslp","label":"Surface - MSLP + Fronts-level winds + Temperature"},{"key":"pwat","label":"Precipitable Water (PWAT)"},{"key":"tcdc","label":"Total Cloud Cover"}],"AIFS-ENS":[{"key":"500_vort","label":"500 mb - Heights + Vorticity + Wind"},{"key":"500_tmp","label":"500 mb - Heights + Temperature + Wind"},{"key":"850_tmp","label":"850 mb - Heights + Temperature + Wind"},{"key":"300_jet","label":"300 mb - Jet Stream (isotachs + heights)"},{"key":"250_jet","label":"250 mb - Heights + Jet Winds"},{"key":"sfc_mslp","label":"Surface - MSLP + Fronts-level winds + Temperature"},{"key":"pwat","label":"Precipitable Water (PWAT)"},{"key":"tcdc","label":"Total Cloud Cover"}],"AI-GraphCast":[{"key":"500_vort","label":"500 mb - Heights + Vorticity + Wind"},{"key":"500_tmp","label":"500 mb - Heights + Temperature + Wind"},{"key":"850_tmp","label":"850 mb - Heights + Temperature + Wind"},{"key":"sfc_mslp","label":"Surface - MSLP + Fronts-level winds + Temperature"},{"key":"ai_precip","label":"6-hour Precipitation Accumulation (AI)"}],"AI-Pangu":[{"key":"500_vort","label":"500 mb - Heights + Vorticity + Wind"},{"key":"500_tmp","label":"500 mb - Heights + Temperature + Wind"},{"key":"850_tmp","label":"850 mb - Heights + Temperature + Wind"},{"key":"sfc_mslp","label":"Surface - MSLP + Fronts-level winds + Temperature"}],"AI-FourCastNet":[{"key":"500_vort","label":"500 mb - Heights + Vorticity + Wind"},{"key":"500_tmp","label":"500 mb - Heights + Temperature + Wind"},{"key":"850_tmp","label":"850 mb - Heights + Temperature + Wind"},{"key":"sfc_mslp","label":"Surface - MSLP + Fronts-level winds + Temperature"},{"key":"pwat","label":"Precipitable Water (PWAT)"}],"AI-Aurora":[{"key":"500_vort","label":"500 mb - Heights + Vorticity + Wind"},{"key":"500_tmp","label":"500 mb - Heights + Temperature + Wind"},{"key":"850_tmp","label":"850 mb - Heights + Temperature + Wind"},{"key":"sfc_mslp","label":"Surface - MSLP + Fronts-level winds + Temperature"}],"HREF":[{"key":"cam_pmmn","label":"PMMN Composite Reflectivity (ensemble)"},{"key":"cam_mean_500","label":"Ensemble-mean 500 mb - Heights + Vorticity + Wind"},{"key":"cam_mean_srh","label":"Ensemble-mean 0-3 km Storm-Relative Helicity"},{"key":"cam_prob_uphl","label":"Probability Updraft Helicity > 75 (rotating storms)"},{"key":"cam_prob_ltng","label":"Probability of Lightning (total lightning)"},{"key":"mucape","label":"MUCAPE - Most-Unstable CAPE"}],"REFS":[{"key":"cam_pmmn","label":"PMMN Composite Reflectivity (ensemble)"},{"key":"cam_mean_500","label":"Ensemble-mean 500 mb - Heights + Vorticity + Wind"},{"key":"cam_mean_srh","label":"Ensemble-mean 0-3 km Storm-Relative Helicity"},{"key":"cam_prob_uphl","label":"Probability Updraft Helicity > 75 (rotating storms)"},{"key":"cam_prob_ltng","label":"Probability of Lightning (total lightning)"},{"key":"cam_h500_spread","label":"500 mb Height SPREAD (ensemble uncertainty)"},{"key":"mucape","label":"MUCAPE - Most-Unstable CAPE"}],"MPAS":[{"key":"wspd","label":"10 m Wind Speed"},{"key":"t2m","label":"2 m Temperature"},{"key":"cape","label":"Surface-Based CAPE"},{"key":"shear","label":"Wind Shear"},{"key":"refl10cm_1km","label":"Radar Reflectivity + SLP + Wind"},{"key":"brightnessT","label":"IR Brightness Temp (satellite)"},{"key":"precipw","label":"Precipitable Water"},{"key":"winds_250hPa","label":"250 mb Winds (jet level)"},{"key":"winds_500hPa","label":"500 mb Winds"},{"key":"relhum_500hPa","label":"500 mb RH + Height + Wind"},{"key":"relhum_700hPa","label":"700 mb RH + Height + Wind"},{"key":"vorticity_500hPa","label":"500 mb Vorticity + Height + Wind"},{"key":"vorticity_850hPa","label":"850 mb Vorticity + Height + Wind"},{"key":"acpc1","label":"1 h Accum. Precipitation"},{"key":"acpc6","label":"6 h Accum. Precipitation"},{"key":"acpc24","label":"24 h Accum. Precipitation"}],"FV3 (SHiELD)":[{"key":"max_reflectivity_wind","label":"Composite Radar Reflectivity + Wind"},{"key":"base_reflectivity_wind","label":"Base Radar Reflectivity + Wind"},{"key":"TMP2m","label":"2 m Temperature"},{"key":"CAPE","label":"Surface-Based CAPE"},{"key":"precip_accum","label":"Total Accumulated Precipitation"},{"key":"simulatedir","label":"Simulated IR Satellite"},{"key":"pwat_slp_wind850","label":"PWAT + MSLP + 850 mb Wind"},{"key":"h500_slp","label":"500 mb Height + MSLP"},{"key":"vort500_hgt_wind","label":"500 mb Vorticity + Heights + Wind"},{"key":"uh25max_swath","label":"Max Updraft Helicity 2-5 km"},{"key":"shr06","label":"0-6 km Bulk Shear"},{"key":"maxwind10m","label":"Maximum 10 m Wind"},{"key":"DPT2m","label":"2 m Dew Point"},{"key":"t850_hgt_wind","label":"850 mb Temp + Heights + Wind"},{"key":"vort850_hgt500_wind200","label":"850 mb Vort + 500 mb Hgt + 200 mb Wind"},{"key":"pcpn_slp_thk","label":"Precip + MSLP + Thickness"},{"key":"precip_snow_slp_wind","label":"Rain/Mix/Snow + MSLP + Wind"},{"key":"shear_slp","label":"Wind Shear + MSLP"},{"key":"maxwind10m_swath","label":"Run-Max 10 m Wind Swath"},{"key":"maxuvv","label":"Max Updraft Velocity"},{"key":"cond","label":"Total Condensate + VIL"},{"key":"iwlw_slp_wind","label":"Ice/Liquid Water Path + MSLP"},{"key":"BRN","label":"Bulk Richardson Number"},{"key":"windspeed","label":"Surface Wind Speed"},{"key":"wind10m","label":"10 m Wind + Barbs"}]},"rend":[{"model":"AIFS","product":"500_vort","region":"etn","cycle":"2026091300","frames":[{"fh":24,"url":"model_maps/AIFS_500_vort_f024_2026091300_etn.png"}]},{"model":"GEFS","product":"500_tmp","region":"etn","cycle":"2026091300","frames":[{"fh":60,"url":"model_maps/GEFS_500_tmp_f060_2026091300_etn.png"}]},{"model":"GEFS","product":"500_tmp","region":"us","cycle":"2026091300","frames":[{"fh":60,"url":"model_maps/GEFS_500_tmp_f060_2026091300_us.png"}]},{"model":"GEFS","product":"500_vort","region":"etn","cycle":"2026091300","frames":[{"fh":60,"url":"model_maps/GEFS_500_vort_f060_2026091300_etn.png"}]},{"model":"GEFS","product":"500_vort","region":"us","cycle":"2026091300","frames":[{"fh":60,"url":"model_maps/GEFS_500_vort_f060_2026091300_us.png"}]},{"model":"GEFS","product":"850_tmp","region":"etn","cycle":"2026091300","frames":[{"fh":60,"url":"model_maps/GEFS_850_tmp_f060_2026091300_etn.png"}]},{"model":"GFS","product":"200_jet","region":"etn","cycle":"2026091300","frames":[{"fh":36,"url":"model_maps/GFS_200_jet_f036_2026091300_etn.png"}]},{"model":"GFS","product":"200_jet","region":"us","cycle":"2026091300","frames":[{"fh":36,"url":"model_maps/GFS_200_jet_f036_2026091300_us.png"}]},{"model":"GFS","product":"250_jet","region":"etn","cycle":"2026091300","frames":[{"fh":36,"url":"model_maps/GFS_250_jet_f036_2026091300_etn.png"}]},{"model":"GFS","product":"250_jet","region":"us","cycle":"2026091300","frames":[{"fh":36,"url":"model_maps/GFS_250_jet_f036_2026091300_us.png"}]},{"model":"GFS","product":"300_jet","region":"etn","cycle":"2026091300","frames":[{"fh":36,"url":"model_maps/GFS_300_jet_f036_2026091300_etn.png"}]},{"model":"GFS","product":"300_jet","region":"us","cycle":"2026091300","frames":[{"fh":36,"url":"model_maps/GFS_300_jet_f036_2026091300_us.png"}]},{"model":"GFS","product":"500_tmp","region":"etn","cycle":"2026091218","frames":[{"fh":36,"url":"model_maps/GFS_500_tmp_f036_2026091218_etn.png"}]},{"model":"GFS","product":"500_tmp","region":"us","cycle":"2026091218","frames":[{"fh":36,"url":"model_maps/GFS_500_tmp_f036_2026091218_us.png"}]},{"model":"GFS","product":"500_vort","region":"etn","cycle":"2026091300","frames":[{"fh":24,"url":"model_maps/GFS_500_vort_f024_2026091300_etn.png"}]},{"model":"GFS","product":"500_vort","region":"us","cycle":"2026091306","frames":[{"fh":24,"url":"model_maps/GFS_500_vort_f024_2026091306_us.png"}]},{"model":"GFS","product":"700_rh","region":"etn","cycle":"2026091300","frames":[{"fh":24,"url":"model_maps/GFS_700_rh_f024_2026091300_etn.png"}]},{"model":"GFS","product":"700_rh","region":"us","cycle":"2026091218","frames":[{"fh":36,"url":"model_maps/GFS_700_rh_f036_2026091218_us.png"}]},{"model":"GFS","product":"850_tmp","region":"etn","cycle":"2026091300","frames":[{"fh":24,"url":"model_maps/GFS_850_tmp_f024_2026091300_etn.png"}]},{"model":"GFS","product":"850_tmp","region":"us","cycle":"2026091218","frames":[{"fh":36,"url":"model_maps/GFS_850_tmp_f036_2026091218_us.png"}]},{"model":"GFS","product":"925_tmp","region":"etn","cycle":"2026091218","frames":[{"fh":36,"url":"model_maps/GFS_925_tmp_f036_2026091218_etn.png"}]},{"model":"GFS","product":"925_tmp","region":"us","cycle":"2026091218","frames":[{"fh":36,"url":"model_maps/GFS_925_tmp_f036_2026091218_us.png"}]},{"model":"GFS","product":"cape_wind","region":"etn","cycle":"2026091300","frames":[{"fh":36,"url":"model_maps/GFS_cape_wind_f036_2026091300_etn.png"}]},{"model":"GFS","product":"cape_wind","region":"us","cycle":"2026091300","frames":[{"fh":36,"url":"model_maps/GFS_cape_wind_f036_2026091300_us.png"}]},{"model":"GFS","product":"mucape","region":"etn","cycle":"2026091300","frames":[{"fh":36,"url":"model_maps/GFS_mucape_f036_2026091300_etn.png"}]},{"model":"GFS","product":"mucape","region":"us","cycle":"2026091300","frames":[{"fh":36,"url":"model_maps/GFS_mucape_f036_2026091300_us.png"}]},{"model":"GFS","product":"prate","region":"etn","cycle":"2026091218","frames":[{"fh":36,"url":"model_maps/GFS_prate_f036_2026091218_etn.png"}]},{"model":"GFS","product":"prate","region":"us","cycle":"2026091218","frames":[{"fh":36,"url":"model_maps/GFS_prate_f036_2026091218_us.png"}]},{"model":"GFS","product":"pwat","region":"etn","cycle":"2026091218","frames":[{"fh":36,"url":"model_maps/GFS_pwat_f036_2026091218_etn.png"}]},{"model":"GFS","product":"pwat","region":"us","cycle":"2026091218","frames":[{"fh":36,"url":"model_maps/GFS_pwat_f036_2026091218_us.png"}]},{"model":"GFS","product":"refc","region":"etn","cycle":"2026091218","frames":[{"fh":36,"url":"model_maps/GFS_refc_f036_2026091218_etn.png"}]},{"model":"GFS","product":"refc","region":"us","cycle":"2026091218","frames":[{"fh":36,"url":"model_maps/GFS_refc_f036_2026091218_us.png"}]},{"model":"GFS","product":"sfc_gust","region":"etn","cycle":"2026091218","frames":[{"fh":36,"url":"model_maps/GFS_sfc_gust_f036_2026091218_etn.png"}]},{"model":"GFS","product":"sfc_gust","region":"us","cycle":"2026091218","frames":[{"fh":36,"url":"model_maps/GFS_sfc_gust_f036_2026091218_us.png"}]},{"model":"GFS","product":"sfc_mslp","region":"etn","cycle":"2026091300","frames":[{"fh":36,"url":"model_maps/GFS_sfc_mslp_f036_2026091300_etn.png"}]},{"model":"GFS","product":"sfc_mslp","region":"us","cycle":"2026091300","frames":[{"fh":36,"url":"model_maps/GFS_sfc_mslp_f036_2026091300_us.png"}]},{"model":"GFS","product":"snow","region":"etn","cycle":"2026091218","frames":[{"fh":36,"url":"model_maps/GFS_snow_f036_2026091218_etn.png"}]},{"model":"GFS","product":"snow","region":"us","cycle":"2026091218","frames":[{"fh":36,"url":"model_maps/GFS_snow_f036_2026091218_us.png"}]},{"model":"GFS","product":"tcdc","region":"etn","cycle":"2026091218","frames":[{"fh":36,"url":"model_maps/GFS_tcdc_f036_2026091218_etn.png"}]},{"model":"GFS","product":"tcdc","region":"us","cycle":"2026091218","frames":[{"fh":36,"url":"model_maps/GFS_tcdc_f036_2026091218_us.png"}]},{"model":"GFS","product":"vis","region":"etn","cycle":"2026091218","frames":[{"fh":36,"url":"model_maps/GFS_vis_f036_2026091218_etn.png"}]},{"model":"GFS","product":"vis","region":"us","cycle":"2026091218","frames":[{"fh":36,"url":"model_maps/GFS_vis_f036_2026091218_us.png"}]},{"model":"NAM","product":"200_jet","region":"etn","cycle":"2026091300","frames":[{"fh":18,"url":"model_maps/NAM_200_jet_f018_2026091300_etn.png"}]},{"model":"NAM","product":"250_jet","region":"etn","cycle":"2026091300","frames":[{"fh":18,"url":"model_maps/NAM_250_jet_f018_2026091300_etn.png"}]},{"model":"NAM","product":"250_jet","region":"us","cycle":"2026091300","frames":[{"fh":18,"url":"model_maps/NAM_250_jet_f018_2026091300_us.png"}]},{"model":"NAM","product":"300_jet","region":"etn","cycle":"2026091300","frames":[{"fh":18,"url":"model_maps/NAM_300_jet_f018_2026091300_etn.png"}]},{"model":"NAM","product":"300_jet","region":"us","cycle":"2026091300","frames":[{"fh":18,"url":"model_maps/NAM_300_jet_f018_2026091300_us.png"}]},{"model":"NAM","product":"500_tmp","region":"etn","cycle":"2026091218","frames":[{"fh":18,"url":"model_maps/NAM_500_tmp_f018_2026091218_etn.png"}]},{"model":"NAM","product":"500_tmp","region":"us","cycle":"2026091300","frames":[{"fh":18,"url":"model_maps/NAM_500_tmp_f018_2026091300_us.png"}]},{"model":"NAM","product":"500_vort","region":"etn","cycle":"2026091306","frames":[{"fh":12,"url":"model_maps/NAM_500_vort_f012_2026091306_etn.png"}]},{"model":"NAM","product":"500_vort","region":"us","cycle":"2026091218","frames":[{"fh":18,"url":"model_maps/NAM_500_vort_f018_2026091218_us.png"}]},{"model":"NAM","product":"700_rh","region":"etn","cycle":"2026091300","frames":[{"fh":18,"url":"model_maps/NAM_700_rh_f018_2026091300_etn.png"}]},{"model":"NAM","product":"700_rh","region":"us","cycle":"2026091300","frames":[{"fh":18,"url":"model_maps/NAM_700_rh_f018_2026091300_us.png"}]},{"model":"NAM","product":"850_tmp","region":"etn","cycle":"2026091300","frames":[{"fh":18,"url":"model_maps/NAM_850_tmp_f018_2026091300_etn.png"}]},{"model":"NAM","product":"850_tmp","region":"us","cycle":"2026091300","frames":[{"fh":18,"url":"model_maps/NAM_850_tmp_f018_2026091300_us.png"}]},{"model":"NAM","product":"925_tmp","region":"etn","cycle":"2026091300","frames":[{"fh":18,"url":"model_maps/NAM_925_tmp_f018_2026091300_etn.png"}]},{"model":"NAM","product":"925_tmp","region":"us","cycle":"2026091300","frames":[{"fh":18,"url":"model_maps/NAM_925_tmp_f018_2026091300_us.png"}]},{"model":"NAM","product":"refc","region":"etn","cycle":"2026091218","frames":[{"fh":18,"url":"model_maps/NAM_refc_f018_2026091218_etn.png"}]},{"model":"NAM","product":"refc","region":"us","cycle":"2026091218","frames":[{"fh":18,"url":"model_maps/NAM_refc_f018_2026091218_us.png"}]},{"model":"NAM","product":"snow","region":"etn","cycle":"2026091300","frames":[{"fh":18,"url":"model_maps/NAM_snow_f018_2026091300_etn.png"}]},{"model":"NAM","product":"snow","region":"us","cycle":"2026091300","frames":[{"fh":18,"url":"model_maps/NAM_snow_f018_2026091300_us.png"}]},{"model":"NAM","product":"vis","region":"us","cycle":"2026091300","frames":[{"fh":18,"url":"model_maps/NAM_vis_f018_2026091300_us.png"}]},{"model":"RAP","product":"200_jet","region":"etn","cycle":"2026091307","frames":[{"fh":9,"url":"model_maps/RAP_200_jet_f009_2026091307_etn.png"}]},{"model":"RAP","product":"200_jet","region":"us","cycle":"2026091307","frames":[{"fh":9,"url":"model_maps/RAP_200_jet_f009_2026091307_us.png"}]},{"model":"RAP","product":"250_jet","region":"etn","cycle":"2026091307","frames":[{"fh":9,"url":"model_maps/RAP_250_jet_f009_2026091307_etn.png"}]},{"model":"RAP","product":"250_jet","region":"us","cycle":"2026091307","frames":[{"fh":9,"url":"model_maps/RAP_250_jet_f009_2026091307_us.png"}]},{"model":"RAP","product":"300_jet","region":"etn","cycle":"2026091307","frames":[{"fh":9,"url":"model_maps/RAP_300_jet_f009_2026091307_etn.png"}]},{"model":"RAP","product":"300_jet","region":"us","cycle":"2026091307","frames":[{"fh":9,"url":"model_maps/RAP_300_jet_f009_2026091307_us.png"}]},{"model":"RAP","product":"500_tmp","region":"etn","cycle":"2026091305","frames":[{"fh":9,"url":"model_maps/RAP_500_tmp_f009_2026091305_etn.png"}]},{"model":"RAP","product":"500_tmp","region":"us","cycle":"2026091305","frames":[{"fh":9,"url":"model_maps/RAP_500_tmp_f009_2026091305_us.png"}]},{"model":"RAP","product":"500_vort","region":"etn","cycle":"2026091305","frames":[{"fh":9,"url":"model_maps/RAP_500_vort_f009_2026091305_etn.png"}]},{"model":"RAP","product":"500_vort","region":"us","cycle":"2026091305","frames":[{"fh":9,"url":"model_maps/RAP_500_vort_f009_2026091305_us.png"}]},{"model":"RAP","product":"850_tmp","region":"etn","cycle":"2026091305","frames":[{"fh":9,"url":"model_maps/RAP_850_tmp_f009_2026091305_etn.png"}]},{"model":"RAP","product":"850_tmp","region":"us","cycle":"2026091305","frames":[{"fh":9,"url":"model_maps/RAP_850_tmp_f009_2026091305_us.png"}]},{"model":"RAP","product":"925_tmp","region":"etn","cycle":"2026091307","frames":[{"fh":9,"url":"model_maps/RAP_925_tmp_f009_2026091307_etn.png"}]},{"model":"RAP","product":"925_tmp","region":"us","cycle":"2026091307","frames":[{"fh":9,"url":"model_maps/RAP_925_tmp_f009_2026091307_us.png"}]},{"model":"RAP","product":"cape_wind","region":"etn","cycle":"2026091307","frames":[{"fh":9,"url":"model_maps/RAP_cape_wind_f009_2026091307_etn.png"}]},{"model":"RAP","product":"cape_wind","region":"us","cycle":"2026091307","frames":[{"fh":9,"url":"model_maps/RAP_cape_wind_f009_2026091307_us.png"}]},{"model":"RAP","product":"mucape","region":"etn","cycle":"2026091306","frames":[{"fh":9,"url":"model_maps/RAP_mucape_f009_2026091306_etn.png"}]},{"model":"RAP","product":"mucape","region":"us","cycle":"2026091308","frames":[{"fh":9,"url":"model_maps/RAP_mucape_f009_2026091308_us.png"}]},{"model":"RAP","product":"pwat","region":"etn","cycle":"2026091308","frames":[{"fh":9,"url":"model_maps/RAP_pwat_f009_2026091308_etn.png"}]},{"model":"RAP","product":"pwat","region":"us","cycle":"2026091308","frames":[{"fh":9,"url":"model_maps/RAP_pwat_f009_2026091308_us.png"}]},{"model":"RAP","product":"refc","region":"etn","cycle":"2026091305","frames":[{"fh":9,"url":"model_maps/RAP_refc_f009_2026091305_etn.png"}]},{"model":"RAP","product":"refc","region":"us","cycle":"2026091305","frames":[{"fh":9,"url":"model_maps/RAP_refc_f009_2026091305_us.png"}]},{"model":"RAP","product":"tcdc","region":"etn","cycle":"2026091308","frames":[{"fh":9,"url":"model_maps/RAP_tcdc_f009_2026091308_etn.png"}]},{"model":"RAP","product":"tcdc","region":"us","cycle":"2026091308","frames":[{"fh":9,"url":"model_maps/RAP_tcdc_f009_2026091308_us.png"}]},{"model":"RAP","product":"vis","region":"etn","cycle":"2026091308","frames":[{"fh":9,"url":"model_maps/RAP_vis_f009_2026091308_etn.png"}]},{"model":"RAP","product":"vis","region":"us","cycle":"2026091308","frames":[{"fh":9,"url":"model_maps/RAP_vis_f009_2026091308_us.png"}]},{"model":"RRFS","product":"500_vort","region":"etn","cycle":"2026091306","frames":[{"fh":12,"url":"model_maps/RRFS_500_vort_f012_2026091306_etn.png"}]}],"ms":{"mpas":{"brightnessT":{"init":"2025100600","frames":[{"fh":103,"url":"aimodels/mpas_brightnessT_conus_f103_2025100600.jpg"},{"fh":104,"url":"aimodels/mpas_brightnessT_conus_f104_2025100600.jpg"},{"fh":105,"url":"aimodels/mpas_brightnessT_conus_f105_2025100600.jpg"},{"fh":106,"url":"aimodels/mpas_brightnessT_conus_f106_2025100600.jpg"},{"fh":107,"url":"aimodels/mpas_brightnessT_conus_f107_2025100600.jpg"},{"fh":108,"url":"aimodels/mpas_brightnessT_conus_f108_2025100600.jpg"},{"fh":109,"url":"aimodels/mpas_brightnessT_conus_f109_2025100600.jpg"},{"fh":110,"url":"aimodels/mpas_brightnessT_conus_f110_2025100600.jpg"},{"fh":111,"url":"aimodels/mpas_brightnessT_conus_f111_2025100600.jpg"},{"fh":112,"url":"aimodels/mpas_brightnessT_conus_f112_2025100600.jpg"},{"fh":113,"url":"aimodels/mpas_brightnessT_conus_f113_2025100600.jpg"},{"fh":114,"url":"aimodels/mpas_brightnessT_conus_f114_2025100600.jpg"}]},"cape":{"init":"2025100600","frames":[{"fh":103,"url":"aimodels/mpas_cape_conus_f103_2025100600.jpg"},{"fh":104,"url":"aimodels/mpas_cape_conus_f104_2025100600.jpg"},{"fh":105,"url":"aimodels/mpas_cape_conus_f105_2025100600.jpg"},{"fh":106,"url":"aimodels/mpas_cape_conus_f106_2025100600.jpg"},{"fh":107,"url":"aimodels/mpas_cape_conus_f107_2025100600.jpg"},{"fh":108,"url":"aimodels/mpas_cape_conus_f108_2025100600.jpg"},{"fh":109,"url":"aimodels/mpas_cape_conus_f109_2025100600.jpg"},{"fh":110,"url":"aimodels/mpas_cape_conus_f110_2025100600.jpg"},{"fh":111,"url":"aimodels/mpas_cape_conus_f111_2025100600.jpg"},{"fh":112,"url":"aimodels/mpas_cape_conus_f112_2025100600.jpg"},{"fh":113,"url":"aimodels/mpas_cape_conus_f113_2025100600.jpg"},{"fh":114,"url":"aimodels/mpas_cape_conus_f114_2025100600.jpg"}]},"refl10cm_1km":{"init":"2025100600","frames":[{"fh":103,"url":"aimodels/mpas_refl10cm_1km_conus_f103_2025100600.jpg"},{"fh":104,"url":"aimodels/mpas_refl10cm_1km_conus_f104_2025100600.jpg"},{"fh":105,"url":"aimodels/mpas_refl10cm_1km_conus_f105_2025100600.jpg"},{"fh":106,"url":"aimodels/mpas_refl10cm_1km_conus_f106_2025100600.jpg"},{"fh":107,"url":"aimodels/mpas_refl10cm_1km_conus_f107_2025100600.jpg"},{"fh":108,"url":"aimodels/mpas_refl10cm_1km_conus_f108_2025100600.jpg"},{"fh":109,"url":"aimodels/mpas_refl10cm_1km_conus_f109_2025100600.jpg"},{"fh":110,"url":"aimodels/mpas_refl10cm_1km_conus_f110_2025100600.jpg"},{"fh":111,"url":"aimodels/mpas_refl10cm_1km_conus_f111_2025100600.jpg"},{"fh":112,"url":"aimodels/mpas_refl10cm_1km_conus_f112_2025100600.jpg"},{"fh":113,"url":"aimodels/mpas_refl10cm_1km_conus_f113_2025100600.jpg"},{"fh":114,"url":"aimodels/mpas_refl10cm_1km_conus_f114_2025100600.jpg"}]},"shear":{"init":"2025100600","frames":[{"fh":103,"url":"aimodels/mpas_shear_conus_f103_2025100600.jpg"},{"fh":104,"url":"aimodels/mpas_shear_conus_f104_2025100600.jpg"},{"fh":105,"url":"aimodels/mpas_shear_conus_f105_2025100600.jpg"},{"fh":106,"url":"aimodels/mpas_shear_conus_f106_2025100600.jpg"},{"fh":107,"url":"aimodels/mpas_shear_conus_f107_2025100600.jpg"},{"fh":108,"url":"aimodels/mpas_shear_conus_f108_2025100600.jpg"},{"fh":109,"url":"aimodels/mpas_shear_conus_f109_2025100600.jpg"},{"fh":110,"url":"aimodels/mpas_shear_conus_f110_2025100600.jpg"},{"fh":111,"url":"aimodels/mpas_shear_conus_f111_2025100600.jpg"},{"fh":112,"url":"aimodels/mpas_shear_conus_f112_2025100600.jpg"},{"fh":113,"url":"aimodels/mpas_shear_conus_f113_2025100600.jpg"},{"fh":114,"url":"aimodels/mpas_shear_conus_f114_2025100600.jpg"}]},"t2m":{"init":"2025100600","frames":[{"fh":103,"url":"../aimodels/mpas_t2m_conus_f103_2025100600.jpg"},{"fh":104,"url":"../aimodels/mpas_t2m_conus_f104_2025100600.jpg"},{"fh":105,"url":"../aimodels/mpas_t2m_conus_f105_2025100600.jpg"},{"fh":106,"url":"../aimodels/mpas_t2m_conus_f106_2025100600.jpg"},{"fh":107,"url":"../aimodels/mpas_t2m_conus_f107_2025100600.jpg"},{"fh":108,"url":"../aimodels/mpas_t2m_conus_f108_2025100600.jpg"},{"fh":109,"url":"../aimodels/mpas_t2m_conus_f109_2025100600.jpg"},{"fh":110,"url":"../aimodels/mpas_t2m_conus_f110_2025100600.jpg"},{"fh":111,"url":"../aimodels/mpas_t2m_conus_f111_2025100600.jpg"},{"fh":112,"url":"../aimodels/mpas_t2m_conus_f112_2025100600.jpg"},{"fh":113,"url":"../aimodels/mpas_t2m_conus_f113_2025100600.jpg"},{"fh":114,"url":"../aimodels/mpas_t2m_conus_f114_2025100600.jpg"}]},"wspd":{"init":"2025100600","frames":[{"fh":103,"url":"../aimodels/mpas_wspd_conus_f103_2025100600.jpg"},{"fh":104,"url":"../aimodels/mpas_wspd_conus_f104_2025100600.jpg"},{"fh":105,"url":"../aimodels/mpas_wspd_conus_f105_2025100600.jpg"},{"fh":106,"url":"../aimodels/mpas_wspd_conus_f106_2025100600.jpg"},{"fh":107,"url":"../aimodels/mpas_wspd_conus_f107_2025100600.jpg"},{"fh":108,"url":"../aimodels/mpas_wspd_conus_f108_2025100600.jpg"},{"fh":109,"url":"../aimodels/mpas_wspd_conus_f109_2025100600.jpg"},{"fh":110,"url":"../aimodels/mpas_wspd_conus_f110_2025100600.jpg"},{"fh":111,"url":"../aimodels/mpas_wspd_conus_f111_2025100600.jpg"},{"fh":112,"url":"../aimodels/mpas_wspd_conus_f112_2025100600.jpg"},{"fh":113,"url":"../aimodels/mpas_wspd_conus_f113_2025100600.jpg"},{"fh":114,"url":"../aimodels/mpas_wspd_conus_f114_2025100600.jpg"}]}},"shield":{"DPT2m":{"init":"2026091212","frames":[{"fh":72,"url":"aimodels/shield_DPT2m_CONUS_f072_2026091212.jpg"},{"fh":75,"url":"aimodels/shield_DPT2m_CONUS_f075_2026091212.jpg"},{"fh":78,"url":"aimodels/shield_DPT2m_CONUS_f078_2026091212.jpg"},{"fh":81,"url":"aimodels/shield_DPT2m_CONUS_f081_2026091212.jpg"},{"fh":84,"url":"aimodels/shield_DPT2m_CONUS_f084_2026091212.jpg"},{"fh":87,"url":"aimodels/shield_DPT2m_CONUS_f087_2026091212.jpg"},{"fh":90,"url":"aimodels/shield_DPT2m_CONUS_f090_2026091212.jpg"},{"fh":93,"url":"aimodels/shield_DPT2m_CONUS_f093_2026091212.jpg"},{"fh":96,"url":"aimodels/shield_DPT2m_CONUS_f096_2026091212.jpg"},{"fh":99,"url":"aimodels/shield_DPT2m_CONUS_f099_2026091212.jpg"},{"fh":102,"url":"aimodels/shield_DPT2m_CONUS_f102_2026091212.jpg"},{"fh":105,"url":"aimodels/shield_DPT2m_CONUS_f105_2026091212.jpg"}]},"h500_slp":{"init":"2026091212","frames":[{"fh":87,"url":"../aimodels/shield_h500_slp_CONUS_f087_2026091212.jpg"},{"fh":90,"url":"../aimodels/shield_h500_slp_CONUS_f090_2026091212.jpg"},{"fh":93,"url":"../aimodels/shield_h500_slp_CONUS_f093_2026091212.jpg"},{"fh":96,"url":"../aimodels/shield_h500_slp_CONUS_f096_2026091212.jpg"},{"fh":99,"url":"../aimodels/shield_h500_slp_CONUS_f099_2026091212.jpg"},{"fh":102,"url":"../aimodels/shield_h500_slp_CONUS_f102_2026091212.jpg"},{"fh":105,"url":"../aimodels/shield_h500_slp_CONUS_f105_2026091212.jpg"},{"fh":108,"url":"../aimodels/shield_h500_slp_CONUS_f108_2026091212.jpg"},{"fh":111,"url":"../aimodels/shield_h500_slp_CONUS_f111_2026091212.jpg"},{"fh":114,"url":"../aimodels/shield_h500_slp_CONUS_f114_2026091212.jpg"},{"fh":117,"url":"../aimodels/shield_h500_slp_CONUS_f117_2026091212.jpg"},{"fh":120,"url":"../aimodels/shield_h500_slp_CONUS_f120_2026091212.jpg"}]},"maxwind10m":{"init":"2026091212","frames":[{"fh":72,"url":"aimodels/shield_maxwind10m_CONUS_f072_2026091212.jpg"},{"fh":75,"url":"aimodels/shield_maxwind10m_CONUS_f075_2026091212.jpg"},{"fh":78,"url":"aimodels/shield_maxwind10m_CONUS_f078_2026091212.jpg"},{"fh":81,"url":"aimodels/shield_maxwind10m_CONUS_f081_2026091212.jpg"},{"fh":84,"url":"aimodels/shield_maxwind10m_CONUS_f084_2026091212.jpg"},{"fh":87,"url":"aimodels/shield_maxwind10m_CONUS_f087_2026091212.jpg"},{"fh":90,"url":"aimodels/shield_maxwind10m_CONUS_f090_2026091212.jpg"},{"fh":93,"url":"aimodels/shield_maxwind10m_CONUS_f093_2026091212.jpg"},{"fh":96,"url":"aimodels/shield_maxwind10m_CONUS_f096_2026091212.jpg"},{"fh":99,"url":"aimodels/shield_maxwind10m_CONUS_f099_2026091212.jpg"},{"fh":102,"url":"aimodels/shield_maxwind10m_CONUS_f102_2026091212.jpg"},{"fh":105,"url":"aimodels/shield_maxwind10m_CONUS_f105_2026091212.jpg"}]},"shr06":{"init":"2026091212","frames":[{"fh":72,"url":"aimodels/shield_shr06_CONUS_f072_2026091212.jpg"},{"fh":75,"url":"aimodels/shield_shr06_CONUS_f075_2026091212.jpg"},{"fh":78,"url":"aimodels/shield_shr06_CONUS_f078_2026091212.jpg"},{"fh":81,"url":"aimodels/shield_shr06_CONUS_f081_2026091212.jpg"},{"fh":84,"url":"aimodels/shield_shr06_CONUS_f084_2026091212.jpg"},{"fh":87,"url":"aimodels/shield_shr06_CONUS_f087_2026091212.jpg"},{"fh":90,"url":"aimodels/shield_shr06_CONUS_f090_2026091212.jpg"},{"fh":93,"url":"aimodels/shield_shr06_CONUS_f093_2026091212.jpg"},{"fh":96,"url":"aimodels/shield_shr06_CONUS_f096_2026091212.jpg"},{"fh":99,"url":"aimodels/shield_shr06_CONUS_f099_2026091212.jpg"},{"fh":102,"url":"aimodels/shield_shr06_CONUS_f102_2026091212.jpg"},{"fh":105,"url":"aimodels/shield_shr06_CONUS_f105_2026091212.jpg"}]},"t850_hgt_wind":{"init":"2026091212","frames":[{"fh":24,"url":"aimodels/shield_t850_hgt_wind_CONUS_f024_2026091212.jpg"},{"fh":30,"url":"aimodels/shield_t850_hgt_wind_CONUS_f030_2026091212.jpg"},{"fh":36,"url":"aimodels/shield_t850_hgt_wind_CONUS_f036_2026091212.jpg"},{"fh":42,"url":"aimodels/shield_t850_hgt_wind_CONUS_f042_2026091212.jpg"},{"fh":48,"url":"aimodels/shield_t850_hgt_wind_CONUS_f048_2026091212.jpg"},{"fh":54,"url":"aimodels/shield_t850_hgt_wind_CONUS_f054_2026091212.jpg"},{"fh":60,"url":"aimodels/shield_t850_hgt_wind_CONUS_f060_2026091212.jpg"},{"fh":66,"url":"aimodels/shield_t850_hgt_wind_CONUS_f066_2026091212.jpg"},{"fh":72,"url":"aimodels/shield_t850_hgt_wind_CONUS_f072_2026091212.jpg"},{"fh":78,"url":"aimodels/shield_t850_hgt_wind_CONUS_f078_2026091212.jpg"},{"fh":84,"url":"aimodels/shield_t850_hgt_wind_CONUS_f084_2026091212.jpg"},{"fh":90,"url":"aimodels/shield_t850_hgt_wind_CONUS_f090_2026091212.jpg"}]},"uh25max_swath":{"init":"2026091212","frames":[{"fh":72,"url":"../aimodels/shield_uh25max_swath_CONUS_f072_2026091212.jpg"},{"fh":75,"url":"../aimodels/shield_uh25max_swath_CONUS_f075_2026091212.jpg"},{"fh":78,"url":"../aimodels/shield_uh25max_swath_CONUS_f078_2026091212.jpg"},{"fh":81,"url":"../aimodels/shield_uh25max_swath_CONUS_f081_2026091212.jpg"},{"fh":84,"url":"../aimodels/shield_uh25max_swath_CONUS_f084_2026091212.jpg"},{"fh":87,"url":"../aimodels/shield_uh25max_swath_CONUS_f087_2026091212.jpg"},{"fh":90,"url":"aimodels/shield_uh25max_swath_CONUS_f090_2026091212.jpg"},{"fh":93,"url":"aimodels/shield_uh25max_swath_CONUS_f093_2026091212.jpg"},{"fh":96,"url":"aimodels/shield_uh25max_swath_CONUS_f096_2026091212.jpg"},{"fh":99,"url":"aimodels/shield_uh25max_swath_CONUS_f099_2026091212.jpg"},{"fh":102,"url":"aimodels/shield_uh25max_swath_CONUS_f102_2026091212.jpg"},{"fh":105,"url":"aimodels/shield_uh25max_swath_CONUS_f105_2026091212.jpg"}]},"vort500_hgt_wind":{"init":"2026091212","frames":[{"fh":72,"url":"../aimodels/shield_vort500_hgt_wind_CONUS_f072_2026091212.jpg"},{"fh":75,"url":"../aimodels/shield_vort500_hgt_wind_CONUS_f075_2026091212.jpg"},{"fh":78,"url":"../aimodels/shield_vort500_hgt_wind_CONUS_f078_2026091212.jpg"},{"fh":81,"url":"../aimodels/shield_vort500_hgt_wind_CONUS_f081_2026091212.jpg"},{"fh":84,"url":"../aimodels/shield_vort500_hgt_wind_CONUS_f084_2026091212.jpg"},{"fh":87,"url":"../aimodels/shield_vort500_hgt_wind_CONUS_f087_2026091212.jpg"},{"fh":90,"url":"../aimodels/shield_vort500_hgt_wind_CONUS_f090_2026091212.jpg"},{"fh":93,"url":"../aimodels/shield_vort500_hgt_wind_CONUS_f093_2026091212.jpg"},{"fh":96,"url":"../aimodels/shield_vort500_hgt_wind_CONUS_f096_2026091212.jpg"},{"fh":99,"url":"../aimodels/shield_vort500_hgt_wind_CONUS_f099_2026091212.jpg"},{"fh":102,"url":"../aimodels/shield_vort500_hgt_wind_CONUS_f102_2026091212.jpg"},{"fh":105,"url":"../aimodels/shield_vort500_hgt_wind_CONUS_f105_2026091212.jpg"}]}}}};
+const mModel = document.getElementById("mModel"), mProd = document.getElementById("mProd");
+const mGo = document.getElementById("mGo"), mPlay = document.getElementById("mPlay");
+const mFrame = document.getElementById("mFrame"), mImg = document.getElementById("modelImg");
+const mMsg = document.getElementById("mMsg"), mInfo = document.getElementById("mInfo");
+const mRegion = document.getElementById("mRegion");
+
+function fillMProds() {
+  const prods = MD.catalog[mModel.value] || [];
+  mProd.innerHTML = prods.map(p => `<option value="${p.key}">${p.label}</option>`).join("")
+    || `<option value="">(no products)</option>`;
+}
+(function initModels() {
+  if (!Object.keys(MD.catalog).length) {
+    mMsg.textContent = "Model catalog unavailable in this build.";
+    mGo.disabled = true;
+    return;
+  }
+  const names = Object.keys(MD.catalog).sort((a, b) => {
+    const pri = m => (m.startsWith("AI-") ? 2 : (m === "HRRR" ? 0 : 1));
+    return pri(a) - pri(b) || a.localeCompare(b);
+  });
+  mModel.innerHTML = names.map(m =>
+    `<option value="${m}">${m === "MPAS" ? "NCAR MPAS (global 3.75 km)" : m === "FV3 (SHiELD)" ? "GFDL FV3 (SHiELD)" : m}</option>`).join("");
+  fillMProds();
+})();
+mModel.onchange = fillMProds;
+
+let mFrames = [], mIdx = 0, mTimer = null, mPlaying = false;
+function mShow(i) {
+  mIdx = i;
+  const f = mFrames[i];
+  if (!f) return;
+  mImg.src = f.url;
+  mFrame.value = String(f.fh);
+  mInfo.textContent = `F${String(f.fh).padStart(3, "0")} · ${i + 1}/${mFrames.length}`;
+}
+function mStep() { mShow((mIdx + 1) % mFrames.length); }
+function mStart() {
+  if (mFrames.length < 2) return;
+  mPlaying = true; mPlay.textContent = "⏸";
+  mTimer = setInterval(mStep, 800);
+}
+function mStop() {
+  mPlaying = false; mPlay.textContent = "▶";
+  clearInterval(mTimer);
+}
+mPlay.onclick = () => (mPlaying ? mStop() : mStart());
+mFrame.onchange = () => { const f = mFrames.find(x => String(x.fh) === mFrame.value); if (f) mShow(mFrames.indexOf(f)); };
+const mBack = document.getElementById("mBack");
+const mFwd = document.getElementById("mFwd");
+function mStepBtn(d) {
+  if (!mFrames.length) return;
+  mStop();
+  mShow((mIdx + d + mFrames.length) % mFrames.length);
+}
+mBack.onclick = () => mStepBtn(-1);
+mFwd.onclick = () => mStepBtn(1);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) mStop(); else if (mPlaying) mStop(), mStart();
+});
+
+function msFramesFor(model, prod) {
+  const key = model === "MPAS" ? "mpas" : (model.indexOf("FV3") === 0 ? "shield" : null);
+  if (!key) return [];
+  return ((MD.ms[key] || {})[prod] || {}).frames || [];
+}
+mGo.onclick = () => {
+  const m = mModel.value, p = mProd.value, r = mRegion.value;
+  if (!m || !p) return;
+  mStop();
+  const msF = msFramesFor(m, p).slice().sort((a, b) => a.fh - b.fh);
+  const c = MD.rend.find(x => x.model === m && x.product === p && x.region === r);
+  mFrames = (msF.length ? msF : (c ? c.frames : [])).slice();
+  if (mFrames.length) {
+    const cyc = c ? c.cycle : "";
+    mMsg.textContent = `${m} · ${mProd.options[mProd.selectedIndex] ? mProd.options[mProd.selectedIndex].text : p}` +
+      (cyc ? ` · init ${cyc.slice(-6, -2)}Z ${cyc.slice(-2)}Z` : "") +
+      ` · ${mFrames.length} frame(s) — ${msF.length ? "official pre-rendered loop" : (msF.length || (c && c.frames.length > 1) ? "playing" : "single frame")}`;
+    mFrame.innerHTML = mFrames.map(f =>
+      `<option value="${f.fh}">F${String(f.fh).padStart(3, "0")}</option>`).join("");
+    mShow(mFrames.length - 1);
+    mStart();
+  } else {
+    mMsg.textContent = `${m} ${p} (${r}) is not pre-rendered in this build yet — more combos are added every update cycle. Try another product or check back soon.`;
+    mImg.removeAttribute("src"); mInfo.textContent = "";
+  }
+};
+/* open on HRRR composite radar, East TN - falls back to whatever is on disk */
+(function autoOpen() {
+  const find = (m, p, r) => MD.rend.find(x => x.model === m && x.product === p && x.region === r);
+  if (find("HRRR", "refc", "etn")) {
+    mModel.value = "HRRR"; fillMProds(); mProd.value = "refc"; mRegion.value = "etn";
+  } else if (MD.rend.length) {
+    const f = MD.rend[0];
+    mModel.value = f.model; fillMProds(); mProd.value = f.product; mRegion.value = f.region;
+  } else {
+    return;
+  }
+  mGo.click();
+})();
+</script>
+</body>
+</html>

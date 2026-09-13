@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Mesoanalysis - Tennessee Weather Network</title>
+<meta property="og:title" content="Mesoanalysis - Tennessee Weather Network"/>
+<meta property="og:type" content="website"/>
+<meta property="og:description" content="Live radar, future cast, satellite, forecast models, severe weather and East Tennessee forecasts - free, no keys, always updating."/>
+<meta property="og:url" content="https://rpleasant12.github.io/http-localhost-8765-/"/>
+<meta property="og:image" content="https://rpleasant12.github.io/http-localhost-8765-/og.png"/>
+<meta property="og:site_name" content="Tennessee Weather Network"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="https://rpleasant12.github.io/http-localhost-8765-/og.png"/>
+<meta name="description" content="Live East Tennessee weather: radar, future cast, satellite, all forecast models, severe weather, and city forecasts. Updated continuously."/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<style>
+  :root { color-scheme: dark; --bg:#0e1117; --card:#161b26; --line:rgba(255,255,255,.08); --dim:#9aa4b2; --acc:#4da3ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:var(--bg); color:#e8edf4; }
+  a { color:var(--acc); text-decoration:none; }
+  .wrap { max-width:1100px; margin:0 auto; padding:14px; }
+  nav { position:sticky; top:0; z-index:50; background:rgba(14,17,23,.95); backdrop-filter:blur(6px);
+        border-bottom:1px solid var(--line); }
+  nav .wrap { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; padding:10px 14px; }
+  nav .brand { font-weight:800; font-size:18px; margin-right:auto; }
+  nav .brand span { color:var(--acc); }
+  nav a.pg { color:#cdd7e4; font-size:14px; padding:4px 8px; border-radius:6px; }
+  nav a.pg:hover, nav a.pg.on { background:#1d2432; color:#fff; }
+  header.hero { text-align:center; padding:20px 8px 8px; }
+  header.hero h1 { margin:0; font-size:clamp(22px,5vw,36px); }
+  header.hero .sub { color:var(--dim); margin-top:6px; font-size:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin:14px 0; }
+  h2 { font-size:17px; margin:0 0 10px; color:#cdd7e4; }
+  .grid { display:grid; gap:10px; }
+  .cards7 { grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); }
+  .day { background:#10151f; border:1px solid var(--line); border-radius:12px; padding:12px; text-align:center; }
+  .day .hi { font-size:24px; font-weight:800; }
+  .day .tx { color:var(--dim); font-size:12.5px; min-height:30px; }
+  .now { display:flex; flex-wrap:wrap; gap:16px; align-items:center; }
+  .now .big { font-size:clamp(42px,10vw,64px); font-weight:800; }
+  .now .meta { color:var(--dim); font-size:14px; line-height:1.7; }
+  .chip { display:inline-block; padding:8px 18px; border-radius:12px; font-weight:900; color:#102015; }
+  .alerts { display:grid; gap:8px; }
+  .alert { background:#10151f; border-radius:10px; padding:10px 12px; border-left:6px solid #888; }
+  .alert b { color:#fff; } .alert span { color:var(--dim); font-size:13px; display:block; }
+  .alert.ok { border-left-color:#2e7d32; color:#a5d6a7; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; }
+  .kpi { background:#10151f; border:1px solid var(--line); border-radius:12px; padding:10px; text-align:center; }
+  .kpi b { display:block; font-size:22px; } .kpi span { color:var(--dim); font-size:12px; }
+  .ltg-row { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; margin-top:10px; }
+  .ltg-cell { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px 10px; min-width:130px; flex:0 0 auto; }
+  .ltg-cell b { display:block; font-size:15px; }
+  .ltg-cell .h { color:var(--dim); font-size:11px; }
+  .ltg-bars { display:flex; align-items:flex-end; gap:2px; height:34px; margin-top:6px; }
+  .ltg-bars i { flex:1 1 0; min-width:4px; background:#ffeb3b; border-radius:2px 2px 0 0; opacity:.9; }
+  .ltg-badge { font-size:11px; font-weight:800; padding:2px 8px; border-radius:8px; color:#102015; }
+  #map { height:clamp(340px,56vh,580px); border-radius:12px; z-index:0; }
+  .ctl { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:10px; }
+  .ctl button { background:#2b80ff; color:#fff; border:none; border-radius:8px; padding:9px 20px; font-size:16px; cursor:pointer; }
+  .ctl button:active { transform:scale(.97); }
+  .ctl select { background:#1b1f27; color:#eee; border:1px solid rgba(255,255,255,.2); border-radius:6px; padding:8px; font-size:14px; max-width:100%; }
+  .stack { position:relative; width:100%; aspect-ratio:4/3; background:#0a0d13; border-radius:10px; overflow:hidden; }
+  .stack .layer { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+  .frame { font-family:ui-monospace,monospace; color:#ffd54f; }
+  .ctl input[type=range] { flex:1; min-width:110px; accent-color:#2b80ff; height:26px; }
+  .frame { min-width:84px; text-align:center; font-weight:700; color:#ffd54f; font-size:16px; }
+  .src { color:var(--dim); font-size:12px; margin-top:8px; }
+  .legend { display:flex; flex-wrap:wrap; gap:8px 14px; font-size:12.5px; color:var(--dim); margin-top:8px; }
+  .legend i { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+  table.cells { width:100%; border-collapse:collapse; font-size:14px; }
+  table.cells th { text-align:left; color:var(--dim); font-weight:600; font-size:12px; padding:6px; }
+  table.cells td { border-top:1px solid var(--line); padding:7px 6px; }
+  .dbz { font-weight:800; } .sev { color:#ff5252; } .mod { color:#ffb74d; } .lit { color:#aed581; }
+  .gal { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }
+  .gal img { width:100%; border-radius:10px; border:1px solid var(--line); }
+  .gal .cap { color:var(--dim); font-size:12.5px; margin-top:4px; }
+  .stepper { display:flex; align-items:center; gap:8px; margin-top:8px; }
+  .stepper button { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:14px; }
+  .cmp4 { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+  .cmp4 .pane { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px; }
+  .cmp4 .pane h3 { margin:0 0 6px; font-size:13.5px; color:#cdd7e4; display:flex; align-items:center; gap:8px; }
+  .cmp4 .pane h3 .cap { color:var(--dim); font-weight:400; }
+  .cmp4 .pane select { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:3px 6px; font-size:13px; }
+  .cmp4 img { width:100%; border-radius:8px; }
+  .cmp4 .miss { color:var(--dim); font-size:12.5px; padding:22px 6px; text-align:center; }
+  @media (max-width:820px){ .cmp4 { grid-template-columns:1fr; } }
+  .hourly { display:flex; gap:8px; overflow-x:auto; padding-bottom:6px; }
+  .hr { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px 10px; text-align:center; min-width:72px; }
+  .hr b { display:block; } .hr span { color:var(--dim); font-size:11.5px; }
+  .natimg { width:100%; max-width:860px; display:block; margin:0 auto; border-radius:10px; border:1px solid var(--line); background:#fff; }
+  .pre { white-space:pre-wrap; font-size:12.5px; color:#cdd7e4; background:#10151f; border:1px solid var(--line); border-radius:10px; padding:12px; max-height:260px; overflow:auto; }
+  footer { text-align:center; color:var(--dim); font-size:12.5px; padding:18px 8px 26px; line-height:1.8; }
+  .navctl { display:flex; align-items:center; gap:6px; }
+  .navctl button { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:4px 10px; cursor:pointer; font-size:14px; }
+  .autolbl { color:var(--dim); font-size:12px; display:flex; align-items:center; gap:4px; }
+  .map-dark .leaflet-tile-pane { filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(1.05); }
+  /* radar load-state badge (set by the player: ok / loading / empty) */
+  #map { position: relative; }
+  #map::after {
+    content: "";
+    position: absolute; top: 8px; left: 8px; z-index: 800;
+    background: rgba(10, 14, 20, .75); color: #9fe199; border: 1px solid rgba(255,255,255,.15);
+    border-radius: 6px; padding: 2px 9px; font-size: 11.5px; pointer-events: none;
+  }
+  #map[data-radar-state="loading"]::after { content: "radar loading…"; color: #ffd54f; }
+  #map[data-radar-state="empty"]::after { content: "radar unavailable - retrying"; color: #ff8a80; }
+  #map[data-radar-state="ok"]::after { content: "radar live"; color: #9fe199; }
+  /* hide Leaflet's default home marker (the player draws its own) */
+  .leaflet-marker-icon.home-marker { display: none; }
+  .leaflet-control-attribution { background:rgba(14,17,23,.8) !important; color:var(--dim) !important; }
+  .mapctlbtn { background:#1d2432; border:1px solid var(--line); border-radius:6px; color:#eee;
+    padding:5px 9px; font-size:15px; cursor:pointer; margin-bottom:6px; box-shadow:0 1px 4px rgba(0,0,0,.4); text-align:center; }
+  .mapcoord { background:rgba(14,17,23,.85); color:#cdd7e4; border:1px solid var(--line); border-radius:6px;
+    font-size:11.5px; padding:3px 8px; }
+  @media (max-width:640px){ .wrap{padding:10px;} .card{padding:12px;} nav .brand{font-size:16px;} }
+</style>
+</head><body>
+<nav><div class="wrap">
+  <a class="brand" href="index.html">🌧️ <span>Tennessee Weather Network</span></a>
+  <a class="pg" href="index.html">Home</a><a class="pg" href="radar.html">Radar</a><a class="pg" href="satellite.html">Satellite</a><a class="pg" href="models.html">Models</a><a class="pg" href="tropical.html">NHC</a><a class="pg" href="tropmodels.html">Trop Models</a><a class="pg" href="climate.html">Climate</a><a class="pg" href="severe.html">Severe</a><a class="pg" href="winter.html">Winter Forecast</a><a class="pg on" href="meso.html">Mesoanalysis</a><a class="pg" href="obs.html">Obs & Skew-T</a><a class="pg" href="charts.html">Charts & MOS</a><a class="pg" href="national.html">National</a><a class="pg" href="forecast.html">Forecast</a><a class="pg" href="education.html">Education</a>
+  <div class="navctl">
+    <select id="baseSel" title="Basemap" style="max-width:110px"></select>
+    <button id="refreshBtn" title="Refresh this page now">⟳ Refresh</button>
+    <label class="autolbl"><input type="checkbox" id="autoChk" checked/> auto <span id="autoCnt">90</span>s</label>
+    <a id="fbShare" title="Share this page on Facebook" target="_blank" rel="noopener"
+       style="text-decoration:none;background:#1877f2;color:#fff;padding:4px 10px;border-radius:8px;font-size:12.5px;font-weight:600;display:inline-block">📘 Share</a>
+  </div>
+</div></nav>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const SITE_DATA_URL = "data.json";
+/* GitHub Pages caches data.json up to 10 min (max-age=600); the timestamp
+   query makes the browser fetch a fresh copy from the Pages CDN instead of
+   reusing a stale cached one. Public data publishes ~every 10 min, so the
+   footer age normally reads 0-10 min - that is the honest cadence. */
+function dataUrl() {
+  try { return SITE_DATA_URL + "?t=" + Date.now(); } catch (_e) { return SITE_DATA_URL; }
+}
+/* live-update watchdog: re-fetch data.json every 3 min and show its age.
+   The footer age is computed from dataEpochMs (server epoch), NOT from the
+   human-readable 'generated' string (now "... 12:17 AM ET" - unparseable). */
+let SITE_DATA = null;
+function fmtAge(mins) {
+  if (mins < 1) return "just now";
+  if (mins < 60) return mins + " min ago";
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return h + " h " + (m ? m + " min " : "") + "ago";
+}
+function updTick() {
+  if (!SITE_DATA) return;
+  const el = document.getElementById("upd");
+  if (!el) return;
+  const ms = Date.now() - (SITE_DATA.dataEpochMs || 0);
+  if (!SITE_DATA.dataEpochMs || ms < 0) { el.textContent = "\u2705 Live data"; return; }
+  const mins = Math.floor(ms / 60000);
+  /* Public site: GitHub publishes ~every 10 min, so age up to ~12 min is the
+     normal cadence - warn only past that. Pages' own max-age=600 means the
+     fetch itself can lag a couple minutes behind the publish. */
+  if (mins <= 12) el.textContent = "\u2705 Live data \u00b7 refreshed " + fmtAge(mins);
+  else if (mins <= 30) el.textContent = "\u23f3 Data " + fmtAge(mins) + " old \u00b7 next publish soon";
+  else el.textContent = "\u26a0\ufe0f Data " + fmtAge(mins) + " old \u00b7 checking for updates";
+}
+async function siteRefresh() {
+  try {
+    SITE_DATA = await (await fetch(dataUrl(), {cache: "no-store"})).json();
+    if (typeof onDataRefresh === "function") onDataRefresh(SITE_DATA);
+    updTick();
+    /* auto-heal: if the served copy is still 30+ min old on two consecutive
+       polls (6 min apart), force a cache-busted reload once - recovers from
+       a stuck CDN copy or a missed publish without looping. */
+    if (SITE_DATA.dataEpochMs && Date.now() - SITE_DATA.dataEpochMs > 30 * 60000) {
+      siteRefresh._stale = (siteRefresh._stale || 0) + 1;
+      if (siteRefresh._stale >= 2 && !sessionStorage.getItem("tnwxHealed")) {
+        sessionStorage.setItem("tnwxHealed", "1");
+        const u = new URL(location.href); u.searchParams.set("t", Date.now());
+        location.replace(u); return;
+      }
+    } else siteRefresh._stale = 0;
+  } catch (e) { /* offline: keep last data */ }
+}
+siteRefresh();
+setInterval(updTick, 30000);
+setInterval(siteRefresh, 180000);
+/* page auto-refresh: soft (map pages define onDataRefresh) or hard reload.
+   Hard reloads MUST cache-bust: GitHub Pages sends max-age=600, so a plain
+   location.reload() can serve the same stale HTML for up to 10 minutes. */
+function hardReload() {
+  try {
+    const u = new URL(location.href);
+    u.searchParams.set("t", Date.now());
+    location.replace(u);
+  } catch (_e) { location.reload(); }
+}
+let AUTO_LEFT = 90;
+const autoCnt = document.getElementById("autoCnt"), autoChk = document.getElementById("autoChk");
+document.getElementById("refreshBtn").onclick = () => {
+  const b = document.getElementById("refreshBtn");
+  if (b) { b.textContent = "…"; }
+  hardReload();
+};
+try { autoChk.checked = localStorage.getItem("tnwxAuto") !== "off"; } catch (_e) {}
+autoChk.onchange = () => { AUTO_LEFT = 90; try { localStorage.setItem("tnwxAuto", autoChk.checked ? "on" : "off"); } catch (_e) {} };
+setInterval(() => {
+  if (!autoChk.checked) { if (autoCnt) autoCnt.textContent = "\u221e"; return; }
+  AUTO_LEFT -= 1;
+  if (autoCnt) autoCnt.textContent = AUTO_LEFT;
+  if (AUTO_LEFT <= 0) {
+    AUTO_LEFT = 90;
+    if (typeof onDataRefresh === "function") siteRefresh(); else hardReload();
+  }
+}, 1000);
+
+const BASEMAPS = {
+  dark:  { label: "Dark", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", invert: true },
+  light: { label: "Light", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", invert: false },
+  sat:   { label: "Satellite", url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", invert: false },
+  topo:  { label: "Terrain", url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}", invert: false }
+};
+let _baseLayer = null, _baseKey = null;
+function setBase(key, map) {
+  if (key === "mapbox" && !BASEMAPS.mapbox && typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN)
+    BASEMAPS.mapbox = { label: "Mapbox", style: "mapbox://styles/mapbox/light-v11" };
+  const b = BASEMAPS[key] || BASEMAPS.dark;
+  if (_baseKey === key && _baseLayer) return;
+  if (_baseLayer) map.removeLayer(_baseLayer);
+  if (b.style) _baseLayer = L.mapboxGL({ accessToken: MAPBOX_TOKEN, style: b.style, attribution: "&copy; Mapbox" }).addTo(map);
+  else _baseLayer = L.tileLayer(b.url, { maxNativeZoom: 19, maxZoom: 21, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
+  map.getContainer().classList.toggle("map-dark", !!b.invert);
+  _baseKey = key;
+  try { localStorage.setItem("tnwxBase", key); } catch (_e) {}
+  const sel = document.getElementById("baseSel"); if (sel && sel.value !== key) sel.value = key;
+}
+function addMapControls(map, home, homeZoom) {
+  const btn = (txt, title, fn) => {
+    const c = L.control({ position: "topleft" });
+    c.onAdd = () => { const d = L.DomUtil.create("div", "mapctlbtn"); d.textContent = txt; d.title = title;
+      L.DomEvent.disableClickPropagation(d); d.onclick = fn; return d; };
+    c.addTo(map);
+  };
+  btn("⛶", "Fullscreen map", () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else map.getContainer().requestFullscreen();
+  });
+  btn("⌂", "Home view", () => map.setView(home, homeZoom));
+  btn("◎", "My location", () => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(p => {
+      map.setView([p.coords.latitude, p.coords.longitude], 10);
+      L.circleMarker([p.coords.latitude, p.coords.longitude], { radius: 7, color: "#fff", weight: 2, fillColor: "#4da3ff", fillOpacity: 1 })
+        .addTo(map).bindTooltip("You are here").openTooltip();
+    }, () => {}, { timeout: 8000 });
+  });
+  L.control.scale({ imperial: true, metric: false }).addTo(map);
+  document.addEventListener("fullscreenchange", () => setTimeout(() => map.invalidateSize(), 200));
+  const coord = L.control({ position: "bottomright" });
+  coord.onAdd = () => L.DomUtil.create("div", "mapcoord");
+  coord.addTo(map);
+  const el = document.querySelector(".mapcoord");
+  map.on("mousemove", e => { if (el) el.textContent = e.latlng.lat.toFixed(3) + ", " + e.latlng.lng.toFixed(3); });
+  map.on("mouseout", () => { if (el) el.textContent = ""; });
+  const sel = document.getElementById("baseSel");
+  if (sel) {
+    sel.innerHTML = Object.entries(BASEMAPS).map(([k, b]) => `<option value="${k}">${b.label}</option>`).join("");
+    let saved = null; try { saved = localStorage.getItem("tnwxBase"); } catch (_e) {}
+    setBase(saved && BASEMAPS[saved] ? saved : ((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark"), map);
+    sel.onchange = e => setBase(e.target.value, map);
+  } else setBase((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark", map);
+  if (typeof drawHomeMarker === "function") drawHomeMarker(map, home);
+}
+function drawHomeMarker(map, home) {
+  if (map._tnwxHome) return;
+  map._tnwxHome = L.circleMarker(home, { radius: 7, color: "#fff", weight: 2,
+    fillColor: "#ff5252", fillOpacity: 1 }).addTo(map).bindTooltip((typeof DATA_PLACE !== "undefined" && DATA_PLACE) || "Home");
+}
+
+
+setTimeout(function () {
+  if (typeof map === "undefined" || !map) return;
+  const sel = document.getElementById("baseSel");
+  if (typeof addMapControls === "function" && (typeof _baseLayer === "undefined" || !_baseLayer)) {
+    const la = (typeof DATA_LAT !== "undefined") ? DATA_LAT : 36.2;
+    const lo = (typeof DATA_LON !== "undefined") ? DATA_LON : -83.0;
+    addMapControls(map, [la, lo], 6);
+  } else if (typeof setBase === "function") {
+    if (!_baseLayer) setBase((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark", map);
+    if (sel) sel.onchange = function (e) { setBase(e.target.value, map); };
+  }
+}, 600);
+
+</script>
+<div class="wrap">
+
+<header class="hero"><h1>🔬 SPC Mesoanalysis</h1>
+<div class="sub">Hourly SPC objective analysis (SFCOA) — every diagnostic field, layered like SPC's own viewer. Analysis: <b id="anl">09/13/26 6 AM ET</b> · auto-refreshes on every site update.</div></header>
+
+<div class="card">
+  <div class="stack" id="stack">
+    <img id="imgField" class="layer" alt="field"/>
+    <img id="imgRadar" class="layer" style="display:none" alt="radar"/>
+    <img id="imgWarns" class="layer" style="display:none" alt="warnings"/>
+    <img id="imgOtlk" class="layer" style="display:none" alt="outlook"/>
+  </div>
+  <div class="ctl" style="margin-top:12px">
+    <b>Field</b>
+    <select id="fld"></select>
+    <b>Sector</b>
+    <select id="sec"></select>
+    <button id="btnPlay">▶ Animate 6 h</button>
+    <span class="frame" id="fr">09/13/26 6 AM ET</span>
+  </div>
+  <div class="src">The <b>East Tennessee (zoom)</b> sector magnifies SPC's national analysis to a Greeneville-centered view of East TN and its surroundings (34.3-37.3N, 85.8-80.2W) — with real state borders (Tennessee in white) and city markers drawn on every frame, plus the same fields, overlays, and animation as the native sectors.</div>
+  <div class="ctl" style="margin-top:8px">
+    <b>Overlays</b>
+    <label><input type="checkbox" id="ovRadar"/> Radar</label>
+    <label><input type="checkbox" id="ovWarns"/> Warnings</label>
+    <label><input type="checkbox" id="ovOtlk"/> SPC outlook</label>
+    <span class="src" id="stale"></span>
+  </div>
+  <div class="src">Images: NOAA/SPC Storm Prediction Center mesoscale analysis (public domain), updated hourly at :00. Field filled with SPC's official color palettes; overlays stack on top. The 6-hour animation steps through SPC's archived hourly frames.</div>
+</div>
+
+<script>
+const MESO = {"analysis": "09/13/26 6 AM ET", "generated": "2026-09-13 06:30", "sectorOrder": ["ET", "19", "15", "18", "17", "21", "20", "14", "13", "16", "22", "12", "11"], "sectorNames": {"19": "National (CONUS)", "15": "Southern Plains", "18": "Southeast", "17": "East Coast", "21": "Great Lakes", "20": "Midwest", "14": "Central Plains", "13": "Northern Plains", "16": "Northeast", "22": "Great Basin", "12": "Southwest", "11": "Pacific NW", "ET": "East Tennessee (zoom)"}, "fieldGroups": [["Thermodynamics / Instability", [["sbcp", "SBCAPE"], ["mlcp", "MLCAPE"], ["mucp", "MUCAPE"], ["muli", "MU Lifted Index"], ["lasi", "LASI"], ["effh", "Effective Inflow Base"], ["lclh", "LCL Height"], ["lfch", "LFC Height"], ["lr3c", "0-3 km Lapse Rate"], ["lllr", "Low-Level Lapse Rate"], ["laps", "700-500 mb Lapse Rate"], ["ttd", "Sfc Temp / Dewpoint"], ["pwtr", "Precipitable Water"], ["fzlv", "Freezing Level"]]], ["Shear / Storm Motion", [["eshr", "Effective Shear"], ["cpsh", "0-6 km Shear Vector"], ["srh1", "0-1 km Storm-Relative Helicity"], ["dvvr", "0-6 km Bulk Vector Difference"], ["brn", "Bulk Richardson Number"], ["prop", "Supercell Motion / Propagation"]]], ["Composite Indices", [["stor", "Supercell Composite (SCP)"], ["stpc", "Significant Tornado (STP)"], ["scp", "SCP (classic)"], ["sigh", "Significant Hail Parameter"], ["thea", "Theta-E Advection"], ["mcon", "Moisture Convergence"], ["qlcs1", "QLCS Tornado Prob (0-1 km)"], ["qlcs2", "QLCS QLCS-Mode Composite"], ["peff", "Precipitation Efficiency"]]], ["Pressure Layers", [["925mb", "925 mb Temp / Heights"], ["850mb", "850 mb Temp / Heights"], ["700mb", "700 mb Temp / Heights"], ["500mb", "500 mb Temp / Heights"], ["300mb", "300 mb Winds / Heights"], ["comp", "Composite Layer (sfc-6km)"], ["tran", "Orographic/Transport Flow"]]]], "historyHours": 6, "sectors": {"19": {"name": "National (CONUS)", "fields": {"sbcp": {"label": "SBCAPE", "url": "meso/s19/sbcp.gif"}, "mlcp": {"label": "MLCAPE", "url": "meso/s19/mlcp.gif"}, "mucp": {"label": "MUCAPE", "url": "meso/s19/mucp.gif"}, "muli": {"label": "MU Lifted Index", "url": "meso/s19/muli.gif"}, "lasi": {"label": "LASI", "url": "meso/s19/lasi.gif"}, "effh": {"label": "Effective Inflow Base", "url": "meso/s19/effh.gif"}, "lclh": {"label": "LCL Height", "url": "meso/s19/lclh.gif"}, "lfch": {"label": "LFC Height", "url": "meso/s19/lfch.gif"}, "lr3c": {"label": "0-3 km Lapse Rate", "url": "meso/s19/lr3c.gif"}, "lllr": {"label": "Low-Level Lapse Rate", "url": "meso/s19/lllr.gif"}, "laps": {"label": "700-500 mb Lapse Rate", "url": "meso/s19/laps.gif"}, "ttd": {"label": "Sfc Temp / Dewpoint", "url": "meso/s19/ttd.gif"}, "pwtr": {"label": "Precipitable Water", "url": "meso/s19/pwtr.gif"}, "fzlv": {"label": "Freezing Level", "url": "meso/s19/fzlv.gif"}, "cpsh": {"label": "0-6 km Shear Vector", "url": "meso/s19/cpsh.gif"}, "dvvr": {"label": "0-6 km Bulk Vector Difference", "url": "meso/s19/dvvr.gif"}, "brn": {"label": "Bulk Richardson Number", "url": "meso/s19/brn.gif"}, "prop": {"label": "Supercell Motion / Propagation", "url": "meso/s19/prop.gif"}, "stor": {"label": "Supercell Composite (SCP)", "url": "meso/s19/stor.gif"}, "stpc": {"label": "Significant Tornado (STP)", "url": "meso/s19/stpc.gif"}, "thea": {"label": "Theta-E Advection", "url": "meso/s19/thea.gif"}, "mcon": {"label": "Moisture Convergence", "url": "meso/s19/mcon.gif"}, "qlcs1": {"label": "QLCS Tornado Prob (0-1 km)", "url": "meso/s19/qlcs1.gif"}, "qlcs2": {"label": "QLCS QLCS-Mode Composite", "url": "meso/s19/qlcs2.gif"}, "peff": {"label": "Precipitation Efficiency", "url": "meso/s19/peff.gif"}, "925mb": {"label": "925 mb Temp / Heights", "url": "meso/s19/925mb.gif"}, "850mb": {"label": "850 mb Temp / Heights", "url": "meso/s19/850mb.gif"}, "700mb": {"label": "700 mb Temp / Heights", "url": "meso/s19/700mb.gif"}, "500mb": {"label": "500 mb Temp / Heights", "url": "meso/s19/500mb.gif"}, "300mb": {"label": "300 mb Winds / Heights", "url": "meso/s19/300mb.gif"}, "comp": {"label": "Composite Layer (sfc-6km)", "url": "meso/s19/comp.gif"}, "tran": {"label": "Orographic/Transport Flow", "url": "meso/s19/tran.gif"}, "bigsfc": {"label": "Surface analysis (winds/pressure)", "url": "meso/s19/bigsfc.gif"}}, "overlays": {"radar": {"label": "Regional radar", "url": "meso/s19/radar.gif"}, "warns": {"label": "Warnings", "url": "meso/s19/warns.gif"}, "otlk": {"label": "SPC outlook", "url": "meso/s19/otlk.gif"}}}, "15": {"name": "Southern Plains", "fields": {"sbcp": {"label": "SBCAPE", "url": "meso/s15/sbcp.gif"}, "mlcp": {"label": "MLCAPE", "url": "meso/s15/mlcp.gif"}, "mucp": {"label": "MUCAPE", "url": "meso/s15/mucp.gif"}, "muli": {"label": "MU Lifted Index", "url": "meso/s15/muli.gif"}, "lasi": {"label": "LASI", "url": "meso/s15/lasi.gif"}, "effh": {"label": "Effective Inflow Base", "url": "meso/s15/effh.gif"}, "lclh": {"label": "LCL Height", "url": "meso/s15/lclh.gif"}, "lfch": {"label": "LFC Height", "url": "meso/s15/lfch.gif"}, "lr3c": {"label": "0-3 km Lapse Rate", "url": "meso/s15/lr3c.gif"}, "lllr": {"label": "Low-Level Lapse Rate", "url": "meso/s15/lllr.gif"}, "laps": {"label": "700-500 mb Lapse Rate", "url": "meso/s15/laps.gif"}, "ttd": {"label": "Sfc Temp / Dewpoint", "url": "meso/s15/ttd.gif"}, "pwtr": {"label": "Precipitable Water", "url": "meso/s15/pwtr.gif"}, "fzlv": {"label": "Freezing Level", "url": "meso/s15/fzlv.gif"}, "cpsh": {"label": "0-6 km Shear Vector", "url": "meso/s15/cpsh.gif"}, "dvvr": {"label": "0-6 km Bulk Vector Difference", "url": "meso/s15/dvvr.gif"}, "brn": {"label": "Bulk Richardson Number", "url": "meso/s15/brn.gif"}, "prop": {"label": "Supercell Motion / Propagation", "url": "meso/s15/prop.gif"}, "stor": {"label": "Supercell Composite (SCP)", "url": "meso/s15/stor.gif"}, "stpc": {"label": "Significant Tornado (STP)", "url": "meso/s15/stpc.gif"}, "thea": {"label": "Theta-E Advection", "url": "meso/s15/thea.gif"}, "mcon": {"label": "Moisture Convergence", "url": "meso/s15/mcon.gif"}, "qlcs1": {"label": "QLCS Tornado Prob (0-1 km)", "url": "meso/s15/qlcs1.gif"}, "qlcs2": {"label": "QLCS QLCS-Mode Composite", "url": "meso/s15/qlcs2.gif"}, "peff": {"label": "Precipitation Efficiency", "url": "meso/s15/peff.gif"}, "925mb": {"label": "925 mb Temp / Heights", "url": "meso/s15/925mb.gif"}, "850mb": {"label": "850 mb Temp / Heights", "url": "meso/s15/850mb.gif"}, "700mb": {"label": "700 mb Temp / Heights", "url": "meso/s15/700mb.gif"}, "500mb": {"label": "500 mb Temp / Heights", "url": "meso/s15/500mb.gif"}, "300mb": {"label": "300 mb Winds / Heights", "url": "meso/s15/300mb.gif"}, "comp": {"label": "Composite Layer (sfc-6km)", "url": "meso/s15/comp.gif"}, "tran": {"label": "Orographic/Transport Flow", "url": "meso/s15/tran.gif"}, "bigsfc": {"label": "Surface analysis (winds/pressure)", "url": "meso/s15/bigsfc.gif"}}, "overlays": {"radar": {"label": "Regional radar", "url": "meso/s15/radar.gif"}, "warns": {"label": "Warnings", "url": "meso/s15/warns.gif"}, "otlk": {"label": "SPC outlook", "url": "meso/s15/otlk.gif"}}}, "18": {"name": "Southeast", "fields": {"sbcp": {"label": "SBCAPE", "url": "meso/s18/sbcp.gif"}, "mlcp": {"label": "MLCAPE", "url": "meso/s18/mlcp.gif"}, "mucp": {"label": "MUCAPE", "url": "meso/s18/mucp.gif"}, "muli": {"label": "MU Lifted Index", "url": "meso/s18/muli.gif"}, "lasi": {"label": "LASI", "url": "meso/s18/lasi.gif"}, "effh": {"label": "Effective Inflow Base", "url": "meso/s18/effh.gif"}, "lclh": {"label": "LCL Height", "url": "meso/s18/lclh.gif"}, "lfch": {"label": "LFC Height", "url": "meso/s18/lfch.gif"}, "lr3c": {"label": "0-3 km Lapse Rate", "url": "meso/s18/lr3c.gif"}, "lllr": {"label": "Low-Level Lapse Rate", "url": "meso/s18/lllr.gif"}, "laps": {"label": "700-500 mb Lapse Rate", "url": "meso/s18/laps.gif"}, "ttd": {"label": "Sfc Temp / Dewpoint", "url": "meso/s18/ttd.gif"}, "pwtr": {"label": "Precipitable Water", "url": "meso/s18/pwtr.gif"}, "fzlv": {"label": "Freezing Level", "url": "meso/s18/fzlv.gif"}, "cpsh": {"label": "0-6 km Shear Vector", "url": "meso/s18/cpsh.gif"}, "dvvr": {"label": "0-6 km Bulk Vector Difference", "url": "meso/s18/dvvr.gif"}, "brn": {"label": "Bulk Richardson Number", "url": "meso/s18/brn.gif"}, "prop": {"label": "Supercell Motion / Propagation", "url": "meso/s18/prop.gif"}, "stor": {"label": "Supercell Composite (SCP)", "url": "meso/s18/stor.gif"}, "stpc": {"label": "Significant Tornado (STP)", "url": "meso/s18/stpc.gif"}, "thea": {"label": "Theta-E Advection", "url": "meso/s18/thea.gif"}, "mcon": {"label": "Moisture Convergence", "url": "meso/s18/mcon.gif"}, "qlcs1": {"label": "QLCS Tornado Prob (0-1 km)", "url": "meso/s18/qlcs1.gif"}, "qlcs2": {"label": "QLCS QLCS-Mode Composite", "url": "meso/s18/qlcs2.gif"}, "peff": {"label": "Precipitation Efficiency", "url": "meso/s18/peff.gif"}, "925mb": {"label": "925 mb Temp / Heights", "url": "meso/s18/925mb.gif"}, "850mb": {"label": "850 mb Temp / Heights", "url": "meso/s18/850mb.gif"}, "700mb": {"label": "700 mb Temp / Heights", "url": "meso/s18/700mb.gif"}, "500mb": {"label": "500 mb Temp / Heights", "url": "meso/s18/500mb.gif"}, "300mb": {"label": "300 mb Winds / Heights", "url": "meso/s18/300mb.gif"}, "comp": {"label": "Composite Layer (sfc-6km)", "url": "meso/s18/comp.gif"}, "tran": {"label": "Orographic/Transport Flow", "url": "meso/s18/tran.gif"}, "bigsfc": {"label": "Surface analysis (winds/pressure)", "url": "meso/s18/bigsfc.gif"}}, "overlays": {"radar": {"label": "Regional radar", "url": "meso/s18/radar.gif"}, "warns": {"label": "Warnings", "url": "meso/s18/warns.gif"}, "otlk": {"label": "SPC outlook", "url": "meso/s18/otlk.gif"}}}, "17": {"name": "East Coast", "fields": {"sbcp": {"label": "SBCAPE", "url": "meso/s17/sbcp.gif"}, "mlcp": {"label": "MLCAPE", "url": "meso/s17/mlcp.gif"}, "mucp": {"label": "MUCAPE", "url": "meso/s17/mucp.gif"}, "effh": {"label": "Effective Inflow Base", "url": "meso/s17/effh.gif"}, "pwtr": {"label": "Precipitable Water", "url": "meso/s17/pwtr.gif"}, "stor": {"label": "Supercell Composite (SCP)", "url": "meso/s17/stor.gif"}, "stpc": {"label": "Significant Tornado (STP)", "url": "meso/s17/stpc.gif"}, "bigsfc": {"label": "Surface analysis (winds/pressure)", "url": "meso/s17/bigsfc.gif"}}, "overlays": {"radar": {"label": "Regional radar", "url": "meso/s17/radar.gif"}, "warns": {"label": "Warnings", "url": "meso/s17/warns.gif"}, "otlk": {"label": "SPC outlook", "url": "meso/s17/otlk.gif"}}}, "21": {"name": "Great Lakes", "fields": {"sbcp": {"label": "SBCAPE", "url": "meso/s21/sbcp.gif"}, "mlcp": {"label": "MLCAPE", "url": "meso/s21/mlcp.gif"}, "mucp": {"label": "MUCAPE", "url": "meso/s21/mucp.gif"}, "effh": {"label": "Effective Inflow Base", "url": "meso/s21/effh.gif"}, "pwtr": {"label": "Precipitable Water", "url": "meso/s21/pwtr.gif"}, "stor": {"label": "Supercell Composite (SCP)", "url": "meso/s21/stor.gif"}, "stpc": {"label": "Significant Tornado (STP)", "url": "meso/s21/stpc.gif"}, "bigsfc": {"label": "Surface analysis (winds/pressure)", "url": "meso/s21/bigsfc.gif"}}, "overlays": {"radar": {"label": "Regional radar", "url": "meso/s21/radar.gif"}, "warns": {"label": "Warnings", "url": "meso/s21/warns.gif"}, "otlk": {"label": "SPC outlook", "url": "meso/s21/otlk.gif"}}}, "20": {"name": "Midwest", "fields": {"sbcp": {"label": "SBCAPE", "url": "meso/s20/sbcp.gif"}, "mlcp": {"label": "MLCAPE", "url": "meso/s20/mlcp.gif"}, "mucp": {"label": "MUCAPE", "url": "meso/s20/mucp.gif"}, "effh": {"label": "Effective Inflow Base", "url": "meso/s20/effh.gif"}, "pwtr": {"label": "Precipitable Water", "url": "meso/s20/pwtr.gif"}, "stor": {"label": "Supercell Composite (SCP)", "url": "meso/s20/stor.gif"}, "stpc": {"label": "Significant Tornado (STP)", "url": "meso/s20/stpc.gif"}, "bigsfc": {"label": "Surface analysis (winds/pressure)", "url": "meso/s20/bigsfc.gif"}}, "overlays": {"radar": {"label": "Regional radar", "url": "meso/s20/radar.gif"}, "warns": {"label": "Warnings", "url": "meso/s20/warns.gif"}, "otlk": {"label": "SPC outlook", "url": "meso/s20/otlk.gif"}}}, "14": {"name": "Central Plains", "fields": {"sbcp": {"label": "SBCAPE", "url": "meso/s14/sbcp.gif"}, "mlcp": {"label": "MLCAPE", "url": "meso/s14/mlcp.gif"}, "mucp": {"label": "MUCAPE", "url": "meso/s14/mucp.gif"}, "effh": {"label": "Effective Inflow Base", "url": "meso/s14/effh.gif"}, "pwtr": {"label": "Precipitable Water", "url": "meso/s14/pwtr.gif"}, "stor": {"label": "Supercell Composite (SCP)", "url": "meso/s14/stor.gif"}, "stpc": {"label": "Significant Tornado (STP)", "url": "meso/s14/stpc.gif"}, "bigsfc": {"label": "Surface analysis (winds/pressure)", "url": "meso/s14/bigsfc.gif"}}, "overlays": {"radar": {"label": "Regional radar", "url": "meso/s14/radar.gif"}, "warns": {"label": "Warnings", "url": "meso/s14/warns.gif"}, "otlk": {"label": "SPC outlook", "url": "meso/s14/otlk.gif"}}}, "13": {"name": "Northern Plains", "fields": {"sbcp": {"label": "SBCAPE", "url": "meso/s13/sbcp.gif"}, "mlcp": {"label": "MLCAPE", "url": "meso/s13/mlcp.gif"}, "mucp": {"label": "MUCAPE", "url": "meso/s13/mucp.gif"}, "effh": {"label": "Effective Inflow Base", "url": "meso/s13/effh.gif"}, "pwtr": {"label": "Precipitable Water", "url": "meso/s13/pwtr.gif"}, "stor": {"label": "Supercell Composite (SCP)", "url": "meso/s13/stor.gif"}, "stpc": {"label": "Significant Tornado (STP)", "url": "meso/s13/stpc.gif"}, "bigsfc": {"label": "Surface analysis (winds/pressure)", "url": "meso/s13/bigsfc.gif"}}, "overlays": {"radar": {"label": "Regional radar", "url": "meso/s13/radar.gif"}, "warns": {"label": "Warnings", "url": "meso/s13/warns.gif"}, "otlk": {"label": "SPC outlook", "url": "meso/s13/otlk.gif"}}}, "16": {"name": "Northeast", "fields": {"sbcp": {"label": "SBCAPE", "url": "meso/s16/sbcp.gif"}, "mlcp": {"label": "MLCAPE", "url": "meso/s16/mlcp.gif"}, "mucp": {"label": "MUCAPE", "url": "meso/s16/mucp.gif"}, "effh": {"label": "Effective Inflow Base", "url": "meso/s16/effh.gif"}, "pwtr": {"label": "Precipitable Water", "url": "meso/s16/pwtr.gif"}, "stor": {"label": "Supercell Composite (SCP)", "url": "meso/s16/stor.gif"}, "stpc": {"label": "Significant Tornado (STP)", "url": "meso/s16/stpc.gif"}, "bigsfc": {"label": "Surface analysis (winds/pressure)", "url": "meso/s16/bigsfc.gif"}}, "overlays": {"radar": {"label": "Regional radar", "url": "meso/s16/radar.gif"}, "warns": {"label": "Warnings", "url": "meso/s16/warns.gif"}, "otlk": {"label": "SPC outlook", "url": "meso/s16/otlk.gif"}}}, "22": {"name": "Great Basin", "fields": {"sbcp": {"label": "SBCAPE", "url": "meso/s22/sbcp.gif"}, "mlcp": {"label": "MLCAPE", "url": "meso/s22/mlcp.gif"}, "mucp": {"label": "MUCAPE", "url": "meso/s22/mucp.gif"}, "effh": {"label": "Effective Inflow Base", "url": "meso/s22/effh.gif"}, "pwtr": {"label": "Precipitable Water", "url": "meso/s22/pwtr.gif"}, "stor": {"label": "Supercell Composite (SCP)", "url": "meso/s22/stor.gif"}, "stpc": {"label": "Significant Tornado (STP)", "url": "meso/s22/stpc.gif"}, "bigsfc": {"label": "Surface analysis (winds/pressure)", "url": "meso/s22/bigsfc.gif"}}, "overlays": {"radar": {"label": "Regional radar", "url": "meso/s22/radar.gif"}, "warns": {"label": "Warnings", "url": "meso/s22/warns.gif"}, "otlk": {"label": "SPC outlook", "url": "meso/s22/otlk.gif"}}}, "12": {"name": "Southwest", "fields": {"sbcp": {"label": "SBCAPE", "url": "meso/s12/sbcp.gif"}, "mlcp": {"label": "MLCAPE", "url": "meso/s12/mlcp.gif"}, "mucp": {"label": "MUCAPE", "url": "meso/s12/mucp.gif"}, "effh": {"label": "Effective Inflow Base", "url": "meso/s12/effh.gif"}, "pwtr": {"label": "Precipitable Water", "url": "meso/s12/pwtr.gif"}, "stor": {"label": "Supercell Composite (SCP)", "url": "meso/s12/stor.gif"}, "stpc": {"label": "Significant Tornado (STP)", "url": "meso/s12/stpc.gif"}, "bigsfc": {"label": "Surface analysis (winds/pressure)", "url": "meso/s12/bigsfc.gif"}}, "overlays": {"radar": {"label": "Regional radar", "url": "meso/s12/radar.gif"}, "warns": {"label": "Warnings", "url": "meso/s12/warns.gif"}, "otlk": {"label": "SPC outlook", "url": "meso/s12/otlk.gif"}}}, "11": {"name": "Pacific NW", "fields": {"sbcp": {"label": "SBCAPE", "url": "meso/s11/sbcp.gif"}, "mlcp": {"label": "MLCAPE", "url": "meso/s11/mlcp.gif"}, "mucp": {"label": "MUCAPE", "url": "meso/s11/mucp.gif"}, "effh": {"label": "Effective Inflow Base", "url": "meso/s11/effh.gif"}, "pwtr": {"label": "Precipitable Water", "url": "meso/s11/pwtr.gif"}, "stor": {"label": "Supercell Composite (SCP)", "url": "meso/s11/stor.gif"}, "stpc": {"label": "Significant Tornado (STP)", "url": "meso/s11/stpc.gif"}, "bigsfc": {"label": "Surface analysis (winds/pressure)", "url": "meso/s11/bigsfc.gif"}}, "overlays": {"radar": {"label": "Regional radar", "url": "meso/s11/radar.gif"}, "warns": {"label": "Warnings", "url": "meso/s11/warns.gif"}, "otlk": {"label": "SPC outlook", "url": "meso/s11/otlk.gif"}}}, "ET": {"name": "East Tennessee (zoom)", "fields": {"sbcp": {"label": "SBCAPE", "url": "meso/sET/sbcp.png"}, "mlcp": {"label": "MLCAPE", "url": "meso/sET/mlcp.png"}, "mucp": {"label": "MUCAPE", "url": "meso/sET/mucp.png"}, "muli": {"label": "MU Lifted Index", "url": "meso/sET/muli.png"}, "lasi": {"label": "LASI", "url": "meso/sET/lasi.png"}, "effh": {"label": "Effective Inflow Base", "url": "meso/sET/effh.png"}, "lclh": {"label": "LCL Height", "url": "meso/sET/lclh.png"}, "lfch": {"label": "LFC Height", "url": "meso/sET/lfch.png"}, "lr3c": {"label": "0-3 km Lapse Rate", "url": "meso/sET/lr3c.png"}, "lllr": {"label": "Low-Level Lapse Rate", "url": "meso/sET/lllr.png"}, "laps": {"label": "700-500 mb Lapse Rate", "url": "meso/sET/laps.png"}, "ttd": {"label": "Sfc Temp / Dewpoint", "url": "meso/sET/ttd.png"}, "pwtr": {"label": "Precipitable Water", "url": "meso/sET/pwtr.png"}, "fzlv": {"label": "Freezing Level", "url": "meso/sET/fzlv.png"}, "cpsh": {"label": "0-6 km Shear Vector", "url": "meso/sET/cpsh.png"}, "dvvr": {"label": "0-6 km Bulk Vector Difference", "url": "meso/sET/dvvr.png"}, "brn": {"label": "Bulk Richardson Number", "url": "meso/sET/brn.png"}, "prop": {"label": "Supercell Motion / Propagation", "url": "meso/sET/prop.png"}, "stor": {"label": "Supercell Composite (SCP)", "url": "meso/sET/stor.png"}, "stpc": {"label": "Significant Tornado (STP)", "url": "meso/sET/stpc.png"}, "thea": {"label": "Theta-E Advection", "url": "meso/sET/thea.png"}, "mcon": {"label": "Moisture Convergence", "url": "meso/sET/mcon.png"}, "qlcs1": {"label": "QLCS Tornado Prob (0-1 km)", "url": "meso/sET/qlcs1.png"}, "qlcs2": {"label": "QLCS QLCS-Mode Composite", "url": "meso/sET/qlcs2.png"}, "peff": {"label": "Precipitation Efficiency", "url": "meso/sET/peff.png"}, "925mb": {"label": "925 mb Temp / Heights", "url": "meso/sET/925mb.png"}, "850mb": {"label": "850 mb Temp / Heights", "url": "meso/sET/850mb.png"}, "700mb": {"label": "700 mb Temp / Heights", "url": "meso/sET/700mb.png"}, "500mb": {"label": "500 mb Temp / Heights", "url": "meso/sET/500mb.png"}, "300mb": {"label": "300 mb Winds / Heights", "url": "meso/sET/300mb.png"}, "comp": {"label": "Composite Layer (sfc-6km)", "url": "meso/sET/comp.png"}, "tran": {"label": "Orographic/Transport Flow", "url": "meso/sET/tran.png"}, "bigsfc": {"label": "Surface analysis (winds/pressure)", "url": "meso/sET/bigsfc.png"}}, "overlays": {"radar": {"label": "Regional radar", "url": "meso/sET/radar.png"}, "warns": {"label": "Warnings", "url": "meso/sET/warns.png"}, "otlk": {"label": "SPC outlook", "url": "meso/sET/otlk.png"}}, "zoom": true, "source": "s19"}}};
+const SEC = MESO.sectors || {};
+let curSec = (SEC.ET ? "ET" : "19"), curFld = "sbcp";   // East TN zoom when available
+function baseFor(sec) { return SEC[sec] && SEC[sec].fields[curFld] ? SEC[sec].fields[curFld].url : null; }
+function show() {
+  const u = baseFor(curSec);
+  const el = document.getElementById("imgField");
+  if (u) { el.src = u + "?" + Date.now(); el.style.display = ""; }
+  else { el.removeAttribute("src"); }
+  for (const [id, key] of [["imgRadar","radar"],["imgWarns","warns"],["imgOtlk","otlk"]]) {
+    const ov = SEC[curSec] && SEC[curSec].overlays && SEC[curSec].overlays[key];
+    const box = document.getElementById("ov" + key[0].toUpperCase() + key.slice(1));
+    const im = document.getElementById(id);
+    if (ov && box.checked) { im.src = ov.url + "?" + Date.now(); im.style.display = ""; }
+    else { im.removeAttribute("src"); im.style.display = "none"; }
+  }
+}
+function fillPickers() {
+  const fs = document.getElementById("fld");
+  const groups = MESO.fieldGroups || [];
+  fs.innerHTML = groups.map(([g, fields]) =>
+    `<optgroup label="${g}">` + fields.map(([c, l]) =>
+      `<option value="${c}"${c === curFld ? " selected" : ""}>${l}</option>`).join("") + `</optgroup>`).join("");
+  const ss = document.getElementById("sec");
+  ss.innerHTML = (MESO.sectorOrder || []).map(s =>
+    `<option value="${s}"${s === curSec ? " selected" : ""}>${(MESO.sectorNames || {})[s] || s}</option>`).join("");
+}
+function tick() {
+  document.getElementById("anl").textContent = MESO.analysis || "";
+  document.getElementById("fr").textContent = MESO.analysis || "";
+  show();
+}
+fillPickers();
+document.getElementById("fld").onchange = e => { curFld = e.target.value; if (!baseFor(curSec)) curSec = "19"; document.getElementById("sec").value = curSec; tick(); };
+document.getElementById("sec").onchange = e => { curSec = e.target.value; tick(); };
+for (const id of ["ovRadar", "ovWarns", "ovOtlk"]) document.getElementById(id).onchange = show;
+/* 6-hour animation through SPC's hourly archive images
+   (data/meso.py pre-fetches field_yymmddhh.gif for the past 6 hours) */
+let animT = null, animI = 0;
+function archStamp(hoursBack) {
+  const d = new Date(Date.now() - hoursBack * 3600e3);
+  const p = n => String(n).padStart(2, "0");
+  return `${p(d.getUTCFullYear() % 100)}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}`;
+}
+function play() {
+  if (animT) { stopAnim(); return; }
+  document.getElementById("btnPlay").textContent = "⏸";
+  animI = 0;
+  const H = (MESO.historyHours || 6);
+  animT = setInterval(() => {
+    const el = document.getElementById("imgField");
+    if (animI % (H + 1) === H || animI % (H + 1) === 0 && animI > 0 && !animT) { }
+    const step = animI % (H + 1);
+    const back = H - step;                     // H..0
+    if (back === 0) {
+      tick();                                   // live image + real label
+    } else {
+      const u = baseFor(curSec);
+      if (u) {
+        const live = u.split("?")[0];           // meso/s19/sbcp.gif | meso/sET/sbcp.png
+        const arc = live.replace(/(\/?meso\/s[A-Z0-9]+\/[a-z0-9_]+)\.(gif|png)$/, `$1_${archStamp(back)}.$2`);
+        el.onerror = () => { el.onerror = null; tick(); };
+        el.src = arc + "?" + Date.now();
+      }
+      document.getElementById("fr").textContent = (MESO.analysis || "") + `  −${back} h`;
+    }
+    animI++;
+  }, 900);
+}
+function stopAnim() { clearInterval(animT); animT = null; document.getElementById("btnPlay").textContent = "▶ Animate 6 h"; }
+document.getElementById("btnPlay").onclick = play;
+tick();
+setInterval(async () => {
+  try {
+    const d = await (await fetch(dataUrl(), {cache: "no-store"})).json();
+    if (d.meso) { MESO.analysis = d.meso.analysis; Object.assign(MESO.sectors || {}, d.meso.sectors || {}); tick(); }
+  } catch (_e) {}
+}, 180000);
+</script>
+
+</div>
+<footer>
+  <div id="upd" style="color:#7d8794">checking data age…</div>
+  Data: National Weather Service · NOAA · RainViewer · SPC — all free, no keys.<br/>
+  Auto-updated every few minutes by the Tennessee Weather Network weather center ·
+  <a href="https://www.facebook.com/tennesseeweathernetwork" target="_blank">Facebook page</a> ·
+  <a id="fbShareFt" href="#" target="_blank" rel="noopener">📘 Post this page to Facebook</a> ·
+  <a href="fb_page.html" target="_blank">📱 Facebook post page (stand-alone)</a>
+</footer>
+<script>
+/* Facebook share: use the canonical public URL when served from it,
+   otherwise share the page's public home (localhost shares are useless) */
+(function () {
+  var pub = "https://rpleasant12.github.io/http-localhost-8765-/";
+  var here = location.origin + location.pathname;
+  var target = (location.hostname === "localhost" || location.hostname === "127.0.0.1") && pub ? pub : here;
+  var u = "https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(target);
+  ["fbShare", "fbShareFt"].forEach(function (id) {
+    var a = document.getElementById(id); if (a) a.href = u;
+  });
+})();
+</script>
+</body></html>

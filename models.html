@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Models - Tennessee Weather Network</title>
+<meta property="og:title" content="Models - Tennessee Weather Network"/>
+<meta property="og:type" content="website"/>
+<meta property="og:description" content="Live radar, future cast, satellite, forecast models, severe weather and East Tennessee forecasts - free, no keys, always updating."/>
+<meta property="og:url" content="https://rpleasant12.github.io/http-localhost-8765-/"/>
+<meta property="og:image" content="https://rpleasant12.github.io/http-localhost-8765-/og.png"/>
+<meta property="og:site_name" content="Tennessee Weather Network"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="https://rpleasant12.github.io/http-localhost-8765-/og.png"/>
+<meta name="description" content="Live East Tennessee weather: radar, future cast, satellite, all forecast models, severe weather, and city forecasts. Updated continuously."/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<style>
+  :root { color-scheme: dark; --bg:#0e1117; --card:#161b26; --line:rgba(255,255,255,.08); --dim:#9aa4b2; --acc:#4da3ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:var(--bg); color:#e8edf4; }
+  a { color:var(--acc); text-decoration:none; }
+  .wrap { max-width:1100px; margin:0 auto; padding:14px; }
+  nav { position:sticky; top:0; z-index:50; background:rgba(14,17,23,.95); backdrop-filter:blur(6px);
+        border-bottom:1px solid var(--line); }
+  nav .wrap { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; padding:10px 14px; }
+  nav .brand { font-weight:800; font-size:18px; margin-right:auto; }
+  nav .brand span { color:var(--acc); }
+  nav a.pg { color:#cdd7e4; font-size:14px; padding:4px 8px; border-radius:6px; }
+  nav a.pg:hover, nav a.pg.on { background:#1d2432; color:#fff; }
+  header.hero { text-align:center; padding:20px 8px 8px; }
+  header.hero h1 { margin:0; font-size:clamp(22px,5vw,36px); }
+  header.hero .sub { color:var(--dim); margin-top:6px; font-size:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin:14px 0; }
+  h2 { font-size:17px; margin:0 0 10px; color:#cdd7e4; }
+  .grid { display:grid; gap:10px; }
+  .cards7 { grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); }
+  .day { background:#10151f; border:1px solid var(--line); border-radius:12px; padding:12px; text-align:center; }
+  .day .hi { font-size:24px; font-weight:800; }
+  .day .tx { color:var(--dim); font-size:12.5px; min-height:30px; }
+  .now { display:flex; flex-wrap:wrap; gap:16px; align-items:center; }
+  .now .big { font-size:clamp(42px,10vw,64px); font-weight:800; }
+  .now .meta { color:var(--dim); font-size:14px; line-height:1.7; }
+  .chip { display:inline-block; padding:8px 18px; border-radius:12px; font-weight:900; color:#102015; }
+  .alerts { display:grid; gap:8px; }
+  .alert { background:#10151f; border-radius:10px; padding:10px 12px; border-left:6px solid #888; }
+  .alert b { color:#fff; } .alert span { color:var(--dim); font-size:13px; display:block; }
+  .alert.ok { border-left-color:#2e7d32; color:#a5d6a7; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; }
+  .kpi { background:#10151f; border:1px solid var(--line); border-radius:12px; padding:10px; text-align:center; }
+  .kpi b { display:block; font-size:22px; } .kpi span { color:var(--dim); font-size:12px; }
+  .ltg-row { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; margin-top:10px; }
+  .ltg-cell { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px 10px; min-width:130px; flex:0 0 auto; }
+  .ltg-cell b { display:block; font-size:15px; }
+  .ltg-cell .h { color:var(--dim); font-size:11px; }
+  .ltg-bars { display:flex; align-items:flex-end; gap:2px; height:34px; margin-top:6px; }
+  .ltg-bars i { flex:1 1 0; min-width:4px; background:#ffeb3b; border-radius:2px 2px 0 0; opacity:.9; }
+  .ltg-badge { font-size:11px; font-weight:800; padding:2px 8px; border-radius:8px; color:#102015; }
+  #map { height:clamp(340px,56vh,580px); border-radius:12px; z-index:0; }
+  .ctl { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:10px; }
+  .ctl button { background:#2b80ff; color:#fff; border:none; border-radius:8px; padding:9px 20px; font-size:16px; cursor:pointer; }
+  .ctl button:active { transform:scale(.97); }
+  .ctl select { background:#1b1f27; color:#eee; border:1px solid rgba(255,255,255,.2); border-radius:6px; padding:8px; font-size:14px; max-width:100%; }
+  .stack { position:relative; width:100%; aspect-ratio:4/3; background:#0a0d13; border-radius:10px; overflow:hidden; }
+  .stack .layer { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+  .frame { font-family:ui-monospace,monospace; color:#ffd54f; }
+  .ctl input[type=range] { flex:1; min-width:110px; accent-color:#2b80ff; height:26px; }
+  .frame { min-width:84px; text-align:center; font-weight:700; color:#ffd54f; font-size:16px; }
+  .src { color:var(--dim); font-size:12px; margin-top:8px; }
+  .legend { display:flex; flex-wrap:wrap; gap:8px 14px; font-size:12.5px; color:var(--dim); margin-top:8px; }
+  .legend i { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+  table.cells { width:100%; border-collapse:collapse; font-size:14px; }
+  table.cells th { text-align:left; color:var(--dim); font-weight:600; font-size:12px; padding:6px; }
+  table.cells td { border-top:1px solid var(--line); padding:7px 6px; }
+  .dbz { font-weight:800; } .sev { color:#ff5252; } .mod { color:#ffb74d; } .lit { color:#aed581; }
+  .gal { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }
+  .gal img { width:100%; border-radius:10px; border:1px solid var(--line); }
+  .gal .cap { color:var(--dim); font-size:12.5px; margin-top:4px; }
+  .stepper { display:flex; align-items:center; gap:8px; margin-top:8px; }
+  .stepper button { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:14px; }
+  .cmp4 { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+  .cmp4 .pane { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px; }
+  .cmp4 .pane h3 { margin:0 0 6px; font-size:13.5px; color:#cdd7e4; display:flex; align-items:center; gap:8px; }
+  .cmp4 .pane h3 .cap { color:var(--dim); font-weight:400; }
+  .cmp4 .pane select { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:3px 6px; font-size:13px; }
+  .cmp4 img { width:100%; border-radius:8px; }
+  .cmp4 .miss { color:var(--dim); font-size:12.5px; padding:22px 6px; text-align:center; }
+  @media (max-width:820px){ .cmp4 { grid-template-columns:1fr; } }
+  .hourly { display:flex; gap:8px; overflow-x:auto; padding-bottom:6px; }
+  .hr { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px 10px; text-align:center; min-width:72px; }
+  .hr b { display:block; } .hr span { color:var(--dim); font-size:11.5px; }
+  .natimg { width:100%; max-width:860px; display:block; margin:0 auto; border-radius:10px; border:1px solid var(--line); background:#fff; }
+  .pre { white-space:pre-wrap; font-size:12.5px; color:#cdd7e4; background:#10151f; border:1px solid var(--line); border-radius:10px; padding:12px; max-height:260px; overflow:auto; }
+  footer { text-align:center; color:var(--dim); font-size:12.5px; padding:18px 8px 26px; line-height:1.8; }
+  .navctl { display:flex; align-items:center; gap:6px; }
+  .navctl button { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:4px 10px; cursor:pointer; font-size:14px; }
+  .autolbl { color:var(--dim); font-size:12px; display:flex; align-items:center; gap:4px; }
+  .map-dark .leaflet-tile-pane { filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(1.05); }
+  /* radar load-state badge (set by the player: ok / loading / empty) */
+  #map { position: relative; }
+  #map::after {
+    content: "";
+    position: absolute; top: 8px; left: 8px; z-index: 800;
+    background: rgba(10, 14, 20, .75); color: #9fe199; border: 1px solid rgba(255,255,255,.15);
+    border-radius: 6px; padding: 2px 9px; font-size: 11.5px; pointer-events: none;
+  }
+  #map[data-radar-state="loading"]::after { content: "radar loading…"; color: #ffd54f; }
+  #map[data-radar-state="empty"]::after { content: "radar unavailable - retrying"; color: #ff8a80; }
+  #map[data-radar-state="ok"]::after { content: "radar live"; color: #9fe199; }
+  /* hide Leaflet's default home marker (the player draws its own) */
+  .leaflet-marker-icon.home-marker { display: none; }
+  .leaflet-control-attribution { background:rgba(14,17,23,.8) !important; color:var(--dim) !important; }
+  .mapctlbtn { background:#1d2432; border:1px solid var(--line); border-radius:6px; color:#eee;
+    padding:5px 9px; font-size:15px; cursor:pointer; margin-bottom:6px; box-shadow:0 1px 4px rgba(0,0,0,.4); text-align:center; }
+  .mapcoord { background:rgba(14,17,23,.85); color:#cdd7e4; border:1px solid var(--line); border-radius:6px;
+    font-size:11.5px; padding:3px 8px; }
+  @media (max-width:640px){ .wrap{padding:10px;} .card{padding:12px;} nav .brand{font-size:16px;} }
+</style>
+</head><body>
+<nav><div class="wrap">
+  <a class="brand" href="index.html">🌧️ <span>Tennessee Weather Network</span></a>
+  <a class="pg" href="index.html">Home</a><a class="pg" href="radar.html">Radar</a><a class="pg" href="satellite.html">Satellite</a><a class="pg on" href="models.html">Models</a><a class="pg" href="tropical.html">NHC</a><a class="pg" href="tropmodels.html">Trop Models</a><a class="pg" href="climate.html">Climate</a><a class="pg" href="severe.html">Severe</a><a class="pg" href="winter.html">Winter Forecast</a><a class="pg" href="meso.html">Mesoanalysis</a><a class="pg" href="obs.html">Obs & Skew-T</a><a class="pg" href="charts.html">Charts & MOS</a><a class="pg" href="national.html">National</a><a class="pg" href="forecast.html">Forecast</a><a class="pg" href="education.html">Education</a>
+  <div class="navctl">
+    <select id="baseSel" title="Basemap" style="max-width:110px"></select>
+    <button id="refreshBtn" title="Refresh this page now">⟳ Refresh</button>
+    <label class="autolbl"><input type="checkbox" id="autoChk" checked/> auto <span id="autoCnt">90</span>s</label>
+    <a id="fbShare" title="Share this page on Facebook" target="_blank" rel="noopener"
+       style="text-decoration:none;background:#1877f2;color:#fff;padding:4px 10px;border-radius:8px;font-size:12.5px;font-weight:600;display:inline-block">📘 Share</a>
+  </div>
+</div></nav>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const SITE_DATA_URL = "data.json";
+/* GitHub Pages caches data.json up to 10 min (max-age=600); the timestamp
+   query makes the browser fetch a fresh copy from the Pages CDN instead of
+   reusing a stale cached one. Public data publishes ~every 10 min, so the
+   footer age normally reads 0-10 min - that is the honest cadence. */
+function dataUrl() {
+  try { return SITE_DATA_URL + "?t=" + Date.now(); } catch (_e) { return SITE_DATA_URL; }
+}
+/* live-update watchdog: re-fetch data.json every 3 min and show its age.
+   The footer age is computed from dataEpochMs (server epoch), NOT from the
+   human-readable 'generated' string (now "... 12:17 AM ET" - unparseable). */
+let SITE_DATA = null;
+function fmtAge(mins) {
+  if (mins < 1) return "just now";
+  if (mins < 60) return mins + " min ago";
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return h + " h " + (m ? m + " min " : "") + "ago";
+}
+function updTick() {
+  if (!SITE_DATA) return;
+  const el = document.getElementById("upd");
+  if (!el) return;
+  const ms = Date.now() - (SITE_DATA.dataEpochMs || 0);
+  if (!SITE_DATA.dataEpochMs || ms < 0) { el.textContent = "\u2705 Live data"; return; }
+  const mins = Math.floor(ms / 60000);
+  /* Public site: GitHub publishes ~every 10 min, so age up to ~12 min is the
+     normal cadence - warn only past that. Pages' own max-age=600 means the
+     fetch itself can lag a couple minutes behind the publish. */
+  if (mins <= 12) el.textContent = "\u2705 Live data \u00b7 refreshed " + fmtAge(mins);
+  else if (mins <= 30) el.textContent = "\u23f3 Data " + fmtAge(mins) + " old \u00b7 next publish soon";
+  else el.textContent = "\u26a0\ufe0f Data " + fmtAge(mins) + " old \u00b7 checking for updates";
+}
+async function siteRefresh() {
+  try {
+    SITE_DATA = await (await fetch(dataUrl(), {cache: "no-store"})).json();
+    if (typeof onDataRefresh === "function") onDataRefresh(SITE_DATA);
+    updTick();
+    /* auto-heal: if the served copy is still 30+ min old on two consecutive
+       polls (6 min apart), force a cache-busted reload once - recovers from
+       a stuck CDN copy or a missed publish without looping. */
+    if (SITE_DATA.dataEpochMs && Date.now() - SITE_DATA.dataEpochMs > 30 * 60000) {
+      siteRefresh._stale = (siteRefresh._stale || 0) + 1;
+      if (siteRefresh._stale >= 2 && !sessionStorage.getItem("tnwxHealed")) {
+        sessionStorage.setItem("tnwxHealed", "1");
+        const u = new URL(location.href); u.searchParams.set("t", Date.now());
+        location.replace(u); return;
+      }
+    } else siteRefresh._stale = 0;
+  } catch (e) { /* offline: keep last data */ }
+}
+siteRefresh();
+setInterval(updTick, 30000);
+setInterval(siteRefresh, 180000);
+/* page auto-refresh: soft (map pages define onDataRefresh) or hard reload.
+   Hard reloads MUST cache-bust: GitHub Pages sends max-age=600, so a plain
+   location.reload() can serve the same stale HTML for up to 10 minutes. */
+function hardReload() {
+  try {
+    const u = new URL(location.href);
+    u.searchParams.set("t", Date.now());
+    location.replace(u);
+  } catch (_e) { location.reload(); }
+}
+let AUTO_LEFT = 90;
+const autoCnt = document.getElementById("autoCnt"), autoChk = document.getElementById("autoChk");
+document.getElementById("refreshBtn").onclick = () => {
+  const b = document.getElementById("refreshBtn");
+  if (b) { b.textContent = "…"; }
+  hardReload();
+};
+try { autoChk.checked = localStorage.getItem("tnwxAuto") !== "off"; } catch (_e) {}
+autoChk.onchange = () => { AUTO_LEFT = 90; try { localStorage.setItem("tnwxAuto", autoChk.checked ? "on" : "off"); } catch (_e) {} };
+setInterval(() => {
+  if (!autoChk.checked) { if (autoCnt) autoCnt.textContent = "\u221e"; return; }
+  AUTO_LEFT -= 1;
+  if (autoCnt) autoCnt.textContent = AUTO_LEFT;
+  if (AUTO_LEFT <= 0) {
+    AUTO_LEFT = 90;
+    if (typeof onDataRefresh === "function") siteRefresh(); else hardReload();
+  }
+}, 1000);
+
+const BASEMAPS = {
+  dark:  { label: "Dark", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", invert: true },
+  light: { label: "Light", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", invert: false },
+  sat:   { label: "Satellite", url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", invert: false },
+  topo:  { label: "Terrain", url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}", invert: false }
+};
+let _baseLayer = null, _baseKey = null;
+function setBase(key, map) {
+  if (key === "mapbox" && !BASEMAPS.mapbox && typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN)
+    BASEMAPS.mapbox = { label: "Mapbox", style: "mapbox://styles/mapbox/light-v11" };
+  const b = BASEMAPS[key] || BASEMAPS.dark;
+  if (_baseKey === key && _baseLayer) return;
+  if (_baseLayer) map.removeLayer(_baseLayer);
+  if (b.style) _baseLayer = L.mapboxGL({ accessToken: MAPBOX_TOKEN, style: b.style, attribution: "&copy; Mapbox" }).addTo(map);
+  else _baseLayer = L.tileLayer(b.url, { maxNativeZoom: 19, maxZoom: 21, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
+  map.getContainer().classList.toggle("map-dark", !!b.invert);
+  _baseKey = key;
+  try { localStorage.setItem("tnwxBase", key); } catch (_e) {}
+  const sel = document.getElementById("baseSel"); if (sel && sel.value !== key) sel.value = key;
+}
+function addMapControls(map, home, homeZoom) {
+  const btn = (txt, title, fn) => {
+    const c = L.control({ position: "topleft" });
+    c.onAdd = () => { const d = L.DomUtil.create("div", "mapctlbtn"); d.textContent = txt; d.title = title;
+      L.DomEvent.disableClickPropagation(d); d.onclick = fn; return d; };
+    c.addTo(map);
+  };
+  btn("⛶", "Fullscreen map", () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else map.getContainer().requestFullscreen();
+  });
+  btn("⌂", "Home view", () => map.setView(home, homeZoom));
+  btn("◎", "My location", () => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(p => {
+      map.setView([p.coords.latitude, p.coords.longitude], 10);
+      L.circleMarker([p.coords.latitude, p.coords.longitude], { radius: 7, color: "#fff", weight: 2, fillColor: "#4da3ff", fillOpacity: 1 })
+        .addTo(map).bindTooltip("You are here").openTooltip();
+    }, () => {}, { timeout: 8000 });
+  });
+  L.control.scale({ imperial: true, metric: false }).addTo(map);
+  document.addEventListener("fullscreenchange", () => setTimeout(() => map.invalidateSize(), 200));
+  const coord = L.control({ position: "bottomright" });
+  coord.onAdd = () => L.DomUtil.create("div", "mapcoord");
+  coord.addTo(map);
+  const el = document.querySelector(".mapcoord");
+  map.on("mousemove", e => { if (el) el.textContent = e.latlng.lat.toFixed(3) + ", " + e.latlng.lng.toFixed(3); });
+  map.on("mouseout", () => { if (el) el.textContent = ""; });
+  const sel = document.getElementById("baseSel");
+  if (sel) {
+    sel.innerHTML = Object.entries(BASEMAPS).map(([k, b]) => `<option value="${k}">${b.label}</option>`).join("");
+    let saved = null; try { saved = localStorage.getItem("tnwxBase"); } catch (_e) {}
+    setBase(saved && BASEMAPS[saved] ? saved : ((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark"), map);
+    sel.onchange = e => setBase(e.target.value, map);
+  } else setBase((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark", map);
+  if (typeof drawHomeMarker === "function") drawHomeMarker(map, home);
+}
+function drawHomeMarker(map, home) {
+  if (map._tnwxHome) return;
+  map._tnwxHome = L.circleMarker(home, { radius: 7, color: "#fff", weight: 2,
+    fillColor: "#ff5252", fillOpacity: 1 }).addTo(map).bindTooltip((typeof DATA_PLACE !== "undefined" && DATA_PLACE) || "Home");
+}
+
+
+setTimeout(function () {
+  if (typeof map === "undefined" || !map) return;
+  const sel = document.getElementById("baseSel");
+  if (typeof addMapControls === "function" && (typeof _baseLayer === "undefined" || !_baseLayer)) {
+    const la = (typeof DATA_LAT !== "undefined") ? DATA_LAT : 36.2;
+    const lo = (typeof DATA_LON !== "undefined") ? DATA_LON : -83.0;
+    addMapControls(map, [la, lo], 6);
+  } else if (typeof setBase === "function") {
+    if (!_baseLayer) setBase((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark", map);
+    if (sel) sel.onchange = function (e) { setBase(e.target.value, map); };
+  }
+}, 600);
+
+</script>
+<div class="wrap">
+
+<header class="hero"><h1>🧮 Model maps</h1>
+<div class="sub">Every model, every product — MetPy × Cartopy renders from NOAA/ECMWF GRIB2 · East Tennessee + US · updated 2026-09-13 6:30 AM ET</div></header>
+
+<div class="card"><h2>🔍 Render any model product</h2>
+  <div class="ctl">
+    <select id="catModel"><option value="AI-Aurora">AI-Aurora</option><option value="AI-FourCastNet">AI-FourCastNet</option><option value="AI-GraphCast">AI-GraphCast</option><option value="AI-Pangu">AI-Pangu</option><option value="AIFS">AIFS</option><option value="AIFS-ENS">AIFS-ENS</option><option value="CFS">CFS</option><option value="ECMWF">ECMWF</option><option value="FV3 (SHiELD)">FV3 (SHiELD)</option><option value="GEFS">GEFS</option><option value="GEFS-Spread">GEFS-Spread</option><option value="GFS">GFS</option><option value="HREF">HREF</option><option value="HRRR">HRRR</option><option value="MPAS">MPAS</option><option value="NAM">NAM</option><option value="NBM">NBM</option><option value="RAP">RAP</option><option value="REFS">REFS</option><option value="RRFS">RRFS</option></select>
+    <select id="catProd"></select>
+    <select id="catRegion">
+      <option value="etn">East Tennessee</option>
+      <option value="us">US (CONUS)</option>
+    </select>
+    <button id="catGo">Render</button>
+  </div>
+  <div class="src" id="catMsg">Pick a model + product and hit Render - the map renders server-side (GRIB decode, ~10-60 s first time, then cached).</div>
+  <div id="catWrap"></div>
+</div>  <div class="card"><h2>🗂️ 4-pane model comparison (all models · all levels · animated)</h2>
+  <div class="ctl">
+    <span class="src" style="margin:0">Product / level</span>
+    <select id="cmpProd"></select>
+    <span class="src" style="margin:0">Region</span>
+    <select id="cmpRegion">
+      <option value="etn">East Tennessee</option>
+      <option value="us">US (CONUS)</option>
+    </select>
+    <button id="cmpPlay">⏸</button>
+    <span class="frame" id="cmpFrame">--</span>
+  </div>
+  <div class="cmp4" id="cmpGrid"></div>
+  <div class="src">All 20 models (NWS global + CAM + AI + MPAS + FV3) × every product/level, animated side-by-side — each pane plays its own loop and the big clock advances every pane that has that hour. Missing hours snap to the nearest earlier frame; unrendered combos queue and fill in automatically.</div>
+</div>
+
+<div class="card"><h2>🎞️ HRRR 15-minute future radar loop (PSU e-Wall · init 2026-09-13 4 AM ET)</h2><img id="psu" loading="lazy" src="psu_hrrr/rad69.gif" style="width:100%;border-radius:10px"/><div class="ctl" style="margin-top:8px"><button id="psuPlay">▶</button><span class="frame" id="psuFh">F18.0 · Sun 10 PM ET</span><button id="psuPrev">◀</button><select id="psuSel"><option value="0">F12.2 · Sun 4:15 PM ET</option><option value="1">F12.5 · Sun 4:30 PM ET</option><option value="2">F12.8 · Sun 4:45 PM ET</option><option value="3">F13.0 · Sun 5 PM ET</option><option value="4">F13.2 · Sun 5:15 PM ET</option><option value="5">F13.5 · Sun 5:30 PM ET</option><option value="6">F13.8 · Sun 5:45 PM ET</option><option value="7">F14.0 · Sun 6 PM ET</option><option value="8">F14.2 · Sun 6:15 PM ET</option><option value="9">F14.5 · Sun 6:30 PM ET</option><option value="10">F14.8 · Sun 6:45 PM ET</option><option value="11">F15.0 · Sun 7 PM ET</option><option value="12">F15.2 · Sun 7:15 PM ET</option><option value="13">F15.5 · Sun 7:30 PM ET</option><option value="14">F15.8 · Sun 7:45 PM ET</option><option value="15">F16.0 · Sun 8 PM ET</option><option value="16">F16.2 · Sun 8:15 PM ET</option><option value="17">F16.5 · Sun 8:30 PM ET</option><option value="18">F16.8 · Sun 8:45 PM ET</option><option value="19">F17.0 · Sun 9 PM ET</option><option value="20">F17.2 · Sun 9:15 PM ET</option><option value="21">F17.5 · Sun 9:30 PM ET</option><option value="22">F17.8 · Sun 9:45 PM ET</option><option value="23" selected>F18.0 · Sun 10 PM ET</option></select><button id="psuNext">▶</button><select id="psuSpeed"><option value="2000">0.5x</option><option value="900" selected>1x</option><option value="450">2x</option><option value="250">4x</option></select></div></div>
+<div class="card"><h2>RAP · mucape (us · init 0913Z 08Z)</h2><img id="mg_0" loading="lazy" src="model_maps/RAP_mucape_f009_2026091308_us.png" alt="RAP mucape"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_mucape_f009_2026091308_us.png" target="_blank">full size</a></div><div class="ctl" style="margin-top:8px"><button class="gplay" data-g="0">▶</button><span class="frame gfh" data-g="0">F009</span><button class="gstep" data-g="0" data-d="-1">◀</button><select class="gsel" data-g="0"><option value="9">F009</option><option value="9" selected>F009</option></select><button class="gstep" data-g="0" data-d="1">▶</button><select class="gspeed" data-g="0"><option value="2000">0.5x</option><option value="1000" selected>1x</option><option value="500">2x</option><option value="250">4x</option></select></div></div><div class="card"><h2>RAP · pwat (etn · init 0913Z 08Z)</h2><img id="mg_1" loading="lazy" src="model_maps/RAP_pwat_f009_2026091308_etn.png" alt="RAP pwat"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_pwat_f009_2026091308_etn.png" target="_blank">full size</a></div><div class="ctl" style="margin-top:8px"><button class="gplay" data-g="1">▶</button><span class="frame gfh" data-g="1">F009</span><button class="gstep" data-g="1" data-d="-1">◀</button><select class="gsel" data-g="1"><option value="9">F009</option><option value="9" selected>F009</option></select><button class="gstep" data-g="1" data-d="1">▶</button><select class="gspeed" data-g="1"><option value="2000">0.5x</option><option value="1000" selected>1x</option><option value="500">2x</option><option value="250">4x</option></select></div></div><div class="card"><h2>RAP · pwat (us · init 0913Z 08Z)</h2><img id="mg_2" loading="lazy" src="model_maps/RAP_pwat_f009_2026091308_us.png" alt="RAP pwat"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_pwat_f009_2026091308_us.png" target="_blank">full size</a></div><div class="ctl" style="margin-top:8px"><button class="gplay" data-g="2">▶</button><span class="frame gfh" data-g="2">F009</span><button class="gstep" data-g="2" data-d="-1">◀</button><select class="gsel" data-g="2"><option value="9">F009</option><option value="9" selected>F009</option></select><button class="gstep" data-g="2" data-d="1">▶</button><select class="gspeed" data-g="2"><option value="2000">0.5x</option><option value="1000" selected>1x</option><option value="500">2x</option><option value="250">4x</option></select></div></div><div class="card"><h2>RAP · tcdc (etn · init 0913Z 08Z)</h2><img id="mg_3" loading="lazy" src="model_maps/RAP_tcdc_f009_2026091308_etn.png" alt="RAP tcdc"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_tcdc_f009_2026091308_etn.png" target="_blank">full size</a></div><div class="src">single frame - more hours render each update cycle</div></div><div class="card"><h2>RAP · tcdc (us · init 0913Z 08Z)</h2><img id="mg_4" loading="lazy" src="model_maps/RAP_tcdc_f009_2026091308_us.png" alt="RAP tcdc"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_tcdc_f009_2026091308_us.png" target="_blank">full size</a></div><div class="src">single frame - more hours render each update cycle</div></div><div class="card"><h2>RAP · vis (etn · init 0913Z 08Z)</h2><img id="mg_5" loading="lazy" src="model_maps/RAP_vis_f009_2026091308_etn.png" alt="RAP vis"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_vis_f009_2026091308_etn.png" target="_blank">full size</a></div><div class="src">single frame - more hours render each update cycle</div></div><div class="card"><h2>RAP · vis (us · init 0913Z 08Z)</h2><img id="mg_6" loading="lazy" src="model_maps/RAP_vis_f009_2026091308_us.png" alt="RAP vis"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_vis_f009_2026091308_us.png" target="_blank">full size</a></div><div class="src">single frame - more hours render each update cycle</div></div><div class="card"><h2>RAP · 200_jet (etn · init 0913Z 07Z)</h2><img id="mg_7" loading="lazy" src="model_maps/RAP_200_jet_f009_2026091307_etn.png" alt="RAP 200_jet"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_200_jet_f009_2026091307_etn.png" target="_blank">full size</a></div><div class="ctl" style="margin-top:8px"><button class="gplay" data-g="7">▶</button><span class="frame gfh" data-g="7">F009</span><button class="gstep" data-g="7" data-d="-1">◀</button><select class="gsel" data-g="7"><option value="9">F009</option><option value="9" selected>F009</option></select><button class="gstep" data-g="7" data-d="1">▶</button><select class="gspeed" data-g="7"><option value="2000">0.5x</option><option value="1000" selected>1x</option><option value="500">2x</option><option value="250">4x</option></select></div></div><div class="card"><h2>RAP · 200_jet (us · init 0913Z 07Z)</h2><img id="mg_8" loading="lazy" src="model_maps/RAP_200_jet_f009_2026091307_us.png" alt="RAP 200_jet"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_200_jet_f009_2026091307_us.png" target="_blank">full size</a></div><div class="ctl" style="margin-top:8px"><button class="gplay" data-g="8">▶</button><span class="frame gfh" data-g="8">F009</span><button class="gstep" data-g="8" data-d="-1">◀</button><select class="gsel" data-g="8"><option value="9">F009</option><option value="9" selected>F009</option></select><button class="gstep" data-g="8" data-d="1">▶</button><select class="gspeed" data-g="8"><option value="2000">0.5x</option><option value="1000" selected>1x</option><option value="500">2x</option><option value="250">4x</option></select></div></div><div class="card"><h2>RAP · 250_jet (etn · init 0913Z 07Z)</h2><img id="mg_9" loading="lazy" src="model_maps/RAP_250_jet_f009_2026091307_etn.png" alt="RAP 250_jet"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_250_jet_f009_2026091307_etn.png" target="_blank">full size</a></div><div class="ctl" style="margin-top:8px"><button class="gplay" data-g="9">▶</button><span class="frame gfh" data-g="9">F009</span><button class="gstep" data-g="9" data-d="-1">◀</button><select class="gsel" data-g="9"><option value="9">F009</option><option value="9" selected>F009</option></select><button class="gstep" data-g="9" data-d="1">▶</button><select class="gspeed" data-g="9"><option value="2000">0.5x</option><option value="1000" selected>1x</option><option value="500">2x</option><option value="250">4x</option></select></div></div><div class="card"><h2>RAP · 250_jet (us · init 0913Z 07Z)</h2><img id="mg_10" loading="lazy" src="model_maps/RAP_250_jet_f009_2026091307_us.png" alt="RAP 250_jet"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_250_jet_f009_2026091307_us.png" target="_blank">full size</a></div><div class="ctl" style="margin-top:8px"><button class="gplay" data-g="10">▶</button><span class="frame gfh" data-g="10">F009</span><button class="gstep" data-g="10" data-d="-1">◀</button><select class="gsel" data-g="10"><option value="9">F009</option><option value="9" selected>F009</option></select><button class="gstep" data-g="10" data-d="1">▶</button><select class="gspeed" data-g="10"><option value="2000">0.5x</option><option value="1000" selected>1x</option><option value="500">2x</option><option value="250">4x</option></select></div></div><div class="card"><h2>RAP · 300_jet (etn · init 0913Z 07Z)</h2><img id="mg_11" loading="lazy" src="model_maps/RAP_300_jet_f009_2026091307_etn.png" alt="RAP 300_jet"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_300_jet_f009_2026091307_etn.png" target="_blank">full size</a></div><div class="src">single frame - more hours render each update cycle</div></div><div class="card"><h2>RAP · 300_jet (us · init 0913Z 07Z)</h2><img id="mg_12" loading="lazy" src="model_maps/RAP_300_jet_f009_2026091307_us.png" alt="RAP 300_jet"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_300_jet_f009_2026091307_us.png" target="_blank">full size</a></div><div class="src">single frame - more hours render each update cycle</div></div><div class="card"><h2>RAP · 925_tmp (etn · init 0913Z 07Z)</h2><img id="mg_13" loading="lazy" src="model_maps/RAP_925_tmp_f009_2026091307_etn.png" alt="RAP 925_tmp"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_925_tmp_f009_2026091307_etn.png" target="_blank">full size</a></div><div class="ctl" style="margin-top:8px"><button class="gplay" data-g="13">▶</button><span class="frame gfh" data-g="13">F009</span><button class="gstep" data-g="13" data-d="-1">◀</button><select class="gsel" data-g="13"><option value="9">F009</option><option value="9" selected>F009</option></select><button class="gstep" data-g="13" data-d="1">▶</button><select class="gspeed" data-g="13"><option value="2000">0.5x</option><option value="1000" selected>1x</option><option value="500">2x</option><option value="250">4x</option></select></div></div><div class="card"><h2>RAP · 925_tmp (us · init 0913Z 07Z)</h2><img id="mg_14" loading="lazy" src="model_maps/RAP_925_tmp_f009_2026091307_us.png" alt="RAP 925_tmp"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_925_tmp_f009_2026091307_us.png" target="_blank">full size</a></div><div class="src">single frame - more hours render each update cycle</div></div><div class="card"><h2>RAP · cape_wind (etn · init 0913Z 07Z)</h2><img id="mg_15" loading="lazy" src="model_maps/RAP_cape_wind_f009_2026091307_etn.png" alt="RAP cape_wind"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_cape_wind_f009_2026091307_etn.png" target="_blank">full size</a></div><div class="ctl" style="margin-top:8px"><button class="gplay" data-g="15">▶</button><span class="frame gfh" data-g="15">F009</span><button class="gstep" data-g="15" data-d="-1">◀</button><select class="gsel" data-g="15"><option value="9">F009</option><option value="9" selected>F009</option></select><button class="gstep" data-g="15" data-d="1">▶</button><select class="gspeed" data-g="15"><option value="2000">0.5x</option><option value="1000" selected>1x</option><option value="500">2x</option><option value="250">4x</option></select></div></div><div class="card"><h2>RAP · cape_wind (us · init 0913Z 07Z)</h2><img id="mg_16" loading="lazy" src="model_maps/RAP_cape_wind_f009_2026091307_us.png" alt="RAP cape_wind"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_cape_wind_f009_2026091307_us.png" target="_blank">full size</a></div><div class="ctl" style="margin-top:8px"><button class="gplay" data-g="16">▶</button><span class="frame gfh" data-g="16">F009</span><button class="gstep" data-g="16" data-d="-1">◀</button><select class="gsel" data-g="16"><option value="9">F009</option><option value="9" selected>F009</option></select><button class="gstep" data-g="16" data-d="1">▶</button><select class="gspeed" data-g="16"><option value="2000">0.5x</option><option value="1000" selected>1x</option><option value="500">2x</option><option value="250">4x</option></select></div></div><div class="card"><h2>NAM · 500_vort (etn · init 0913Z 06Z)</h2><img id="mg_17" loading="lazy" src="model_maps/NAM_500_vort_f012_2026091306_etn.png" alt="NAM 500_vort"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/NAM_500_vort_f012_2026091306_etn.png" target="_blank">full size</a></div><div class="ctl" style="margin-top:8px"><button class="gplay" data-g="17">▶</button><span class="frame gfh" data-g="17">F012</span><button class="gstep" data-g="17" data-d="-1">◀</button><select class="gsel" data-g="17"><option value="12">F012</option><option value="12">F012</option><option value="12" selected>F012</option></select><button class="gstep" data-g="17" data-d="1">▶</button><select class="gspeed" data-g="17"><option value="2000">0.5x</option><option value="1000" selected>1x</option><option value="500">2x</option><option value="250">4x</option></select></div></div><div class="card"><h2>RAP · mucape (etn · init 0913Z 06Z)</h2><img id="mg_18" loading="lazy" src="model_maps/RAP_mucape_f009_2026091306_etn.png" alt="RAP mucape"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_mucape_f009_2026091306_etn.png" target="_blank">full size</a></div><div class="src">single frame - more hours render each update cycle</div></div><div class="card"><h2>RRFS · 500_vort (etn · init 0913Z 06Z)</h2><img id="mg_19" loading="lazy" src="model_maps/RRFS_500_vort_f012_2026091306_etn.png" alt="RRFS 500_vort"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RRFS_500_vort_f012_2026091306_etn.png" target="_blank">full size</a></div><div class="ctl" style="margin-top:8px"><button class="gplay" data-g="19">▶</button><span class="frame gfh" data-g="19">F012</span><button class="gstep" data-g="19" data-d="-1">◀</button><select class="gsel" data-g="19"><option value="12">F012</option><option value="12">F012</option><option value="12">F012</option><option value="12" selected>F012</option></select><button class="gstep" data-g="19" data-d="1">▶</button><select class="gspeed" data-g="19"><option value="2000">0.5x</option><option value="1000" selected>1x</option><option value="500">2x</option><option value="250">4x</option></select></div></div><div class="card"><h2>RAP · 500_tmp (etn · init 0913Z 05Z)</h2><img id="mg_20" loading="lazy" src="model_maps/RAP_500_tmp_f009_2026091305_etn.png" alt="RAP 500_tmp"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_500_tmp_f009_2026091305_etn.png" target="_blank">full size</a></div><div class="src">single frame - more hours render each update cycle</div></div><div class="card"><h2>RAP · 500_tmp (us · init 0913Z 05Z)</h2><img id="mg_21" loading="lazy" src="model_maps/RAP_500_tmp_f009_2026091305_us.png" alt="RAP 500_tmp"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_500_tmp_f009_2026091305_us.png" target="_blank">full size</a></div><div class="src">single frame - more hours render each update cycle</div></div><div class="card"><h2>RAP · 500_vort (etn · init 0913Z 05Z)</h2><img id="mg_22" loading="lazy" src="model_maps/RAP_500_vort_f009_2026091305_etn.png" alt="RAP 500_vort"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_500_vort_f009_2026091305_etn.png" target="_blank">full size</a></div><div class="src">single frame - more hours render each update cycle</div></div><div class="card"><h2>RAP · 500_vort (us · init 0913Z 05Z)</h2><img id="mg_23" loading="lazy" src="model_maps/RAP_500_vort_f009_2026091305_us.png" alt="RAP 500_vort"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_500_vort_f009_2026091305_us.png" target="_blank">full size</a></div><div class="src">single frame - more hours render each update cycle</div></div><div class="card"><h2>RAP · 850_tmp (etn · init 0913Z 05Z)</h2><img id="mg_24" loading="lazy" src="model_maps/RAP_850_tmp_f009_2026091305_etn.png" alt="RAP 850_tmp"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_850_tmp_f009_2026091305_etn.png" target="_blank">full size</a></div><div class="src">single frame - more hours render each update cycle</div></div><div class="card"><h2>RAP · 850_tmp (us · init 0913Z 05Z)</h2><img id="mg_25" loading="lazy" src="model_maps/RAP_850_tmp_f009_2026091305_us.png" alt="RAP 850_tmp"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_850_tmp_f009_2026091305_us.png" target="_blank">full size</a></div><div class="src">single frame - more hours render each update cycle</div></div><div class="card"><h2>RAP · refc (etn · init 0913Z 05Z)</h2><img id="mg_26" loading="lazy" src="model_maps/RAP_refc_f009_2026091305_etn.png" alt="RAP refc"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_refc_f009_2026091305_etn.png" target="_blank">full size</a></div><div class="src">single frame - more hours render each update cycle</div></div><div class="card"><h2>RAP · refc (us · init 0913Z 05Z)</h2><img id="mg_27" loading="lazy" src="model_maps/RAP_refc_f009_2026091305_us.png" alt="RAP refc"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/RAP_refc_f009_2026091305_us.png" target="_blank">full size</a></div><div class="src">single frame - more hours render each update cycle</div></div><div class="card"><h2>AIFS · 500_vort (etn · init 0913Z 00Z)</h2><img id="mg_28" loading="lazy" src="model_maps/AIFS_500_vort_f024_2026091300_etn.png" alt="AIFS 500_vort"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/AIFS_500_vort_f024_2026091300_etn.png" target="_blank">full size</a></div><div class="ctl" style="margin-top:8px"><button class="gplay" data-g="28">▶</button><span class="frame gfh" data-g="28">F024</span><button class="gstep" data-g="28" data-d="-1">◀</button><select class="gsel" data-g="28"><option value="24">F024</option><option value="24">F024</option><option value="24" selected>F024</option></select><button class="gstep" data-g="28" data-d="1">▶</button><select class="gspeed" data-g="28"><option value="2000">0.5x</option><option value="1000" selected>1x</option><option value="500">2x</option><option value="250">4x</option></select></div></div><div class="card"><h2>GEFS · 500_tmp (etn · init 0913Z 00Z)</h2><img id="mg_29" loading="lazy" src="model_maps/GEFS_500_tmp_f060_2026091300_etn.png" alt="GEFS 500_tmp"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/GEFS_500_tmp_f060_2026091300_etn.png" target="_blank">full size</a></div><div class="src">single frame - more hours render each update cycle</div></div><div class="card"><h2>GEFS · 500_tmp (us · init 0913Z 00Z)</h2><img id="mg_30" loading="lazy" src="model_maps/GEFS_500_tmp_f060_2026091300_us.png" alt="GEFS 500_tmp"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/GEFS_500_tmp_f060_2026091300_us.png" target="_blank">full size</a></div><div class="src">single frame - more hours render each update cycle</div></div><div class="card"><h2>GEFS · 500_vort (etn · init 0913Z 00Z)</h2><img id="mg_31" loading="lazy" src="model_maps/GEFS_500_vort_f060_2026091300_etn.png" alt="GEFS 500_vort"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/GEFS_500_vort_f060_2026091300_etn.png" target="_blank">full size</a></div><div class="src">single frame - more hours render each update cycle</div></div><div class="card"><h2>GEFS · 500_vort (us · init 0913Z 00Z)</h2><img id="mg_32" loading="lazy" src="model_maps/GEFS_500_vort_f060_2026091300_us.png" alt="GEFS 500_vort"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/GEFS_500_vort_f060_2026091300_us.png" target="_blank">full size</a></div><div class="src">single frame - more hours render each update cycle</div></div><div class="card"><h2>GEFS · 850_tmp (etn · init 0913Z 00Z)</h2><img id="mg_33" loading="lazy" src="model_maps/GEFS_850_tmp_f060_2026091300_etn.png" alt="GEFS 850_tmp"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/GEFS_850_tmp_f060_2026091300_etn.png" target="_blank">full size</a></div><div class="src">single frame - more hours render each update cycle</div></div><div class="card"><h2>GFS · 200_jet (etn · init 0913Z 00Z)</h2><img id="mg_34" loading="lazy" src="model_maps/GFS_200_jet_f036_2026091300_etn.png" alt="GFS 200_jet"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/GFS_200_jet_f036_2026091300_etn.png" target="_blank">full size</a></div><div class="ctl" style="margin-top:8px"><button class="gplay" data-g="34">▶</button><span class="frame gfh" data-g="34">F036</span><button class="gstep" data-g="34" data-d="-1">◀</button><select class="gsel" data-g="34"><option value="36">F036</option><option value="36">F036</option><option value="36" selected>F036</option></select><button class="gstep" data-g="34" data-d="1">▶</button><select class="gspeed" data-g="34"><option value="2000">0.5x</option><option value="1000" selected>1x</option><option value="500">2x</option><option value="250">4x</option></select></div></div><div class="card"><h2>GFS · 200_jet (us · init 0913Z 00Z)</h2><img id="mg_35" loading="lazy" src="model_maps/GFS_200_jet_f036_2026091300_us.png" alt="GFS 200_jet"/><div class="cap">Rendered locally with MetPy · <a href="model_maps/GFS_200_jet_f036_2026091300_us.png" target="_blank">full size</a></div><div class="ctl" style="margin-top:8px"><button class="gplay" data-g="35">▶</button><span class="frame gfh" data-g="35">F036</span><button class="gstep" data-g="35" data-d="-1">◀</button><select class="gsel" data-g="35"><option value="36">F036</option><option value="36">F036</option><option value="36" selected>F036</option></select><button class="gstep" data-g="35" data-d="1">▶</button><select class="gspeed" data-g="35"><option value="2000">0.5x</option><option value="1000" selected>1x</option><option value="500">2x</option><option value="250">4x</option></select></div></div>
+
+<div class="card"><h2>🌍 MPAS + FV3 (SHiELD) — experimental global models</h2>
+  <div class="ctl">
+    <select id="msSrc">
+      <option value="mpas">NCAR MPAS (3.75 km global)</option>
+      <option value="shield">GFDL SHiELD (FV3 core)</option>
+    </select>
+    <select id="msProd"></select>
+    <button id="msPlay">⏸</button>
+    <span class="frame" id="msFrame">--</span>
+  </div>
+  <div class="alert" id="msArchiveNote" style="display:none;border-left-color:#ffb74d">📝 MPAS is showing its archived October 2025 demonstration run — NCAR's real-time experiment ended and a new season hasn't started. Frames stay browsable and this clears itself the moment NCAR publishes a new run.</div>
+  <img id="msImg" class="natimg" loading="lazy" alt="MPAS / SHiELD frame"/>
+  <div class="cap src" id="msCap"></div>
+  <div class="src">NCAR MPAS-A real-time global 3.75 km and GFDL SHiELD — the FV3-core model — official pre-rendered frames, animated. One product set downloads per update cycle and is cached; the rest queue and fill in automatically.</div>
+</div>
+<script>
+const CAT = {"GFS": {"label": "GFS", "products": [{"key": "refc", "label": "Composite radar - simulated reflectivity"}, {"key": "500_vort", "label": "500 mb - Heights + Vorticity + Wind"}, {"key": "500_tmp", "label": "500 mb - Heights + Temperature + Wind"}, {"key": "850_tmp", "label": "850 mb - Heights + Temperature + Wind"}, {"key": "925_tmp", "label": "925 mb - Heights + Temperature + Wind"}, {"key": "700_rh", "label": "700 mb - Relative Humidity + Heights"}, {"key": "300_jet", "label": "300 mb - Jet Stream (isotachs + heights)"}, {"key": "250_jet", "label": "250 mb - Heights + Jet Winds"}, {"key": "200_jet", "label": "200 mb - Heights + Jet Winds"}, {"key": "sfc_mslp", "label": "Surface - MSLP + Fronts-level winds + Temperature"}, {"key": "cape_wind", "label": "Surface - CAPE + Winds (instability)"}, {"key": "mucape", "label": "MUCAPE - Most-Unstable CAPE"}, {"key": "pwat", "label": "Precipitable Water (PWAT)"}, {"key": "sfc_gust", "label": "Surface Wind Gusts + Winds"}, {"key": "tcdc", "label": "Total Cloud Cover"}, {"key": "vis", "label": "Surface Visibility"}, {"key": "snow", "label": "Snow Depth (accumulated)"}, {"key": "prate", "label": "Precipitation Rate"}]}, "NAM": {"label": "NAM", "products": [{"key": "refc", "label": "Composite radar - simulated reflectivity"}, {"key": "500_vort", "label": "500 mb - Heights + Vorticity + Wind"}, {"key": "500_tmp", "label": "500 mb - Heights + Temperature + Wind"}, {"key": "850_tmp", "label": "850 mb - Heights + Temperature + Wind"}, {"key": "925_tmp", "label": "925 mb - Heights + Temperature + Wind"}, {"key": "700_rh", "label": "700 mb - Relative Humidity + Heights"}, {"key": "300_jet", "label": "300 mb - Jet Stream (isotachs + heights)"}, {"key": "250_jet", "label": "250 mb - Heights + Jet Winds"}, {"key": "200_jet", "label": "200 mb - Heights + Jet Winds"}, {"key": "sfc_mslp", "label": "Surface - MSLP + Fronts-level winds + Temperature"}, {"key": "cape_wind", "label": "Surface - CAPE + Winds (instability)"}, {"key": "pwat", "label": "Precipitable Water (PWAT)"}, {"key": "sfc_gust", "label": "Surface Wind Gusts + Winds"}, {"key": "tcdc", "label": "Total Cloud Cover"}, {"key": "vis", "label": "Surface Visibility"}, {"key": "snow", "label": "Snow Depth (accumulated)"}]}, "RAP": {"label": "RAP", "products": [{"key": "refc", "label": "Composite radar - simulated reflectivity"}, {"key": "500_vort", "label": "500 mb - Heights + Vorticity + Wind"}, {"key": "500_tmp", "label": "500 mb - Heights + Temperature + Wind"}, {"key": "850_tmp", "label": "850 mb - Heights + Temperature + Wind"}, {"key": "925_tmp", "label": "925 mb - Heights + Temperature + Wind"}, {"key": "300_jet", "label": "300 mb - Jet Stream (isotachs + heights)"}, {"key": "250_jet", "label": "250 mb - Heights + Jet Winds"}, {"key": "200_jet", "label": "200 mb - Heights + Jet Winds"}, {"key": "sfc_mslp", "label": "Surface - MSLP + Fronts-level winds + Temperature"}, {"key": "cape_wind", "label": "Surface - CAPE + Winds (instability)"}, {"key": "mucape", "label": "MUCAPE - Most-Unstable CAPE"}, {"key": "pwat", "label": "Precipitable Water (PWAT)"}, {"key": "tcdc", "label": "Total Cloud Cover"}, {"key": "vis", "label": "Surface Visibility"}]}, "GEFS": {"label": "GEFS", "products": [{"key": "500_vort", "label": "500 mb - Heights + Vorticity + Wind"}, {"key": "500_tmp", "label": "500 mb - Heights + Temperature + Wind"}, {"key": "850_tmp", "label": "850 mb - Heights + Temperature + Wind"}, {"key": "925_tmp", "label": "925 mb - Heights + Temperature + Wind"}, {"key": "700_rh", "label": "700 mb - Relative Humidity + Heights"}, {"key": "300_jet", "label": "300 mb - Jet Stream (isotachs + heights)"}, {"key": "250_jet", "label": "250 mb - Heights + Jet Winds"}, {"key": "200_jet", "label": "200 mb - Heights + Jet Winds"}, {"key": "sfc_mslp", "label": "Surface - MSLP + Fronts-level winds + Temperature"}, {"key": "pwat", "label": "Precipitable Water (PWAT)"}, {"key": "tcdc", "label": "Total Cloud Cover"}]}, "GEFS-Spread": {"label": "GEFS-Spread", "products": [{"key": "h500_spread", "label": "500 mb Height SPREAD (ensemble uncertainty)"}]}, "ECMWF": {"label": "ECMWF", "products": [{"key": "500_vort", "label": "500 mb - Heights + Vorticity + Wind"}, {"key": "500_tmp", "label": "500 mb - Heights + Temperature + Wind"}, {"key": "850_tmp", "label": "850 mb - Heights + Temperature + Wind"}, {"key": "300_jet", "label": "300 mb - Jet Stream (isotachs + heights)"}, {"key": "250_jet", "label": "250 mb - Heights + Jet Winds"}, {"key": "sfc_mslp", "label": "Surface - MSLP + Fronts-level winds + Temperature"}, {"key": "pwat", "label": "Precipitable Water (PWAT)"}, {"key": "tcdc", "label": "Total Cloud Cover"}]}, "RRFS": {"label": "RRFS", "products": [{"key": "500_vort", "label": "500 mb - Heights + Vorticity + Wind"}, {"key": "500_tmp", "label": "500 mb - Heights + Temperature + Wind"}, {"key": "850_tmp", "label": "850 mb - Heights + Temperature + Wind"}, {"key": "925_tmp", "label": "925 mb - Heights + Temperature + Wind"}, {"key": "300_jet", "label": "300 mb - Jet Stream (isotachs + heights)"}, {"key": "250_jet", "label": "250 mb - Heights + Jet Winds"}, {"key": "200_jet", "label": "200 mb - Heights + Jet Winds"}, {"key": "pwat", "label": "Precipitable Water (PWAT)"}]}, "HRRR": {"label": "HRRR", "products": [{"key": "refc", "label": "Composite radar - simulated reflectivity"}, {"key": "500_vort", "label": "500 mb - Heights + Vorticity + Wind"}, {"key": "500_tmp", "label": "500 mb - Heights + Temperature + Wind"}, {"key": "850_tmp", "label": "850 mb - Heights + Temperature + Wind"}, {"key": "925_tmp", "label": "925 mb - Heights + Temperature + Wind"}, {"key": "700_rh", "label": "700 mb - Relative Humidity + Heights"}, {"key": "300_jet", "label": "300 mb - Jet Stream (isotachs + heights)"}, {"key": "250_jet", "label": "250 mb - Heights + Jet Winds"}, {"key": "200_jet", "label": "200 mb - Heights + Jet Winds"}, {"key": "sfc_mslp", "label": "Surface - MSLP + Fronts-level winds + Temperature"}, {"key": "cape_wind", "label": "Surface - CAPE + Winds (instability)"}, {"key": "mucape", "label": "MUCAPE - Most-Unstable CAPE"}, {"key": "pwat", "label": "Precipitable Water (PWAT)"}, {"key": "sfc_gust", "label": "Surface Wind Gusts + Winds"}, {"key": "tcdc", "label": "Total Cloud Cover"}, {"key": "vis", "label": "Surface Visibility"}, {"key": "snow", "label": "Snow Depth (accumulated)"}, {"key": "prate", "label": "Precipitation Rate"}]}, "NBM": {"label": "NBM", "products": [{"key": "nbm_temp", "label": "NBM Temperature \u00b7 Blend of Models"}, {"key": "nbm_gust", "label": "NBM Wind Gust \u00b7 Blend of Models"}, {"key": "nbm_cape", "label": "NBM SBCAPE \u00b7 Blend of Models"}, {"key": "nbm_refc", "label": "NBM Max Simulated Reflectivity \u00b7 Blend of Models"}]}, "CFS": {"label": "CFS", "products": [{"key": "500_vort", "label": "500 mb - Heights + Vorticity + Wind"}, {"key": "500_tmp", "label": "500 mb - Heights + Temperature + Wind"}, {"key": "850_tmp", "label": "850 mb - Heights + Temperature + Wind"}, {"key": "925_tmp", "label": "925 mb - Heights + Temperature + Wind"}, {"key": "700_rh", "label": "700 mb - Relative Humidity + Heights"}, {"key": "300_jet", "label": "300 mb - Jet Stream (isotachs + heights)"}, {"key": "250_jet", "label": "250 mb - Heights + Jet Winds"}, {"key": "200_jet", "label": "200 mb - Heights + Jet Winds"}]}, "AIFS": {"label": "AIFS", "products": [{"key": "500_vort", "label": "500 mb - Heights + Vorticity + Wind"}, {"key": "500_tmp", "label": "500 mb - Heights + Temperature + Wind"}, {"key": "850_tmp", "label": "850 mb - Heights + Temperature + Wind"}, {"key": "300_jet", "label": "300 mb - Jet Stream (isotachs + heights)"}, {"key": "sfc_mslp", "label": "Surface - MSLP + Fronts-level winds + Temperature"}, {"key": "pwat", "label": "Precipitable Water (PWAT)"}, {"key": "tcdc", "label": "Total Cloud Cover"}]}, "AIFS-ENS": {"label": "AIFS-ENS", "products": [{"key": "500_vort", "label": "500 mb - Heights + Vorticity + Wind"}, {"key": "500_tmp", "label": "500 mb - Heights + Temperature + Wind"}, {"key": "850_tmp", "label": "850 mb - Heights + Temperature + Wind"}, {"key": "300_jet", "label": "300 mb - Jet Stream (isotachs + heights)"}, {"key": "250_jet", "label": "250 mb - Heights + Jet Winds"}, {"key": "sfc_mslp", "label": "Surface - MSLP + Fronts-level winds + Temperature"}, {"key": "pwat", "label": "Precipitable Water (PWAT)"}, {"key": "tcdc", "label": "Total Cloud Cover"}]}, "AI-GraphCast": {"label": "AI-GraphCast", "products": [{"key": "500_vort", "label": "500 mb - Heights + Vorticity + Wind"}, {"key": "500_tmp", "label": "500 mb - Heights + Temperature + Wind"}, {"key": "850_tmp", "label": "850 mb - Heights + Temperature + Wind"}, {"key": "sfc_mslp", "label": "Surface - MSLP + Fronts-level winds + Temperature"}, {"key": "ai_precip", "label": "6-hour Precipitation Accumulation (AI)"}]}, "AI-Pangu": {"label": "AI-Pangu", "products": [{"key": "500_vort", "label": "500 mb - Heights + Vorticity + Wind"}, {"key": "500_tmp", "label": "500 mb - Heights + Temperature + Wind"}, {"key": "850_tmp", "label": "850 mb - Heights + Temperature + Wind"}, {"key": "sfc_mslp", "label": "Surface - MSLP + Fronts-level winds + Temperature"}]}, "AI-FourCastNet": {"label": "AI-FourCastNet", "products": [{"key": "500_vort", "label": "500 mb - Heights + Vorticity + Wind"}, {"key": "500_tmp", "label": "500 mb - Heights + Temperature + Wind"}, {"key": "850_tmp", "label": "850 mb - Heights + Temperature + Wind"}, {"key": "sfc_mslp", "label": "Surface - MSLP + Fronts-level winds + Temperature"}, {"key": "pwat", "label": "Precipitable Water (PWAT)"}]}, "AI-Aurora": {"label": "AI-Aurora", "products": [{"key": "500_vort", "label": "500 mb - Heights + Vorticity + Wind"}, {"key": "500_tmp", "label": "500 mb - Heights + Temperature + Wind"}, {"key": "850_tmp", "label": "850 mb - Heights + Temperature + Wind"}, {"key": "sfc_mslp", "label": "Surface - MSLP + Fronts-level winds + Temperature"}]}, "HREF": {"label": "HREF", "products": [{"key": "cam_pmmn", "label": "PMMN Composite Reflectivity (ensemble)"}, {"key": "cam_mean_500", "label": "Ensemble-mean 500 mb - Heights + Vorticity + Wind"}, {"key": "cam_mean_srh", "label": "Ensemble-mean 0-3 km Storm-Relative Helicity"}, {"key": "cam_prob_uphl", "label": "Probability Updraft Helicity > 75 (rotating storms)"}, {"key": "cam_prob_ltng", "label": "Probability of Lightning (total lightning)"}, {"key": "mucape", "label": "MUCAPE - Most-Unstable CAPE"}]}, "REFS": {"label": "REFS", "products": [{"key": "cam_pmmn", "label": "PMMN Composite Reflectivity (ensemble)"}, {"key": "cam_mean_500", "label": "Ensemble-mean 500 mb - Heights + Vorticity + Wind"}, {"key": "cam_mean_srh", "label": "Ensemble-mean 0-3 km Storm-Relative Helicity"}, {"key": "cam_prob_uphl", "label": "Probability Updraft Helicity > 75 (rotating storms)"}, {"key": "cam_prob_ltng", "label": "Probability of Lightning (total lightning)"}, {"key": "cam_h500_spread", "label": "500 mb Height SPREAD (ensemble uncertainty)"}, {"key": "mucape", "label": "MUCAPE - Most-Unstable CAPE"}]}, "MPAS": {"label": "NCAR MPAS (3.75 km global) \u2014 2025 demo archive (new season pending)", "products": [{"key": "wspd", "label": "10 m Wind Speed"}, {"key": "t2m", "label": "2 m Temperature"}, {"key": "cape", "label": "Surface-Based CAPE"}, {"key": "shear", "label": "Wind Shear"}, {"key": "refl10cm_1km", "label": "Radar Reflectivity + SLP + Wind"}, {"key": "brightnessT", "label": "IR Brightness Temp (satellite)"}, {"key": "precipw", "label": "Precipitable Water"}, {"key": "winds_250hPa", "label": "250 mb Winds (jet level)"}, {"key": "winds_500hPa", "label": "500 mb Winds"}, {"key": "relhum_500hPa", "label": "500 mb RH + Height + Wind"}, {"key": "relhum_700hPa", "label": "700 mb RH + Height + Wind"}, {"key": "vorticity_500hPa", "label": "500 mb Vorticity + Height + Wind"}, {"key": "vorticity_850hPa", "label": "850 mb Vorticity + Height + Wind"}, {"key": "acpc1", "label": "1 h Accum. Precipitation"}, {"key": "acpc6", "label": "6 h Accum. Precipitation"}, {"key": "acpc24", "label": "24 h Accum. Precipitation"}]}, "FV3 (SHiELD)": {"label": "GFDL FV3 (SHiELD)", "products": [{"key": "max_reflectivity_wind", "label": "Composite Radar Reflectivity + Wind"}, {"key": "base_reflectivity_wind", "label": "Base Radar Reflectivity + Wind"}, {"key": "TMP2m", "label": "2 m Temperature"}, {"key": "CAPE", "label": "Surface-Based CAPE"}, {"key": "precip_accum", "label": "Total Accumulated Precipitation"}, {"key": "simulatedir", "label": "Simulated IR Satellite"}, {"key": "pwat_slp_wind850", "label": "PWAT + MSLP + 850 mb Wind"}, {"key": "h500_slp", "label": "500 mb Height + MSLP"}, {"key": "vort500_hgt_wind", "label": "500 mb Vorticity + Heights + Wind"}, {"key": "uh25max_swath", "label": "Max Updraft Helicity 2-5 km"}, {"key": "shr06", "label": "0-6 km Bulk Shear"}, {"key": "maxwind10m", "label": "Maximum 10 m Wind"}, {"key": "DPT2m", "label": "2 m Dew Point"}, {"key": "t850_hgt_wind", "label": "850 mb Temp + Heights + Wind"}, {"key": "vort850_hgt500_wind200", "label": "850 mb Vort + 500 mb Hgt + 200 mb Wind"}, {"key": "pcpn_slp_thk", "label": "Precip + MSLP + Thickness"}, {"key": "precip_snow_slp_wind", "label": "Rain/Mix/Snow + MSLP + Wind"}, {"key": "shear_slp", "label": "Wind Shear + MSLP"}, {"key": "maxwind10m_swath", "label": "Run-Max 10 m Wind Swath"}, {"key": "maxuvv", "label": "Max Updraft Velocity"}, {"key": "cond", "label": "Total Condensate + VIL"}, {"key": "iwlw_slp_wind", "label": "Ice/Liquid Water Path + MSLP"}, {"key": "BRN", "label": "Bulk Richardson Number"}, {"key": "windspeed", "label": "Surface Wind Speed"}, {"key": "wind10m", "label": "10 m Wind + Barbs"}]}};
+const REND = [{"model": "RAP", "product": "mucape", "region": "us", "cycle": "2026091308", "frames": [{"fh": 9, "url": "model_maps/RAP_mucape_f009_2026091308_us.png"}]}, {"model": "RAP", "product": "pwat", "region": "etn", "cycle": "2026091308", "frames": [{"fh": 9, "url": "model_maps/RAP_pwat_f009_2026091308_etn.png"}]}, {"model": "RAP", "product": "pwat", "region": "us", "cycle": "2026091308", "frames": [{"fh": 9, "url": "model_maps/RAP_pwat_f009_2026091308_us.png"}]}, {"model": "RAP", "product": "tcdc", "region": "etn", "cycle": "2026091308", "frames": [{"fh": 9, "url": "model_maps/RAP_tcdc_f009_2026091308_etn.png"}]}, {"model": "RAP", "product": "tcdc", "region": "us", "cycle": "2026091308", "frames": [{"fh": 9, "url": "model_maps/RAP_tcdc_f009_2026091308_us.png"}]}, {"model": "RAP", "product": "vis", "region": "etn", "cycle": "2026091308", "frames": [{"fh": 9, "url": "model_maps/RAP_vis_f009_2026091308_etn.png"}]}, {"model": "RAP", "product": "vis", "region": "us", "cycle": "2026091308", "frames": [{"fh": 9, "url": "model_maps/RAP_vis_f009_2026091308_us.png"}]}, {"model": "RAP", "product": "200_jet", "region": "etn", "cycle": "2026091307", "frames": [{"fh": 9, "url": "model_maps/RAP_200_jet_f009_2026091307_etn.png"}]}, {"model": "RAP", "product": "200_jet", "region": "us", "cycle": "2026091307", "frames": [{"fh": 9, "url": "model_maps/RAP_200_jet_f009_2026091307_us.png"}]}, {"model": "RAP", "product": "250_jet", "region": "etn", "cycle": "2026091307", "frames": [{"fh": 9, "url": "model_maps/RAP_250_jet_f009_2026091307_etn.png"}]}, {"model": "RAP", "product": "250_jet", "region": "us", "cycle": "2026091307", "frames": [{"fh": 9, "url": "model_maps/RAP_250_jet_f009_2026091307_us.png"}]}, {"model": "RAP", "product": "300_jet", "region": "etn", "cycle": "2026091307", "frames": [{"fh": 9, "url": "model_maps/RAP_300_jet_f009_2026091307_etn.png"}]}, {"model": "RAP", "product": "300_jet", "region": "us", "cycle": "2026091307", "frames": [{"fh": 9, "url": "model_maps/RAP_300_jet_f009_2026091307_us.png"}]}, {"model": "RAP", "product": "925_tmp", "region": "etn", "cycle": "2026091307", "frames": [{"fh": 9, "url": "model_maps/RAP_925_tmp_f009_2026091307_etn.png"}]}, {"model": "RAP", "product": "925_tmp", "region": "us", "cycle": "2026091307", "frames": [{"fh": 9, "url": "model_maps/RAP_925_tmp_f009_2026091307_us.png"}]}, {"model": "RAP", "product": "cape_wind", "region": "etn", "cycle": "2026091307", "frames": [{"fh": 9, "url": "model_maps/RAP_cape_wind_f009_2026091307_etn.png"}]}, {"model": "RAP", "product": "cape_wind", "region": "us", "cycle": "2026091307", "frames": [{"fh": 9, "url": "model_maps/RAP_cape_wind_f009_2026091307_us.png"}]}, {"model": "GFS", "product": "500_vort", "region": "etn", "cycle": "2026091306", "frames": [{"fh": 24, "url": "model_maps/GFS_500_vort_f024_2026091306_etn.png"}]}, {"model": "GFS", "product": "500_vort", "region": "us", "cycle": "2026091306", "frames": [{"fh": 24, "url": "model_maps/GFS_500_vort_f024_2026091306_us.png"}]}, {"model": "NAM", "product": "500_vort", "region": "etn", "cycle": "2026091306", "frames": [{"fh": 12, "url": "model_maps/NAM_500_vort_f012_2026091306_etn.png"}]}, {"model": "RAP", "product": "mucape", "region": "etn", "cycle": "2026091306", "frames": [{"fh": 9, "url": "model_maps/RAP_mucape_f009_2026091306_etn.png"}]}, {"model": "RRFS", "product": "500_vort", "region": "etn", "cycle": "2026091306", "frames": [{"fh": 12, "url": "model_maps/RRFS_500_vort_f012_2026091306_etn.png"}]}, {"model": "RAP", "product": "500_tmp", "region": "etn", "cycle": "2026091305", "frames": [{"fh": 9, "url": "model_maps/RAP_500_tmp_f009_2026091305_etn.png"}]}, {"model": "RAP", "product": "500_tmp", "region": "us", "cycle": "2026091305", "frames": [{"fh": 9, "url": "model_maps/RAP_500_tmp_f009_2026091305_us.png"}]}, {"model": "RAP", "product": "500_vort", "region": "etn", "cycle": "2026091305", "frames": [{"fh": 9, "url": "model_maps/RAP_500_vort_f009_2026091305_etn.png"}]}, {"model": "RAP", "product": "500_vort", "region": "us", "cycle": "2026091305", "frames": [{"fh": 9, "url": "model_maps/RAP_500_vort_f009_2026091305_us.png"}]}, {"model": "RAP", "product": "850_tmp", "region": "etn", "cycle": "2026091305", "frames": [{"fh": 9, "url": "model_maps/RAP_850_tmp_f009_2026091305_etn.png"}]}, {"model": "RAP", "product": "850_tmp", "region": "us", "cycle": "2026091305", "frames": [{"fh": 9, "url": "model_maps/RAP_850_tmp_f009_2026091305_us.png"}]}, {"model": "RAP", "product": "refc", "region": "etn", "cycle": "2026091305", "frames": [{"fh": 9, "url": "model_maps/RAP_refc_f009_2026091305_etn.png"}]}, {"model": "RAP", "product": "refc", "region": "us", "cycle": "2026091305", "frames": [{"fh": 9, "url": "model_maps/RAP_refc_f009_2026091305_us.png"}]}, {"model": "AIFS", "product": "500_vort", "region": "etn", "cycle": "2026091300", "frames": [{"fh": 24, "url": "model_maps/AIFS_500_vort_f024_2026091300_etn.png"}]}, {"model": "GEFS", "product": "500_tmp", "region": "etn", "cycle": "2026091300", "frames": [{"fh": 60, "url": "model_maps/GEFS_500_tmp_f060_2026091300_etn.png"}]}, {"model": "GEFS", "product": "500_tmp", "region": "us", "cycle": "2026091300", "frames": [{"fh": 60, "url": "model_maps/GEFS_500_tmp_f060_2026091300_us.png"}]}, {"model": "GEFS", "product": "500_vort", "region": "etn", "cycle": "2026091300", "frames": [{"fh": 60, "url": "model_maps/GEFS_500_vort_f060_2026091300_etn.png"}]}, {"model": "GEFS", "product": "500_vort", "region": "us", "cycle": "2026091300", "frames": [{"fh": 60, "url": "model_maps/GEFS_500_vort_f060_2026091300_us.png"}]}, {"model": "GEFS", "product": "850_tmp", "region": "etn", "cycle": "2026091300", "frames": [{"fh": 60, "url": "model_maps/GEFS_850_tmp_f060_2026091300_etn.png"}]}, {"model": "GFS", "product": "200_jet", "region": "etn", "cycle": "2026091300", "frames": [{"fh": 36, "url": "model_maps/GFS_200_jet_f036_2026091300_etn.png"}]}, {"model": "GFS", "product": "200_jet", "region": "us", "cycle": "2026091300", "frames": [{"fh": 36, "url": "model_maps/GFS_200_jet_f036_2026091300_us.png"}]}, {"model": "GFS", "product": "250_jet", "region": "etn", "cycle": "2026091300", "frames": [{"fh": 36, "url": "model_maps/GFS_250_jet_f036_2026091300_etn.png"}]}, {"model": "GFS", "product": "250_jet", "region": "us", "cycle": "2026091300", "frames": [{"fh": 36, "url": "model_maps/GFS_250_jet_f036_2026091300_us.png"}]}, {"model": "GFS", "product": "300_jet", "region": "etn", "cycle": "2026091300", "frames": [{"fh": 36, "url": "model_maps/GFS_300_jet_f036_2026091300_etn.png"}]}, {"model": "GFS", "product": "300_jet", "region": "us", "cycle": "2026091300", "frames": [{"fh": 36, "url": "model_maps/GFS_300_jet_f036_2026091300_us.png"}]}, {"model": "GFS", "product": "700_rh", "region": "etn", "cycle": "2026091300", "frames": [{"fh": 24, "url": "model_maps/GFS_700_rh_f024_2026091300_etn.png"}]}, {"model": "GFS", "product": "850_tmp", "region": "etn", "cycle": "2026091300", "frames": [{"fh": 24, "url": "model_maps/GFS_850_tmp_f024_2026091300_etn.png"}]}, {"model": "GFS", "product": "cape_wind", "region": "etn", "cycle": "2026091300", "frames": [{"fh": 36, "url": "model_maps/GFS_cape_wind_f036_2026091300_etn.png"}]}, {"model": "GFS", "product": "cape_wind", "region": "us", "cycle": "2026091300", "frames": [{"fh": 36, "url": "model_maps/GFS_cape_wind_f036_2026091300_us.png"}]}, {"model": "GFS", "product": "mucape", "region": "etn", "cycle": "2026091300", "frames": [{"fh": 36, "url": "model_maps/GFS_mucape_f036_2026091300_etn.png"}]}, {"model": "GFS", "product": "mucape", "region": "us", "cycle": "2026091300", "frames": [{"fh": 36, "url": "model_maps/GFS_mucape_f036_2026091300_us.png"}]}, {"model": "GFS", "product": "sfc_mslp", "region": "etn", "cycle": "2026091300", "frames": [{"fh": 36, "url": "model_maps/GFS_sfc_mslp_f036_2026091300_etn.png"}]}, {"model": "GFS", "product": "sfc_mslp", "region": "us", "cycle": "2026091300", "frames": [{"fh": 36, "url": "model_maps/GFS_sfc_mslp_f036_2026091300_us.png"}]}, {"model": "NAM", "product": "200_jet", "region": "etn", "cycle": "2026091300", "frames": [{"fh": 18, "url": "model_maps/NAM_200_jet_f018_2026091300_etn.png"}]}, {"model": "NAM", "product": "250_jet", "region": "etn", "cycle": "2026091300", "frames": [{"fh": 18, "url": "model_maps/NAM_250_jet_f018_2026091300_etn.png"}]}, {"model": "NAM", "product": "250_jet", "region": "us", "cycle": "2026091300", "frames": [{"fh": 18, "url": "model_maps/NAM_250_jet_f018_2026091300_us.png"}]}, {"model": "NAM", "product": "300_jet", "region": "etn", "cycle": "2026091300", "frames": [{"fh": 18, "url": "model_maps/NAM_300_jet_f018_2026091300_etn.png"}]}, {"model": "NAM", "product": "300_jet", "region": "us", "cycle": "2026091300", "frames": [{"fh": 18, "url": "model_maps/NAM_300_jet_f018_2026091300_us.png"}]}, {"model": "NAM", "product": "500_tmp", "region": "us", "cycle": "2026091300", "frames": [{"fh": 18, "url": "model_maps/NAM_500_tmp_f018_2026091300_us.png"}]}, {"model": "NAM", "product": "700_rh", "region": "etn", "cycle": "2026091300", "frames": [{"fh": 18, "url": "model_maps/NAM_700_rh_f018_2026091300_etn.png"}]}, {"model": "NAM", "product": "700_rh", "region": "us", "cycle": "2026091300", "frames": [{"fh": 18, "url": "model_maps/NAM_700_rh_f018_2026091300_us.png"}]}, {"model": "NAM", "product": "850_tmp", "region": "etn", "cycle": "2026091300", "frames": [{"fh": 18, "url": "model_maps/NAM_850_tmp_f018_2026091300_etn.png"}]}, {"model": "NAM", "product": "850_tmp", "region": "us", "cycle": "2026091300", "frames": [{"fh": 18, "url": "model_maps/NAM_850_tmp_f018_2026091300_us.png"}]}, {"model": "NAM", "product": "925_tmp", "region": "etn", "cycle": "2026091300", "frames": [{"fh": 18, "url": "model_maps/NAM_925_tmp_f018_2026091300_etn.png"}]}, {"model": "NAM", "product": "925_tmp", "region": "us", "cycle": "2026091300", "frames": [{"fh": 18, "url": "model_maps/NAM_925_tmp_f018_2026091300_us.png"}]}, {"model": "NAM", "product": "snow", "region": "etn", "cycle": "2026091300", "frames": [{"fh": 18, "url": "model_maps/NAM_snow_f018_2026091300_etn.png"}]}, {"model": "NAM", "product": "snow", "region": "us", "cycle": "2026091300", "frames": [{"fh": 18, "url": "model_maps/NAM_snow_f018_2026091300_us.png"}]}, {"model": "NAM", "product": "vis", "region": "us", "cycle": "2026091300", "frames": [{"fh": 18, "url": "model_maps/NAM_vis_f018_2026091300_us.png"}]}, {"model": "GFS", "product": "500_tmp", "region": "etn", "cycle": "2026091218", "frames": [{"fh": 36, "url": "model_maps/GFS_500_tmp_f036_2026091218_etn.png"}]}, {"model": "GFS", "product": "500_tmp", "region": "us", "cycle": "2026091218", "frames": [{"fh": 36, "url": "model_maps/GFS_500_tmp_f036_2026091218_us.png"}]}, {"model": "GFS", "product": "700_rh", "region": "us", "cycle": "2026091218", "frames": [{"fh": 36, "url": "model_maps/GFS_700_rh_f036_2026091218_us.png"}]}, {"model": "GFS", "product": "850_tmp", "region": "us", "cycle": "2026091218", "frames": [{"fh": 36, "url": "model_maps/GFS_850_tmp_f036_2026091218_us.png"}]}, {"model": "GFS", "product": "925_tmp", "region": "etn", "cycle": "2026091218", "frames": [{"fh": 36, "url": "model_maps/GFS_925_tmp_f036_2026091218_etn.png"}]}, {"model": "GFS", "product": "925_tmp", "region": "us", "cycle": "2026091218", "frames": [{"fh": 36, "url": "model_maps/GFS_925_tmp_f036_2026091218_us.png"}]}, {"model": "GFS", "product": "prate", "region": "etn", "cycle": "2026091218", "frames": [{"fh": 36, "url": "model_maps/GFS_prate_f036_2026091218_etn.png"}]}, {"model": "GFS", "product": "prate", "region": "us", "cycle": "2026091218", "frames": [{"fh": 36, "url": "model_maps/GFS_prate_f036_2026091218_us.png"}]}, {"model": "GFS", "product": "pwat", "region": "etn", "cycle": "2026091218", "frames": [{"fh": 36, "url": "model_maps/GFS_pwat_f036_2026091218_etn.png"}]}, {"model": "GFS", "product": "pwat", "region": "us", "cycle": "2026091218", "frames": [{"fh": 36, "url": "model_maps/GFS_pwat_f036_2026091218_us.png"}]}, {"model": "GFS", "product": "refc", "region": "etn", "cycle": "2026091218", "frames": [{"fh": 36, "url": "model_maps/GFS_refc_f036_2026091218_etn.png"}]}, {"model": "GFS", "product": "refc", "region": "us", "cycle": "2026091218", "frames": [{"fh": 36, "url": "model_maps/GFS_refc_f036_2026091218_us.png"}]}, {"model": "GFS", "product": "sfc_gust", "region": "etn", "cycle": "2026091218", "frames": [{"fh": 36, "url": "model_maps/GFS_sfc_gust_f036_2026091218_etn.png"}]}, {"model": "GFS", "product": "sfc_gust", "region": "us", "cycle": "2026091218", "frames": [{"fh": 36, "url": "model_maps/GFS_sfc_gust_f036_2026091218_us.png"}]}, {"model": "GFS", "product": "snow", "region": "etn", "cycle": "2026091218", "frames": [{"fh": 36, "url": "model_maps/GFS_snow_f036_2026091218_etn.png"}]}, {"model": "GFS", "product": "snow", "region": "us", "cycle": "2026091218", "frames": [{"fh": 36, "url": "model_maps/GFS_snow_f036_2026091218_us.png"}]}, {"model": "GFS", "product": "tcdc", "region": "etn", "cycle": "2026091218", "frames": [{"fh": 36, "url": "model_maps/GFS_tcdc_f036_2026091218_etn.png"}]}, {"model": "GFS", "product": "tcdc", "region": "us", "cycle": "2026091218", "frames": [{"fh": 36, "url": "model_maps/GFS_tcdc_f036_2026091218_us.png"}]}, {"model": "GFS", "product": "vis", "region": "etn", "cycle": "2026091218", "frames": [{"fh": 36, "url": "model_maps/GFS_vis_f036_2026091218_etn.png"}]}, {"model": "GFS", "product": "vis", "region": "us", "cycle": "2026091218", "frames": [{"fh": 36, "url": "model_maps/GFS_vis_f036_2026091218_us.png"}]}, {"model": "NAM", "product": "500_tmp", "region": "etn", "cycle": "2026091218", "frames": [{"fh": 18, "url": "model_maps/NAM_500_tmp_f018_2026091218_etn.png"}]}, {"model": "NAM", "product": "500_vort", "region": "us", "cycle": "2026091218", "frames": [{"fh": 18, "url": "model_maps/NAM_500_vort_f018_2026091218_us.png"}]}, {"model": "NAM", "product": "refc", "region": "etn", "cycle": "2026091218", "frames": [{"fh": 18, "url": "model_maps/NAM_refc_f018_2026091218_etn.png"}]}, {"model": "NAM", "product": "refc", "region": "us", "cycle": "2026091218", "frames": [{"fh": 18, "url": "model_maps/NAM_refc_f018_2026091218_us.png"}]}];
+const GALLERY = [{"i": 0, "frames": [{"fh": 9, "url": "model_maps/RAP_mucape_f009_2026091306_us.png"}, {"fh": 9, "url": "model_maps/RAP_mucape_f009_2026091308_us.png"}]}, {"i": 1, "frames": [{"fh": 9, "url": "model_maps/RAP_pwat_f009_2026091306_etn.png"}, {"fh": 9, "url": "model_maps/RAP_pwat_f009_2026091308_etn.png"}]}, {"i": 2, "frames": [{"fh": 9, "url": "model_maps/RAP_pwat_f009_2026091306_us.png"}, {"fh": 9, "url": "model_maps/RAP_pwat_f009_2026091308_us.png"}]}, {"i": 3, "frames": [{"fh": 9, "url": "model_maps/RAP_tcdc_f009_2026091308_etn.png"}]}, {"i": 4, "frames": [{"fh": 9, "url": "model_maps/RAP_tcdc_f009_2026091308_us.png"}]}, {"i": 5, "frames": [{"fh": 9, "url": "model_maps/RAP_vis_f009_2026091308_etn.png"}]}, {"i": 6, "frames": [{"fh": 9, "url": "model_maps/RAP_vis_f009_2026091308_us.png"}]}, {"i": 7, "frames": [{"fh": 9, "url": "model_maps/RAP_200_jet_f009_2026091306_etn.png"}, {"fh": 9, "url": "model_maps/RAP_200_jet_f009_2026091307_etn.png"}]}, {"i": 8, "frames": [{"fh": 9, "url": "model_maps/RAP_200_jet_f009_2026091306_us.png"}, {"fh": 9, "url": "model_maps/RAP_200_jet_f009_2026091307_us.png"}]}, {"i": 9, "frames": [{"fh": 9, "url": "model_maps/RAP_250_jet_f009_2026091306_etn.png"}, {"fh": 9, "url": "model_maps/RAP_250_jet_f009_2026091307_etn.png"}]}, {"i": 10, "frames": [{"fh": 9, "url": "model_maps/RAP_250_jet_f009_2026091306_us.png"}, {"fh": 9, "url": "model_maps/RAP_250_jet_f009_2026091307_us.png"}]}, {"i": 11, "frames": [{"fh": 9, "url": "model_maps/RAP_300_jet_f009_2026091307_etn.png"}]}, {"i": 12, "frames": [{"fh": 9, "url": "model_maps/RAP_300_jet_f009_2026091307_us.png"}]}, {"i": 13, "frames": [{"fh": 9, "url": "model_maps/RAP_925_tmp_f009_2026091305_etn.png"}, {"fh": 9, "url": "model_maps/RAP_925_tmp_f009_2026091307_etn.png"}]}, {"i": 14, "frames": [{"fh": 9, "url": "model_maps/RAP_925_tmp_f009_2026091307_us.png"}]}, {"i": 15, "frames": [{"fh": 9, "url": "model_maps/RAP_cape_wind_f009_2026091306_etn.png"}, {"fh": 9, "url": "model_maps/RAP_cape_wind_f009_2026091307_etn.png"}]}, {"i": 16, "frames": [{"fh": 9, "url": "model_maps/RAP_cape_wind_f009_2026091306_us.png"}, {"fh": 9, "url": "model_maps/RAP_cape_wind_f009_2026091307_us.png"}]}, {"i": 17, "frames": [{"fh": 12, "url": "model_maps/NAM_500_vort_f012_2026091218_etn.png"}, {"fh": 12, "url": "model_maps/NAM_500_vort_f012_2026091300_etn.png"}, {"fh": 12, "url": "model_maps/NAM_500_vort_f012_2026091306_etn.png"}]}, {"i": 18, "frames": [{"fh": 9, "url": "model_maps/RAP_mucape_f009_2026091306_etn.png"}]}, {"i": 19, "frames": [{"fh": 12, "url": "model_maps/RRFS_500_vort_f012_2026091221_etn.png"}, {"fh": 12, "url": "model_maps/RRFS_500_vort_f012_2026091300_etn.png"}, {"fh": 12, "url": "model_maps/RRFS_500_vort_f012_2026091303_etn.png"}, {"fh": 12, "url": "model_maps/RRFS_500_vort_f012_2026091306_etn.png"}]}, {"i": 20, "frames": [{"fh": 9, "url": "model_maps/RAP_500_tmp_f009_2026091305_etn.png"}]}, {"i": 21, "frames": [{"fh": 9, "url": "model_maps/RAP_500_tmp_f009_2026091305_us.png"}]}, {"i": 22, "frames": [{"fh": 9, "url": "model_maps/RAP_500_vort_f009_2026091305_etn.png"}]}, {"i": 23, "frames": [{"fh": 9, "url": "model_maps/RAP_500_vort_f009_2026091305_us.png"}]}, {"i": 24, "frames": [{"fh": 9, "url": "model_maps/RAP_850_tmp_f009_2026091305_etn.png"}]}, {"i": 25, "frames": [{"fh": 9, "url": "model_maps/RAP_850_tmp_f009_2026091305_us.png"}]}, {"i": 26, "frames": [{"fh": 9, "url": "model_maps/RAP_refc_f009_2026091305_etn.png"}]}, {"i": 27, "frames": [{"fh": 9, "url": "model_maps/RAP_refc_f009_2026091305_us.png"}]}, {"i": 28, "frames": [{"fh": 24, "url": "model_maps/AIFS_500_vort_f024_2026091212_etn.png"}, {"fh": 24, "url": "model_maps/AIFS_500_vort_f024_2026091218_etn.png"}, {"fh": 24, "url": "model_maps/AIFS_500_vort_f024_2026091300_etn.png"}]}, {"i": 29, "frames": [{"fh": 60, "url": "model_maps/GEFS_500_tmp_f060_2026091300_etn.png"}]}, {"i": 30, "frames": [{"fh": 60, "url": "model_maps/GEFS_500_tmp_f060_2026091300_us.png"}]}, {"i": 31, "frames": [{"fh": 60, "url": "model_maps/GEFS_500_vort_f060_2026091300_etn.png"}]}, {"i": 32, "frames": [{"fh": 60, "url": "model_maps/GEFS_500_vort_f060_2026091300_us.png"}]}, {"i": 33, "frames": [{"fh": 60, "url": "model_maps/GEFS_850_tmp_f060_2026091300_etn.png"}]}, {"i": 34, "frames": [{"fh": 36, "url": "model_maps/GFS_200_jet_f036_2026091212_etn.png"}, {"fh": 36, "url": "model_maps/GFS_200_jet_f036_2026091218_etn.png"}, {"fh": 36, "url": "model_maps/GFS_200_jet_f036_2026091300_etn.png"}]}, {"i": 35, "frames": [{"fh": 36, "url": "model_maps/GFS_200_jet_f036_2026091212_us.png"}, {"fh": 36, "url": "model_maps/GFS_200_jet_f036_2026091218_us.png"}, {"fh": 36, "url": "model_maps/GFS_200_jet_f036_2026091300_us.png"}]}];
+const psu = {"init": "2026-09-13 4 AM ET", "cycle": "2026091308", "frames": [{"url": "psu_hrrr/rad46.gif", "label": "F12.2 \u00b7 Sun 4:15 PM ET"}, {"url": "psu_hrrr/rad47.gif", "label": "F12.5 \u00b7 Sun 4:30 PM ET"}, {"url": "psu_hrrr/rad48.gif", "label": "F12.8 \u00b7 Sun 4:45 PM ET"}, {"url": "psu_hrrr/rad49.gif", "label": "F13.0 \u00b7 Sun 5 PM ET"}, {"url": "psu_hrrr/rad50.gif", "label": "F13.2 \u00b7 Sun 5:15 PM ET"}, {"url": "psu_hrrr/rad51.gif", "label": "F13.5 \u00b7 Sun 5:30 PM ET"}, {"url": "psu_hrrr/rad52.gif", "label": "F13.8 \u00b7 Sun 5:45 PM ET"}, {"url": "psu_hrrr/rad53.gif", "label": "F14.0 \u00b7 Sun 6 PM ET"}, {"url": "psu_hrrr/rad54.gif", "label": "F14.2 \u00b7 Sun 6:15 PM ET"}, {"url": "psu_hrrr/rad55.gif", "label": "F14.5 \u00b7 Sun 6:30 PM ET"}, {"url": "psu_hrrr/rad56.gif", "label": "F14.8 \u00b7 Sun 6:45 PM ET"}, {"url": "psu_hrrr/rad57.gif", "label": "F15.0 \u00b7 Sun 7 PM ET"}, {"url": "psu_hrrr/rad58.gif", "label": "F15.2 \u00b7 Sun 7:15 PM ET"}, {"url": "psu_hrrr/rad59.gif", "label": "F15.5 \u00b7 Sun 7:30 PM ET"}, {"url": "psu_hrrr/rad60.gif", "label": "F15.8 \u00b7 Sun 7:45 PM ET"}, {"url": "psu_hrrr/rad61.gif", "label": "F16.0 \u00b7 Sun 8 PM ET"}, {"url": "psu_hrrr/rad62.gif", "label": "F16.2 \u00b7 Sun 8:15 PM ET"}, {"url": "psu_hrrr/rad63.gif", "label": "F16.5 \u00b7 Sun 8:30 PM ET"}, {"url": "psu_hrrr/rad64.gif", "label": "F16.8 \u00b7 Sun 8:45 PM ET"}, {"url": "psu_hrrr/rad65.gif", "label": "F17.0 \u00b7 Sun 9 PM ET"}, {"url": "psu_hrrr/rad66.gif", "label": "F17.2 \u00b7 Sun 9:15 PM ET"}, {"url": "psu_hrrr/rad67.gif", "label": "F17.5 \u00b7 Sun 9:30 PM ET"}, {"url": "psu_hrrr/rad68.gif", "label": "F17.8 \u00b7 Sun 9:45 PM ET"}, {"url": "psu_hrrr/rad69.gif", "label": "F18.0 \u00b7 Sun 10 PM ET"}]};
+
+/* catalog explorer: shows every model x product; pre-rendered combos
+   display instantly, the rest report that the updater will fill them in */
+const catModel = document.getElementById("catModel"), catProd = document.getElementById("catProd");
+function fillProds() {
+  const m = CAT[catModel.value] || { products: [] };
+  catProd.innerHTML = m.products.map(p => `<option value="${p.key}">${p.label}</option>`).join("");
+}
+catModel.onchange = fillProds; fillProds();
+document.getElementById("catGo").onclick = () => {
+  const msg = document.getElementById("catMsg"), wrap = document.getElementById("catWrap");
+  const m = catModel.value, p = catProd.value, r = document.getElementById("catRegion").value;
+  const c = REND.find(x => x.model === m && x.product === p && x.region === r);
+  const msKey = m === "MPAS" ? "mpas" : (m.indexOf("FV3") === 0 ? "shield" : null);
+  const msFrames = msKey ? ((((MS[msKey] || {})[p] || {}).frames) || []).map(f => ({fh: f.hour, url: f.url})) : [];
+  wrap.innerHTML = "";
+  if (msFrames.length) {
+    const avail = (MS[msKey] || {})[p] || {};
+    msg.textContent = `${m} ${p} — ${msFrames.length} animated frames` + (avail.init ? ` (init ${avail.init})` : "");
+    const im = new Image(); im.src = msFrames[msFrames.length - 1].url;
+    im.style.width = "100%"; im.style.borderRadius = "10px"; wrap.appendChild(im);
+    const st = document.createElement("div"); st.className = "stepper";
+    const sel = document.createElement("select");
+    sel.innerHTML = msFrames.map(f => `<option value="${f.fh}">F${String(f.fh).padStart(3, "0")}</option>`).join("");
+    sel.value = msFrames[msFrames.length - 1].fh;
+    sel.onchange = () => { const f = msFrames.find(x => x.fh === +sel.value); if (f) im.src = f.url; };
+    const back = document.createElement("button"); back.textContent = "◀";
+    const fwd = document.createElement("button"); fwd.textContent = "▶";
+    const step = dd => { const at = msFrames.findIndex(x => x.fh === +sel.value);
+      const f = msFrames[Math.min(msFrames.length - 1, Math.max(0, at + dd))]; if (f) { sel.value = f.fh; im.src = f.url; } };
+    back.onclick = () => step(-1); fwd.onclick = () => step(1);
+    st.append(back, sel, fwd); wrap.appendChild(st);
+    return;
+  }
+  if (msKey) {
+    msg.textContent = `${m} ${p} is queued - one product set downloads per update cycle; pick another or try again in a few minutes.`;
+    return;
+  }
+  if (c && c.frames.length) {
+    msg.textContent = `${m} ${p} (${r}) - init ${String(c.cycle).slice(-6,-2)}Z ${String(c.cycle).slice(-2)}Z, ${c.frames.length} frames`;
+    const im = new Image(); im.src = c.frames[c.frames.length - 1].url;
+    im.style.width = "100%"; im.style.borderRadius = "10px"; wrap.appendChild(im);
+    if (c.frames.length > 1) {
+      const st = document.createElement("div"); st.className = "stepper";
+      const sel = document.createElement("select");
+      sel.innerHTML = c.frames.map(f => `<option value="${f.fh}">F${String(f.fh).padStart(3, "0")}</option>`).join("");
+      sel.value = c.frames[c.frames.length - 1].fh;
+      sel.onchange = () => { im.src = c.frames.find(f => f.fh === +sel.value).url; };
+      const back = document.createElement("button"); back.textContent = "◀";
+      const fwd = document.createElement("button"); fwd.textContent = "▶";
+      const step = dd => { const at = c.frames.findIndex(f => f.fh === +sel.value);
+        const f = c.frames[Math.min(c.frames.length - 1, Math.max(0, at + dd))]; if (f) { sel.value = f.fh; im.src = f.url; } };
+      back.onclick = () => step(-1); fwd.onclick = () => step(1);
+      st.append(back, sel, fwd); wrap.appendChild(st);
+    }
+  } else {
+    msg.textContent = `${m} ${p} (${r}) is not pre-rendered in this build yet - the site updater adds more combos every few minutes. Popular products are in the gallery below.`;
+  }
+};
+
+/* gallery animator: MPAS-style controls on every model card */
+const gTimers = {}, gIdx = {};
+function gFrames(gi) { return (GALLERY.find(x => x.i === gi) || {}).frames || []; }
+function gShow(gi, fh) {
+  const fr = gFrames(gi);
+  const f = fr.find(x => x.fh === +fh); if (!f) return;
+  const img = document.getElementById("mg_" + gi);
+  if (img) img.src = f.url;
+  const sel = document.querySelector(`.gsel[data-g="${gi}"]`);
+  if (sel) sel.value = f.fh;
+  const lb = document.querySelector(`.gfh[data-g="${gi}"]`);
+  if (lb) lb.textContent = "F" + String(f.fh).padStart(3, "0");
+}
+function gStop(gi) { if (gTimers[gi]) { clearInterval(gTimers[gi]); gTimers[gi] = null;
+  const b = document.querySelector(`.gplay[data-g="${gi}"]`); if (b) b.textContent = "▶"; } }
+function gPlay(gi) {
+  const fr = gFrames(gi); if (fr.length < 2) return;
+  if (gTimers[gi]) gStop(gi);
+  const spd = +((document.querySelector(`.gspeed[data-g="${gi}"]`) || {}).value || 1000);
+  gIdx[gi] = fr.findIndex(x => x.fh === +(document.querySelector(`.gsel[data-g="${gi}"]`) || {}).value);
+  if (gIdx[gi] < 0) gIdx[gi] = fr.length - 1;
+  const b = document.querySelector(`.gplay[data-g="${gi}"]`); if (b) b.textContent = "⏸";
+  gTimers[gi] = setInterval(() => {
+    gIdx[gi] = (gIdx[gi] + 1) % fr.length;
+    gShow(gi, fr[gIdx[gi]].fh);
+  }, spd);
+}
+document.querySelectorAll(".gplay").forEach(b => b.onclick = () => {
+  const gi = +b.dataset.g; gTimers[gi] ? gStop(gi) : gPlay(gi);
+});
+document.querySelectorAll(".gsel").forEach(s => s.onchange = () => { const gi = +s.dataset.g; gStop(gi); gShow(gi, s.value); });
+document.querySelectorAll(".gstep").forEach(b => b.onclick = () => {
+  const gi = +b.dataset.g, fr = gFrames(gi);
+  const cur = +(document.querySelector(`.gsel[data-g="${gi}"]`) || {}).value;
+  const at = fr.findIndex(x => x.fh === cur);
+  const nxt = fr[Math.min(fr.length - 1, Math.max(0, at + (+b.dataset.d)))];
+  if (nxt) { gStop(gi); gShow(gi, nxt.fh); }
+});
+document.querySelectorAll(".gspeed").forEach(s => s.onchange = () => { const gi = +s.dataset.g; if (gTimers[gi]) gPlay(gi); });
+window.addEventListener("beforeunload", () => Object.keys(gTimers).forEach(gi => gStop(gi)));
+/* PSU HRRR loop: same controls as the model cards */
+if (psu && psu.frames && psu.frames.length) {
+  let psuI = psu.frames.length - 1, psuT = null;
+  const psuImg = document.getElementById("psu"), psuLb = document.getElementById("psuFh"),
+        psuSel = document.getElementById("psuSel"), psuBtn = document.getElementById("psuPlay");
+  function psuShow(k, keepTimer) {
+    psuI = ((k % psu.frames.length) + psu.frames.length) % psu.frames.length;
+    const f = psu.frames[psuI];
+    const pre = new Image();
+    pre.onload = () => { psuImg.src = f.url; psuLb.textContent = f.label; psuSel.value = psuI; };
+    pre.src = f.url;
+    if (!keepTimer) psuStop();
+  }
+  function psuStop() { if (psuT) { clearInterval(psuT); psuT = null; psuBtn.textContent = "▶"; } }
+  function psuPlay() {
+    psuStop(); psuBtn.textContent = "⏸";
+    const spd = +document.getElementById("psuSpeed").value;
+    psuT = setInterval(() => psuShow(psuI + 1, true), spd);
+  }
+  psuBtn.onclick = () => psuT ? psuStop() : psuPlay();
+  document.getElementById("psuPrev").onclick = () => psuShow(psuI - 1);
+  document.getElementById("psuNext").onclick = () => psuShow(psuI + 1);
+  psuSel.onchange = () => psuShow(+psuSel.value);
+  document.getElementById("psuSpeed").onchange = () => { if (psuT) psuPlay(); };
+  psuPlay();
+}
+
+const MS = {"mpas": {"winds_250hPa": {"product": "mpas_w250", "label": "MPAS 250 mb Winds (jet level) (CONUS)", "init": "2025100600", "frames": [{"hour": 103, "file": "aimodels/mpas_winds_250hPa_conus_f103_2025100600.jpg", "label": "F103 \u00b7 Fri 3 AM ET", "url": "aimodels/mpas_winds_250hPa_conus_f103_2025100600.jpg"}, {"hour": 104, "file": "aimodels/mpas_winds_250hPa_conus_f104_2025100600.jpg", "label": "F104 \u00b7 Fri 4 AM ET", "url": "aimodels/mpas_winds_250hPa_conus_f104_2025100600.jpg"}, {"hour": 105, "file": "aimodels/mpas_winds_250hPa_conus_f105_2025100600.jpg", "label": "F105 \u00b7 Fri 5 AM ET", "url": "aimodels/mpas_winds_250hPa_conus_f105_2025100600.jpg"}, {"hour": 106, "file": "aimodels/mpas_winds_250hPa_conus_f106_2025100600.jpg", "label": "F106 \u00b7 Fri 6 AM ET", "url": "aimodels/mpas_winds_250hPa_conus_f106_2025100600.jpg"}, {"hour": 107, "file": "aimodels/mpas_winds_250hPa_conus_f107_2025100600.jpg", "label": "F107 \u00b7 Fri 7 AM ET", "url": "aimodels/mpas_winds_250hPa_conus_f107_2025100600.jpg"}, {"hour": 108, "file": "aimodels/mpas_winds_250hPa_conus_f108_2025100600.jpg", "label": "F108 \u00b7 Fri 8 AM ET", "url": "aimodels/mpas_winds_250hPa_conus_f108_2025100600.jpg"}, {"hour": 109, "file": "aimodels/mpas_winds_250hPa_conus_f109_2025100600.jpg", "label": "F109 \u00b7 Fri 9 AM ET", "url": "aimodels/mpas_winds_250hPa_conus_f109_2025100600.jpg"}, {"hour": 110, "file": "aimodels/mpas_winds_250hPa_conus_f110_2025100600.jpg", "label": "F110 \u00b7 Fri 10 AM ET", "url": "aimodels/mpas_winds_250hPa_conus_f110_2025100600.jpg"}, {"hour": 111, "file": "aimodels/mpas_winds_250hPa_conus_f111_2025100600.jpg", "label": "F111 \u00b7 Fri 11 AM ET", "url": "aimodels/mpas_winds_250hPa_conus_f111_2025100600.jpg"}, {"hour": 112, "file": "aimodels/mpas_winds_250hPa_conus_f112_2025100600.jpg", "label": "F112 \u00b7 Fri 12 PM ET", "url": "aimodels/mpas_winds_250hPa_conus_f112_2025100600.jpg"}, {"hour": 113, "file": "aimodels/mpas_winds_250hPa_conus_f113_2025100600.jpg", "label": "F113 \u00b7 Fri 1 PM ET", "url": "aimodels/mpas_winds_250hPa_conus_f113_2025100600.jpg"}, {"hour": 114, "file": "aimodels/mpas_winds_250hPa_conus_f114_2025100600.jpg", "label": "F114 \u00b7 Fri 2 PM ET", "url": "aimodels/mpas_winds_250hPa_conus_f114_2025100600.jpg"}, {"hour": 115, "file": "aimodels/mpas_winds_250hPa_conus_f115_2025100600.jpg", "label": "F115 \u00b7 Fri 3 PM ET", "url": "aimodels/mpas_winds_250hPa_conus_f115_2025100600.jpg"}, {"hour": 116, "file": "aimodels/mpas_winds_250hPa_conus_f116_2025100600.jpg", "label": "F116 \u00b7 Fri 4 PM ET", "url": "aimodels/mpas_winds_250hPa_conus_f116_2025100600.jpg"}, {"hour": 117, "file": "aimodels/mpas_winds_250hPa_conus_f117_2025100600.jpg", "label": "F117 \u00b7 Fri 5 PM ET", "url": "aimodels/mpas_winds_250hPa_conus_f117_2025100600.jpg"}, {"hour": 118, "file": "aimodels/mpas_winds_250hPa_conus_f118_2025100600.jpg", "label": "F118 \u00b7 Fri 6 PM ET", "url": "aimodels/mpas_winds_250hPa_conus_f118_2025100600.jpg"}, {"hour": 119, "file": "aimodels/mpas_winds_250hPa_conus_f119_2025100600.jpg", "label": "F119 \u00b7 Fri 7 PM ET", "url": "aimodels/mpas_winds_250hPa_conus_f119_2025100600.jpg"}, {"hour": 120, "file": "aimodels/mpas_winds_250hPa_conus_f120_2025100600.jpg", "label": "F120 \u00b7 Fri 8 PM ET", "url": "aimodels/mpas_winds_250hPa_conus_f120_2025100600.jpg"}]}, "brightnessT": {"init": "2025100600", "domain": "conus", "frames": [{"hour": 103, "url": "aimodels/mpas_brightnessT_conus_f103_2025100600.jpg", "label": "F103"}, {"hour": 104, "url": "aimodels/mpas_brightnessT_conus_f104_2025100600.jpg", "label": "F104"}, {"hour": 105, "url": "aimodels/mpas_brightnessT_conus_f105_2025100600.jpg", "label": "F105"}, {"hour": 106, "url": "aimodels/mpas_brightnessT_conus_f106_2025100600.jpg", "label": "F106"}, {"hour": 107, "url": "aimodels/mpas_brightnessT_conus_f107_2025100600.jpg", "label": "F107"}, {"hour": 108, "url": "aimodels/mpas_brightnessT_conus_f108_2025100600.jpg", "label": "F108"}, {"hour": 109, "url": "aimodels/mpas_brightnessT_conus_f109_2025100600.jpg", "label": "F109"}, {"hour": 110, "url": "aimodels/mpas_brightnessT_conus_f110_2025100600.jpg", "label": "F110"}, {"hour": 111, "url": "aimodels/mpas_brightnessT_conus_f111_2025100600.jpg", "label": "F111"}, {"hour": 112, "url": "aimodels/mpas_brightnessT_conus_f112_2025100600.jpg", "label": "F112"}, {"hour": 113, "url": "aimodels/mpas_brightnessT_conus_f113_2025100600.jpg", "label": "F113"}, {"hour": 114, "url": "aimodels/mpas_brightnessT_conus_f114_2025100600.jpg", "label": "F114"}, {"hour": 115, "url": "aimodels/mpas_brightnessT_conus_f115_2025100600.jpg", "label": "F115"}, {"hour": 116, "url": "aimodels/mpas_brightnessT_conus_f116_2025100600.jpg", "label": "F116"}, {"hour": 117, "url": "aimodels/mpas_brightnessT_conus_f117_2025100600.jpg", "label": "F117"}, {"hour": 118, "url": "aimodels/mpas_brightnessT_conus_f118_2025100600.jpg", "label": "F118"}, {"hour": 119, "url": "aimodels/mpas_brightnessT_conus_f119_2025100600.jpg", "label": "F119"}, {"hour": 120, "url": "aimodels/mpas_brightnessT_conus_f120_2025100600.jpg", "label": "F120"}]}, "cape": {"init": "2025100600", "domain": "conus", "frames": [{"hour": 103, "url": "aimodels/mpas_cape_conus_f103_2025100600.jpg", "label": "F103"}, {"hour": 104, "url": "aimodels/mpas_cape_conus_f104_2025100600.jpg", "label": "F104"}, {"hour": 105, "url": "aimodels/mpas_cape_conus_f105_2025100600.jpg", "label": "F105"}, {"hour": 106, "url": "aimodels/mpas_cape_conus_f106_2025100600.jpg", "label": "F106"}, {"hour": 107, "url": "aimodels/mpas_cape_conus_f107_2025100600.jpg", "label": "F107"}, {"hour": 108, "url": "aimodels/mpas_cape_conus_f108_2025100600.jpg", "label": "F108"}, {"hour": 109, "url": "aimodels/mpas_cape_conus_f109_2025100600.jpg", "label": "F109"}, {"hour": 110, "url": "aimodels/mpas_cape_conus_f110_2025100600.jpg", "label": "F110"}, {"hour": 111, "url": "aimodels/mpas_cape_conus_f111_2025100600.jpg", "label": "F111"}, {"hour": 112, "url": "aimodels/mpas_cape_conus_f112_2025100600.jpg", "label": "F112"}, {"hour": 113, "url": "aimodels/mpas_cape_conus_f113_2025100600.jpg", "label": "F113"}, {"hour": 114, "url": "aimodels/mpas_cape_conus_f114_2025100600.jpg", "label": "F114"}, {"hour": 115, "url": "aimodels/mpas_cape_conus_f115_2025100600.jpg", "label": "F115"}, {"hour": 116, "url": "aimodels/mpas_cape_conus_f116_2025100600.jpg", "label": "F116"}, {"hour": 117, "url": "aimodels/mpas_cape_conus_f117_2025100600.jpg", "label": "F117"}, {"hour": 118, "url": "aimodels/mpas_cape_conus_f118_2025100600.jpg", "label": "F118"}, {"hour": 119, "url": "aimodels/mpas_cape_conus_f119_2025100600.jpg", "label": "F119"}, {"hour": 120, "url": "aimodels/mpas_cape_conus_f120_2025100600.jpg", "label": "F120"}]}, "precipw": {"init": "2025100600", "domain": "conus", "frames": [{"hour": 103, "url": "aimodels/mpas_precipw_conus_f103_2025100600.jpg", "label": "F103"}, {"hour": 104, "url": "aimodels/mpas_precipw_conus_f104_2025100600.jpg", "label": "F104"}, {"hour": 105, "url": "aimodels/mpas_precipw_conus_f105_2025100600.jpg", "label": "F105"}, {"hour": 106, "url": "aimodels/mpas_precipw_conus_f106_2025100600.jpg", "label": "F106"}, {"hour": 107, "url": "aimodels/mpas_precipw_conus_f107_2025100600.jpg", "label": "F107"}, {"hour": 108, "url": "aimodels/mpas_precipw_conus_f108_2025100600.jpg", "label": "F108"}, {"hour": 109, "url": "aimodels/mpas_precipw_conus_f109_2025100600.jpg", "label": "F109"}, {"hour": 110, "url": "aimodels/mpas_precipw_conus_f110_2025100600.jpg", "label": "F110"}, {"hour": 111, "url": "aimodels/mpas_precipw_conus_f111_2025100600.jpg", "label": "F111"}, {"hour": 112, "url": "aimodels/mpas_precipw_conus_f112_2025100600.jpg", "label": "F112"}, {"hour": 113, "url": "aimodels/mpas_precipw_conus_f113_2025100600.jpg", "label": "F113"}, {"hour": 114, "url": "aimodels/mpas_precipw_conus_f114_2025100600.jpg", "label": "F114"}, {"hour": 115, "url": "aimodels/mpas_precipw_conus_f115_2025100600.jpg", "label": "F115"}, {"hour": 116, "url": "aimodels/mpas_precipw_conus_f116_2025100600.jpg", "label": "F116"}, {"hour": 117, "url": "aimodels/mpas_precipw_conus_f117_2025100600.jpg", "label": "F117"}, {"hour": 118, "url": "aimodels/mpas_precipw_conus_f118_2025100600.jpg", "label": "F118"}, {"hour": 119, "url": "aimodels/mpas_precipw_conus_f119_2025100600.jpg", "label": "F119"}, {"hour": 120, "url": "aimodels/mpas_precipw_conus_f120_2025100600.jpg", "label": "F120"}]}, "refl10cm_1km": {"init": "2025100600", "domain": "conus", "frames": [{"hour": 103, "url": "aimodels/mpas_refl10cm_1km_conus_f103_2025100600.jpg", "label": "F103"}, {"hour": 104, "url": "aimodels/mpas_refl10cm_1km_conus_f104_2025100600.jpg", "label": "F104"}, {"hour": 105, "url": "aimodels/mpas_refl10cm_1km_conus_f105_2025100600.jpg", "label": "F105"}, {"hour": 106, "url": "aimodels/mpas_refl10cm_1km_conus_f106_2025100600.jpg", "label": "F106"}, {"hour": 107, "url": "aimodels/mpas_refl10cm_1km_conus_f107_2025100600.jpg", "label": "F107"}, {"hour": 108, "url": "aimodels/mpas_refl10cm_1km_conus_f108_2025100600.jpg", "label": "F108"}, {"hour": 109, "url": "aimodels/mpas_refl10cm_1km_conus_f109_2025100600.jpg", "label": "F109"}, {"hour": 110, "url": "aimodels/mpas_refl10cm_1km_conus_f110_2025100600.jpg", "label": "F110"}, {"hour": 111, "url": "aimodels/mpas_refl10cm_1km_conus_f111_2025100600.jpg", "label": "F111"}, {"hour": 112, "url": "aimodels/mpas_refl10cm_1km_conus_f112_2025100600.jpg", "label": "F112"}, {"hour": 113, "url": "aimodels/mpas_refl10cm_1km_conus_f113_2025100600.jpg", "label": "F113"}, {"hour": 114, "url": "aimodels/mpas_refl10cm_1km_conus_f114_2025100600.jpg", "label": "F114"}, {"hour": 115, "url": "aimodels/mpas_refl10cm_1km_conus_f115_2025100600.jpg", "label": "F115"}, {"hour": 116, "url": "aimodels/mpas_refl10cm_1km_conus_f116_2025100600.jpg", "label": "F116"}, {"hour": 117, "url": "aimodels/mpas_refl10cm_1km_conus_f117_2025100600.jpg", "label": "F117"}, {"hour": 118, "url": "aimodels/mpas_refl10cm_1km_conus_f118_2025100600.jpg", "label": "F118"}, {"hour": 119, "url": "aimodels/mpas_refl10cm_1km_conus_f119_2025100600.jpg", "label": "F119"}, {"hour": 120, "url": "aimodels/mpas_refl10cm_1km_conus_f120_2025100600.jpg", "label": "F120"}]}, "shear": {"init": "2025100600", "domain": "conus", "frames": [{"hour": 103, "url": "aimodels/mpas_shear_conus_f103_2025100600.jpg", "label": "F103"}, {"hour": 104, "url": "aimodels/mpas_shear_conus_f104_2025100600.jpg", "label": "F104"}, {"hour": 105, "url": "aimodels/mpas_shear_conus_f105_2025100600.jpg", "label": "F105"}, {"hour": 106, "url": "aimodels/mpas_shear_conus_f106_2025100600.jpg", "label": "F106"}, {"hour": 107, "url": "aimodels/mpas_shear_conus_f107_2025100600.jpg", "label": "F107"}, {"hour": 108, "url": "aimodels/mpas_shear_conus_f108_2025100600.jpg", "label": "F108"}, {"hour": 109, "url": "aimodels/mpas_shear_conus_f109_2025100600.jpg", "label": "F109"}, {"hour": 110, "url": "aimodels/mpas_shear_conus_f110_2025100600.jpg", "label": "F110"}, {"hour": 111, "url": "aimodels/mpas_shear_conus_f111_2025100600.jpg", "label": "F111"}, {"hour": 112, "url": "aimodels/mpas_shear_conus_f112_2025100600.jpg", "label": "F112"}, {"hour": 113, "url": "aimodels/mpas_shear_conus_f113_2025100600.jpg", "label": "F113"}, {"hour": 114, "url": "aimodels/mpas_shear_conus_f114_2025100600.jpg", "label": "F114"}, {"hour": 115, "url": "aimodels/mpas_shear_conus_f115_2025100600.jpg", "label": "F115"}, {"hour": 116, "url": "aimodels/mpas_shear_conus_f116_2025100600.jpg", "label": "F116"}, {"hour": 117, "url": "aimodels/mpas_shear_conus_f117_2025100600.jpg", "label": "F117"}, {"hour": 118, "url": "aimodels/mpas_shear_conus_f118_2025100600.jpg", "label": "F118"}, {"hour": 119, "url": "aimodels/mpas_shear_conus_f119_2025100600.jpg", "label": "F119"}, {"hour": 120, "url": "aimodels/mpas_shear_conus_f120_2025100600.jpg", "label": "F120"}]}}, "shield": {"pcpn_slp_thk": {"product": "shield_pcpn", "label": "SHiELD-FV3 Precip + MSLP + Thickness (Continental US)", "init": "2026091212", "frames": [{"hour": 24, "file": "aimodels/shield_pcpn_slp_thk_CONUS_f024_2026091212.jpg", "label": "F024 \u00b7 Sun 8 AM ET", "url": "aimodels/shield_pcpn_slp_thk_CONUS_f024_2026091212.jpg"}, {"hour": 30, "file": "aimodels/shield_pcpn_slp_thk_CONUS_f030_2026091212.jpg", "label": "F030 \u00b7 Sun 2 PM ET", "url": "aimodels/shield_pcpn_slp_thk_CONUS_f030_2026091212.jpg"}, {"hour": 36, "file": "aimodels/shield_pcpn_slp_thk_CONUS_f036_2026091212.jpg", "label": "F036 \u00b7 Sun 8 PM ET", "url": "aimodels/shield_pcpn_slp_thk_CONUS_f036_2026091212.jpg"}, {"hour": 42, "file": "aimodels/shield_pcpn_slp_thk_CONUS_f042_2026091212.jpg", "label": "F042 \u00b7 Mon 2 AM ET", "url": "aimodels/shield_pcpn_slp_thk_CONUS_f042_2026091212.jpg"}, {"hour": 48, "file": "aimodels/shield_pcpn_slp_thk_CONUS_f048_2026091212.jpg", "label": "F048 \u00b7 Mon 8 AM ET", "url": "aimodels/shield_pcpn_slp_thk_CONUS_f048_2026091212.jpg"}, {"hour": 54, "file": "aimodels/shield_pcpn_slp_thk_CONUS_f054_2026091212.jpg", "label": "F054 \u00b7 Mon 2 PM ET", "url": "aimodels/shield_pcpn_slp_thk_CONUS_f054_2026091212.jpg"}, {"hour": 60, "file": "aimodels/shield_pcpn_slp_thk_CONUS_f060_2026091212.jpg", "label": "F060 \u00b7 Mon 8 PM ET", "url": "aimodels/shield_pcpn_slp_thk_CONUS_f060_2026091212.jpg"}, {"hour": 66, "file": "aimodels/shield_pcpn_slp_thk_CONUS_f066_2026091212.jpg", "label": "F066 \u00b7 Tue 2 AM ET", "url": "aimodels/shield_pcpn_slp_thk_CONUS_f066_2026091212.jpg"}, {"hour": 72, "file": "aimodels/shield_pcpn_slp_thk_CONUS_f072_2026091212.jpg", "label": "F072 \u00b7 Tue 8 AM ET", "url": "aimodels/shield_pcpn_slp_thk_CONUS_f072_2026091212.jpg"}, {"hour": 78, "file": "aimodels/shield_pcpn_slp_thk_CONUS_f078_2026091212.jpg", "label": "F078 \u00b7 Tue 2 PM ET", "url": "aimodels/shield_pcpn_slp_thk_CONUS_f078_2026091212.jpg"}, {"hour": 84, "file": "aimodels/shield_pcpn_slp_thk_CONUS_f084_2026091212.jpg", "label": "F084 \u00b7 Tue 8 PM ET", "url": "aimodels/shield_pcpn_slp_thk_CONUS_f084_2026091212.jpg"}, {"hour": 90, "file": "aimodels/shield_pcpn_slp_thk_CONUS_f090_2026091212.jpg", "label": "F090 \u00b7 Wed 2 AM ET", "url": "aimodels/shield_pcpn_slp_thk_CONUS_f090_2026091212.jpg"}, {"hour": 96, "file": "aimodels/shield_pcpn_slp_thk_CONUS_f096_2026091212.jpg", "label": "F096 \u00b7 Wed 8 AM ET", "url": "aimodels/shield_pcpn_slp_thk_CONUS_f096_2026091212.jpg"}, {"hour": 102, "file": "aimodels/shield_pcpn_slp_thk_CONUS_f102_2026091212.jpg", "label": "F102 \u00b7 Wed 2 PM ET", "url": "aimodels/shield_pcpn_slp_thk_CONUS_f102_2026091212.jpg"}, {"hour": 108, "file": "aimodels/shield_pcpn_slp_thk_CONUS_f108_2026091212.jpg", "label": "F108 \u00b7 Wed 8 PM ET", "url": "aimodels/shield_pcpn_slp_thk_CONUS_f108_2026091212.jpg"}, {"hour": 114, "file": "aimodels/shield_pcpn_slp_thk_CONUS_f114_2026091212.jpg", "label": "F114 \u00b7 Thu 2 AM ET", "url": "aimodels/shield_pcpn_slp_thk_CONUS_f114_2026091212.jpg"}, {"hour": 120, "file": "aimodels/shield_pcpn_slp_thk_CONUS_f120_2026091212.jpg", "label": "F120 \u00b7 Thu 8 AM ET", "url": "aimodels/shield_pcpn_slp_thk_CONUS_f120_2026091212.jpg"}, {"hour": 126, "file": "aimodels/shield_pcpn_slp_thk_CONUS_f126_2026091212.jpg", "label": "F126 \u00b7 Thu 2 PM ET", "url": "aimodels/shield_pcpn_slp_thk_CONUS_f126_2026091212.jpg"}]}, "DPT2m": {"init": "2026091212", "domain": "conus", "frames": [{"hour": 72, "url": "aimodels/shield_DPT2m_CONUS_f072_2026091212.jpg", "label": "F072"}, {"hour": 75, "url": "aimodels/shield_DPT2m_CONUS_f075_2026091212.jpg", "label": "F075"}, {"hour": 78, "url": "aimodels/shield_DPT2m_CONUS_f078_2026091212.jpg", "label": "F078"}, {"hour": 81, "url": "aimodels/shield_DPT2m_CONUS_f081_2026091212.jpg", "label": "F081"}, {"hour": 84, "url": "aimodels/shield_DPT2m_CONUS_f084_2026091212.jpg", "label": "F084"}, {"hour": 87, "url": "aimodels/shield_DPT2m_CONUS_f087_2026091212.jpg", "label": "F087"}, {"hour": 90, "url": "aimodels/shield_DPT2m_CONUS_f090_2026091212.jpg", "label": "F090"}, {"hour": 93, "url": "aimodels/shield_DPT2m_CONUS_f093_2026091212.jpg", "label": "F093"}, {"hour": 96, "url": "aimodels/shield_DPT2m_CONUS_f096_2026091212.jpg", "label": "F096"}, {"hour": 99, "url": "aimodels/shield_DPT2m_CONUS_f099_2026091212.jpg", "label": "F099"}, {"hour": 102, "url": "aimodels/shield_DPT2m_CONUS_f102_2026091212.jpg", "label": "F102"}, {"hour": 105, "url": "aimodels/shield_DPT2m_CONUS_f105_2026091212.jpg", "label": "F105"}, {"hour": 108, "url": "aimodels/shield_DPT2m_CONUS_f108_2026091212.jpg", "label": "F108"}, {"hour": 111, "url": "aimodels/shield_DPT2m_CONUS_f111_2026091212.jpg", "label": "F111"}, {"hour": 114, "url": "aimodels/shield_DPT2m_CONUS_f114_2026091212.jpg", "label": "F114"}, {"hour": 117, "url": "aimodels/shield_DPT2m_CONUS_f117_2026091212.jpg", "label": "F117"}, {"hour": 120, "url": "aimodels/shield_DPT2m_CONUS_f120_2026091212.jpg", "label": "F120"}, {"hour": 126, "url": "aimodels/shield_DPT2m_CONUS_f126_2026091212.jpg", "label": "F126"}]}, "maxwind10m": {"init": "2026091212", "domain": "conus", "frames": [{"hour": 72, "url": "aimodels/shield_maxwind10m_CONUS_f072_2026091212.jpg", "label": "F072"}, {"hour": 75, "url": "aimodels/shield_maxwind10m_CONUS_f075_2026091212.jpg", "label": "F075"}, {"hour": 78, "url": "aimodels/shield_maxwind10m_CONUS_f078_2026091212.jpg", "label": "F078"}, {"hour": 81, "url": "aimodels/shield_maxwind10m_CONUS_f081_2026091212.jpg", "label": "F081"}, {"hour": 84, "url": "aimodels/shield_maxwind10m_CONUS_f084_2026091212.jpg", "label": "F084"}, {"hour": 87, "url": "aimodels/shield_maxwind10m_CONUS_f087_2026091212.jpg", "label": "F087"}, {"hour": 90, "url": "aimodels/shield_maxwind10m_CONUS_f090_2026091212.jpg", "label": "F090"}, {"hour": 93, "url": "aimodels/shield_maxwind10m_CONUS_f093_2026091212.jpg", "label": "F093"}, {"hour": 96, "url": "aimodels/shield_maxwind10m_CONUS_f096_2026091212.jpg", "label": "F096"}, {"hour": 99, "url": "aimodels/shield_maxwind10m_CONUS_f099_2026091212.jpg", "label": "F099"}, {"hour": 102, "url": "aimodels/shield_maxwind10m_CONUS_f102_2026091212.jpg", "label": "F102"}, {"hour": 105, "url": "aimodels/shield_maxwind10m_CONUS_f105_2026091212.jpg", "label": "F105"}, {"hour": 108, "url": "aimodels/shield_maxwind10m_CONUS_f108_2026091212.jpg", "label": "F108"}, {"hour": 111, "url": "aimodels/shield_maxwind10m_CONUS_f111_2026091212.jpg", "label": "F111"}, {"hour": 114, "url": "aimodels/shield_maxwind10m_CONUS_f114_2026091212.jpg", "label": "F114"}, {"hour": 117, "url": "aimodels/shield_maxwind10m_CONUS_f117_2026091212.jpg", "label": "F117"}, {"hour": 120, "url": "aimodels/shield_maxwind10m_CONUS_f120_2026091212.jpg", "label": "F120"}, {"hour": 126, "url": "aimodels/shield_maxwind10m_CONUS_f126_2026091212.jpg", "label": "F126"}]}, "shr06": {"init": "2026091212", "domain": "conus", "frames": [{"hour": 72, "url": "aimodels/shield_shr06_CONUS_f072_2026091212.jpg", "label": "F072"}, {"hour": 75, "url": "aimodels/shield_shr06_CONUS_f075_2026091212.jpg", "label": "F075"}, {"hour": 78, "url": "aimodels/shield_shr06_CONUS_f078_2026091212.jpg", "label": "F078"}, {"hour": 81, "url": "aimodels/shield_shr06_CONUS_f081_2026091212.jpg", "label": "F081"}, {"hour": 84, "url": "aimodels/shield_shr06_CONUS_f084_2026091212.jpg", "label": "F084"}, {"hour": 87, "url": "aimodels/shield_shr06_CONUS_f087_2026091212.jpg", "label": "F087"}, {"hour": 90, "url": "aimodels/shield_shr06_CONUS_f090_2026091212.jpg", "label": "F090"}, {"hour": 93, "url": "aimodels/shield_shr06_CONUS_f093_2026091212.jpg", "label": "F093"}, {"hour": 96, "url": "aimodels/shield_shr06_CONUS_f096_2026091212.jpg", "label": "F096"}, {"hour": 99, "url": "aimodels/shield_shr06_CONUS_f099_2026091212.jpg", "label": "F099"}, {"hour": 102, "url": "aimodels/shield_shr06_CONUS_f102_2026091212.jpg", "label": "F102"}, {"hour": 105, "url": "aimodels/shield_shr06_CONUS_f105_2026091212.jpg", "label": "F105"}, {"hour": 108, "url": "aimodels/shield_shr06_CONUS_f108_2026091212.jpg", "label": "F108"}, {"hour": 111, "url": "aimodels/shield_shr06_CONUS_f111_2026091212.jpg", "label": "F111"}, {"hour": 114, "url": "aimodels/shield_shr06_CONUS_f114_2026091212.jpg", "label": "F114"}, {"hour": 117, "url": "aimodels/shield_shr06_CONUS_f117_2026091212.jpg", "label": "F117"}, {"hour": 120, "url": "aimodels/shield_shr06_CONUS_f120_2026091212.jpg", "label": "F120"}, {"hour": 126, "url": "aimodels/shield_shr06_CONUS_f126_2026091212.jpg", "label": "F126"}]}, "t850_hgt_wind": {"init": "2026091212", "domain": "conus", "frames": [{"hour": 24, "url": "aimodels/shield_t850_hgt_wind_CONUS_f024_2026091212.jpg", "label": "F024"}, {"hour": 30, "url": "aimodels/shield_t850_hgt_wind_CONUS_f030_2026091212.jpg", "label": "F030"}, {"hour": 36, "url": "aimodels/shield_t850_hgt_wind_CONUS_f036_2026091212.jpg", "label": "F036"}, {"hour": 42, "url": "aimodels/shield_t850_hgt_wind_CONUS_f042_2026091212.jpg", "label": "F042"}, {"hour": 48, "url": "aimodels/shield_t850_hgt_wind_CONUS_f048_2026091212.jpg", "label": "F048"}, {"hour": 54, "url": "aimodels/shield_t850_hgt_wind_CONUS_f054_2026091212.jpg", "label": "F054"}, {"hour": 60, "url": "aimodels/shield_t850_hgt_wind_CONUS_f060_2026091212.jpg", "label": "F060"}, {"hour": 66, "url": "aimodels/shield_t850_hgt_wind_CONUS_f066_2026091212.jpg", "label": "F066"}, {"hour": 72, "url": "aimodels/shield_t850_hgt_wind_CONUS_f072_2026091212.jpg", "label": "F072"}, {"hour": 78, "url": "aimodels/shield_t850_hgt_wind_CONUS_f078_2026091212.jpg", "label": "F078"}, {"hour": 84, "url": "aimodels/shield_t850_hgt_wind_CONUS_f084_2026091212.jpg", "label": "F084"}, {"hour": 90, "url": "aimodels/shield_t850_hgt_wind_CONUS_f090_2026091212.jpg", "label": "F090"}, {"hour": 96, "url": "aimodels/shield_t850_hgt_wind_CONUS_f096_2026091212.jpg", "label": "F096"}, {"hour": 102, "url": "aimodels/shield_t850_hgt_wind_CONUS_f102_2026091212.jpg", "label": "F102"}, {"hour": 108, "url": "aimodels/shield_t850_hgt_wind_CONUS_f108_2026091212.jpg", "label": "F108"}, {"hour": 114, "url": "aimodels/shield_t850_hgt_wind_CONUS_f114_2026091212.jpg", "label": "F114"}, {"hour": 120, "url": "aimodels/shield_t850_hgt_wind_CONUS_f120_2026091212.jpg", "label": "F120"}, {"hour": 126, "url": "aimodels/shield_t850_hgt_wind_CONUS_f126_2026091212.jpg", "label": "F126"}]}, "vort850_hgt500_wind200": {"init": "2026091212", "domain": "conus", "frames": [{"hour": 24, "url": "aimodels/shield_vort850_hgt500_wind200_CONUS_f024_2026091212.jpg", "label": "F024"}, {"hour": 30, "url": "aimodels/shield_vort850_hgt500_wind200_CONUS_f030_2026091212.jpg", "label": "F030"}, {"hour": 36, "url": "aimodels/shield_vort850_hgt500_wind200_CONUS_f036_2026091212.jpg", "label": "F036"}, {"hour": 42, "url": "aimodels/shield_vort850_hgt500_wind200_CONUS_f042_2026091212.jpg", "label": "F042"}, {"hour": 48, "url": "aimodels/shield_vort850_hgt500_wind200_CONUS_f048_2026091212.jpg", "label": "F048"}, {"hour": 54, "url": "aimodels/shield_vort850_hgt500_wind200_CONUS_f054_2026091212.jpg", "label": "F054"}, {"hour": 60, "url": "aimodels/shield_vort850_hgt500_wind200_CONUS_f060_2026091212.jpg", "label": "F060"}, {"hour": 66, "url": "aimodels/shield_vort850_hgt500_wind200_CONUS_f066_2026091212.jpg", "label": "F066"}, {"hour": 72, "url": "aimodels/shield_vort850_hgt500_wind200_CONUS_f072_2026091212.jpg", "label": "F072"}, {"hour": 78, "url": "aimodels/shield_vort850_hgt500_wind200_CONUS_f078_2026091212.jpg", "label": "F078"}, {"hour": 84, "url": "aimodels/shield_vort850_hgt500_wind200_CONUS_f084_2026091212.jpg", "label": "F084"}, {"hour": 90, "url": "aimodels/shield_vort850_hgt500_wind200_CONUS_f090_2026091212.jpg", "label": "F090"}, {"hour": 96, "url": "aimodels/shield_vort850_hgt500_wind200_CONUS_f096_2026091212.jpg", "label": "F096"}, {"hour": 102, "url": "aimodels/shield_vort850_hgt500_wind200_CONUS_f102_2026091212.jpg", "label": "F102"}, {"hour": 108, "url": "aimodels/shield_vort850_hgt500_wind200_CONUS_f108_2026091212.jpg", "label": "F108"}, {"hour": 114, "url": "aimodels/shield_vort850_hgt500_wind200_CONUS_f114_2026091212.jpg", "label": "F114"}, {"hour": 120, "url": "aimodels/shield_vort850_hgt500_wind200_CONUS_f120_2026091212.jpg", "label": "F120"}, {"hour": 126, "url": "aimodels/shield_vort850_hgt500_wind200_CONUS_f126_2026091212.jpg", "label": "F126"}]}, "uh25max_swath": {"init": "2026091212", "domain": "conus", "frames": [{"hour": 90, "url": "aimodels/shield_uh25max_swath_CONUS_f090_2026091212.jpg", "label": "F090"}, {"hour": 93, "url": "aimodels/shield_uh25max_swath_CONUS_f093_2026091212.jpg", "label": "F093"}, {"hour": 96, "url": "aimodels/shield_uh25max_swath_CONUS_f096_2026091212.jpg", "label": "F096"}, {"hour": 99, "url": "aimodels/shield_uh25max_swath_CONUS_f099_2026091212.jpg", "label": "F099"}, {"hour": 102, "url": "aimodels/shield_uh25max_swath_CONUS_f102_2026091212.jpg", "label": "F102"}, {"hour": 105, "url": "aimodels/shield_uh25max_swath_CONUS_f105_2026091212.jpg", "label": "F105"}, {"hour": 108, "url": "aimodels/shield_uh25max_swath_CONUS_f108_2026091212.jpg", "label": "F108"}, {"hour": 111, "url": "aimodels/shield_uh25max_swath_CONUS_f111_2026091212.jpg", "label": "F111"}, {"hour": 114, "url": "aimodels/shield_uh25max_swath_CONUS_f114_2026091212.jpg", "label": "F114"}, {"hour": 117, "url": "aimodels/shield_uh25max_swath_CONUS_f117_2026091212.jpg", "label": "F117"}, {"hour": 120, "url": "aimodels/shield_uh25max_swath_CONUS_f120_2026091212.jpg", "label": "F120"}, {"hour": 126, "url": "aimodels/shield_uh25max_swath_CONUS_f126_2026091212.jpg", "label": "F126"}]}}, "mpasProducts": {"wspd": "10 m Wind Speed", "t2m": "2 m Temperature", "cape": "Surface-Based CAPE", "shear": "Wind Shear", "refl10cm_1km": "Radar Reflectivity + SLP + Wind", "brightnessT": "IR Brightness Temp (satellite)", "precipw": "Precipitable Water", "winds_250hPa": "250 mb Winds (jet level)", "winds_500hPa": "500 mb Winds", "relhum_500hPa": "500 mb RH + Height + Wind", "relhum_700hPa": "700 mb RH + Height + Wind", "vorticity_500hPa": "500 mb Vorticity + Height + Wind", "vorticity_850hPa": "850 mb Vorticity + Height + Wind", "acpc1": "1 h Accum. Precipitation", "acpc6": "6 h Accum. Precipitation", "acpc24": "24 h Accum. Precipitation"}, "mpasDomains": {"atl": "Atlantic", "epac": "E Pacific", "wpac": "W Pacific", "conus": "CONUS", "global": "Global"}, "shieldProducts": {"max_reflectivity_wind": "Composite Radar Reflectivity + Wind", "base_reflectivity_wind": "Base Radar Reflectivity + Wind", "TMP2m": "2 m Temperature", "CAPE": "Surface-Based CAPE", "precip_accum": "Total Accumulated Precipitation", "simulatedir": "Simulated IR Satellite", "pwat_slp_wind850": "PWAT + MSLP + 850 mb Wind", "h500_slp": "500 mb Height + MSLP", "vort500_hgt_wind": "500 mb Vorticity + Heights + Wind", "uh25max_swath": "Max Updraft Helicity 2-5 km", "shr06": "0-6 km Bulk Shear", "maxwind10m": "Maximum 10 m Wind", "DPT2m": "2 m Dew Point", "t850_hgt_wind": "850 mb Temp + Heights + Wind", "vort850_hgt500_wind200": "850 mb Vort + 500 mb Hgt + 200 mb Wind", "pcpn_slp_thk": "Precip + MSLP + Thickness", "precip_snow_slp_wind": "Rain/Mix/Snow + MSLP + Wind", "shear_slp": "Wind Shear + MSLP", "maxwind10m_swath": "Run-Max 10 m Wind Swath", "maxuvv": "Max Updraft Velocity", "cond": "Total Condensate + VIL", "iwlw_slp_wind": "Ice/Liquid Water Path + MSLP", "BRN": "Bulk Richardson Number", "windspeed": "Surface Wind Speed", "wind10m": "10 m Wind + Barbs"}, "shieldRegions": {"CONUS": "Continental US", "nestNE": "Northeastern US", "nestMA": "Mid-Atlantic US", "nestSE": "Southeastern US", "nestSW": "Southwestern US", "nestNC": "N Central US", "us_sc": "S Central US", "nestNW": "Northwestern US", "tcNATL": "Atlantic"}, "mpasArchive": true};
+
+const cmpGrid = document.getElementById("cmpGrid");
+const cmpProdSel = document.getElementById("cmpProd");
+const cmpRegionSel = document.getElementById("cmpRegion");
+const cmpPlayBtn = document.getElementById("cmpPlay");
+const cmpFrameEl = document.getElementById("cmpFrame");
+const CMP_MODELS = Object.keys(CAT).sort();
+let cmpCurrent = [], cmpPanes = [], cmpFhList = [], cmpIdx = 0, cmpTimer = null, cmpPlaying = false;
+(function initCmpCurrent() {
+  const pref = ["GFS", "NAM", "RRFS", "AIFS", "HRRR", "GraphCast", "ECMWF"].filter(m => CMP_MODELS.includes(m));
+  cmpCurrent = [...pref, ...CMP_MODELS.filter(m => !pref.includes(m))].slice(0, 4);
+  while (cmpCurrent.length < 4 && CMP_MODELS.length) cmpCurrent.push(CMP_MODELS[cmpCurrent.length % CMP_MODELS.length]);
+})();
+function cmpFillProducts() {
+  const counts = {}, labels = {};
+  for (const c of REND) counts[c.product] = (counts[c.product] || 0) + 1;
+  for (const k of Object.keys(MS.mpasProducts || {})) counts[k] = (counts[k] || 0) + (MS.mpas[k] && MS.mpas[k].frames ? 1 : 0);
+  for (const k of Object.keys(MS.shieldProducts || {})) counts[k] = (counts[k] || 0) + (MS.shield[k] && MS.shield[k].frames ? 1 : 0);
+  for (const m of Object.keys(CAT)) for (const p of (CAT[m].products || [])) labels[p.key] = p.label;
+  cmpProdSel.innerHTML = Object.keys(counts).sort((a, b) => counts[b] - counts[a])
+    .map(k => `<option value="${k}">${labels[k] || k} (${counts[k]})</option>`).join("");
+}
+function cmpCombo(m) {
+  const r = cmpRegionSel.value, p = cmpProdSel.value;
+  const c = REND.find(x => x.model === m && x.product === p && x.region === r);
+  if (c && c.frames.length) return c;
+  /* MPAS / FV3 panes render from their pre-rendered frame loops (MS) */
+  const msKey = m === "MPAS" ? "mpas" : (m.indexOf("FV3") === 0 ? "shield" : null);
+  if (msKey) {
+    const got = ((MS[msKey] || {})[p] || {}).frames || [];
+    if (got.length) return { model: m, product: p, region: "etn", cycle: String((MS[msKey] || {})[p].init || ""),
+                             frames: got.map(f => ({fh: f.hour, url: f.url})) };
+  }
+  return null;
+}
+function cmpBuild() {
+  cmpStop();
+  for (const p of cmpPanes) cmpPaneStop(p);
+  cmpPanes = []; cmpFhList = []; cmpGrid.innerHTML = "";
+  cmpCurrent.forEach((m, i) => {
+    const pane = document.createElement("div"); pane.className = "pane";
+    const c = cmpCombo(m);
+    const opts = CMP_MODELS.map(x => `<option value="${x}"${x === m ? " selected" : ""}>${x}</option>`).join("");
+    pane.innerHTML = `<h3><select data-i="${i}">${opts}</select><span class="cap"></span><button class="pb" title="Play/pause this pane">⏸</button></h3>` +
+      (c ? `<img alt="${m}"/>` : `<div class="miss">queued - renders within a few update cycles</div>`);
+    cmpGrid.appendChild(pane);
+    pane.querySelector("select").onchange = e => { cmpCurrent[i] = e.target.value; cmpBuild(); };
+    if (c) {
+      const initTxt = c.cycle ? "init " + String(c.cycle).slice(-6, -2) + "Z " : "";
+      pane.querySelector(".cap").innerHTML = `${initTxt}<span class="fh">F${String(c.frames[c.frames.length-1].fh).padStart(3,"0")}</span>`;
+      const paneObj = { img: pane.querySelector("img"), combo: c, timer: null, idx: 0 };
+      cmpPanes.push(paneObj);
+      c.frames.forEach(f => cmpFhList.push(f.fh));
+      pane.querySelector(".pb").onclick = () => {
+        if (paneObj.timer) { cmpPaneStop(paneObj); pane.querySelector(".pb").textContent = "▶"; }
+        else { cmpPanePlay(paneObj, i); pane.querySelector(".pb").textContent = "⏸"; }
+      };
+    } else cmpPanes.push({ img: null, combo: null, timer: null });
+  });
+  cmpFhList = [...new Set(cmpFhList)].sort((a, b) => a - b);
+  cmpIdx = Math.max(0, cmpFhList.length - 1);
+  cmpShow();
+}
+function cmpShow() {
+  if (!cmpFhList.length) { cmpFrameEl.textContent = "--"; return; }
+  const fh = cmpFhList[cmpIdx];
+  cmpFrameEl.textContent = "F" + String(fh).padStart(3, "0");
+  for (const p of cmpPanes) {
+    if (!p.combo || !p.img) continue;
+    const avail = p.combo.frames.filter(f => f.fh <= fh);
+    const f = avail.length ? avail[avail.length - 1] : p.combo.frames[0];
+    if (f) p.img.src = f.url;
+  }
+}
+/* per-pane animation: every model plays its own full loop simultaneously */
+function cmpPanePlay(p, i) {
+  if (p.timer) clearInterval(p.timer);
+  p.idx = Math.max(0, (p.combo ? p.combo.frames.length : 1) - 1);
+  p.timer = setInterval(() => {
+    if (!p.combo || !p.img || !p.combo.frames.length) return;
+    p.idx = (p.idx + 1) % p.combo.frames.length;
+    const f = p.combo.frames[p.idx];
+    if (f) { p.img.src = f.url; const cap = p.img.closest(".pane").querySelector(".cap .fh");
+             if (cap) cap.textContent = "F" + String(f.fh).padStart(3, "0"); }
+  }, 1100 + i * 40);
+}
+function cmpPaneStop(p) { if (p.timer) { clearInterval(p.timer); p.timer = null; } }
+function cmpPlayAll() {
+  cmpPanes.forEach((p, i) => cmpPanePlay(p, i));
+  if (cmpTimer) clearInterval(cmpTimer);
+  cmpTimer = setInterval(() => { cmpIdx = (cmpIdx + 1) % Math.max(cmpFhList.length, 1); cmpShow(); }, 1200);
+}
+function cmpStop() {
+  cmpPlaying = false; cmpPlayBtn.textContent = "▶";
+  if (cmpTimer) clearInterval(cmpTimer); cmpTimer = null;
+  for (const p of cmpPanes) cmpPaneStop(p);
+}
+cmpPlayBtn.onclick = () => { if (cmpPlaying) { cmpStop(); } else { cmpPlaying = true; cmpPlayBtn.textContent = "⏸"; cmpPlayAll(); } };
+cmpProdSel.onchange = cmpBuild; cmpRegionSel.onchange = cmpBuild;
+cmpFillProducts(); cmpBuild();
+
+
+const msSrc = document.getElementById("msSrc");
+const msProd = document.getElementById("msProd");
+const msImg = document.getElementById("msImg");
+const msCap = document.getElementById("msCap");
+const msFrame = document.getElementById("msFrame");
+const msPlay = document.getElementById("msPlay");
+let msFrames = [], msIdx = 0, msTimer = null, msPlaying = false;
+function msFill() {
+  const src = msSrc.value;
+  const avail = MS[src] || {};
+  const labels = src === "mpas" ? MS.mpasProducts : MS.shieldProducts;
+  const keys = Object.keys(labels);
+  msProd.innerHTML = keys.map(k => {
+    const has = avail[k] && avail[k].frames && avail[k].frames.length;
+    return `<option value="${k}">${labels[k]}${has ? "" : " (queued)"}</option>`;
+  }).join("");
+  const firstAvail = keys.find(k => avail[k] && avail[k].frames && avail[k].frames.length);
+  if (firstAvail) msProd.value = firstAvail;
+}
+function msStop() { msPlaying = false; msPlay.textContent = "▶"; if (msTimer) clearInterval(msTimer); msTimer = null; }
+function msShow() {
+  if (!msFrames.length) {
+    msImg.removeAttribute("src"); msFrame.textContent = "--";
+    msCap.textContent = "This product downloads on a coming update cycle - the viewer fills itself in.";
+    return;
+  }
+  const f = msFrames[msIdx];
+  msImg.src = f.url;
+  msFrame.textContent = f.label || ("F" + String(f.hour).padStart(3, "0"));
+  const e = (MS[msSrc.value] || {})[msProd.value] || {};
+  msCap.textContent = "Init " + (e.init || "") + " · frame " + (msIdx + 1) + "/" + msFrames.length;
+}
+const msArch = document.getElementById("msArchiveNote");
+function msArchCheck() {
+  if (!msArch) return;
+  const stale = msSrc.value === "mpas" && MS.mpasArchive && msFrames.length &&
+                (msFrames[0].url || "").indexOf("_2025") !== -1;
+  msArch.style.display = stale ? "" : "none";
+}
+function msBuild() {
+  msStop();
+  const e = (MS[msSrc.value] || {})[msProd.value];
+  msFrames = (e && e.frames) || [];
+  msIdx = Math.max(0, msFrames.length - 1);
+  msShow();
+  msArchCheck();
+  if (msFrames.length > 1) {
+    msPlaying = true; msPlay.textContent = "⏸";
+    msTimer = setInterval(() => { msIdx = (msIdx + 1) % msFrames.length; msShow(); }, 900);
+  }
+}
+msSrc.onchange = () => { msFill(); msBuild(); msArchCheck(); };
+msProd.onchange = msBuild;
+msPlay.onclick = () => {
+  if (!msFrames.length) return;
+  if (msPlaying) msStop();
+  else { msPlaying = true; msPlay.textContent = "⏸";
+    msTimer = setInterval(() => { msIdx = (msIdx + 1) % msFrames.length; msShow(); }, 900); }
+};
+msFill(); msBuild(); msArchCheck();
+if (MS.mpasArchive) {
+  const mo = msSrc.querySelector("option[value=mpas]");
+  if (mo) mo.textContent = "NCAR MPAS (3.75 km global) — 2025 archive";
+}
+
+</script>
+
+</div>
+<footer>
+  <div id="upd" style="color:#7d8794">checking data age…</div>
+  Data: National Weather Service · NOAA · RainViewer · SPC — all free, no keys.<br/>
+  Auto-updated every few minutes by the Tennessee Weather Network weather center ·
+  <a href="https://www.facebook.com/tennesseeweathernetwork" target="_blank">Facebook page</a> ·
+  <a id="fbShareFt" href="#" target="_blank" rel="noopener">📘 Post this page to Facebook</a> ·
+  <a href="fb_page.html" target="_blank">📱 Facebook post page (stand-alone)</a>
+</footer>
+<script>
+/* Facebook share: use the canonical public URL when served from it,
+   otherwise share the page's public home (localhost shares are useless) */
+(function () {
+  var pub = "https://rpleasant12.github.io/http-localhost-8765-/";
+  var here = location.origin + location.pathname;
+  var target = (location.hostname === "localhost" || location.hostname === "127.0.0.1") && pub ? pub : here;
+  var u = "https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(target);
+  ["fbShare", "fbShareFt"].forEach(function (id) {
+    var a = document.getElementById(id); if (a) a.href = u;
+  });
+})();
+</script>
+</body></html>
