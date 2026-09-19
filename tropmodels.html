@@ -297,13 +297,13 @@ setTimeout(function () {
 
 <header class="hero"><h1>🌪️ Tropical Model Guidance</h1>
 <div class="sub">Track spaghetti + intensity forecasts from every global & regional model
-· NHC ATCF aid-decks · updated 2026-09-19 10:44 AM ET</div></header>
+· NHC ATCF aid-decks · updated 2026-09-19 11:01 AM ET</div></header>
 
 <div class="card">
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
     <label class="src" for="stormPick">Storm:</label>
     <select id="stormPick" class="sel"></select>
-    <span class="src" id="tmSummary">0 storm(s) · 0 guidance members · 0 chart(s)</span>
+    <span class="src" id="tmSummary">1 storm(s) · 0 guidance members · 0 chart(s)</span>
   </div>
   <div id="map" class="map-dark"></div>
   <div class="legend" id="famLegend">
@@ -325,7 +325,7 @@ setTimeout(function () {
 <div class="card" id="tblCard"><h2>🧭 Guidance members</h2><div id="tbl"></div></div>
 
 <script>
-const TMS = {"ok": true, "storms": []};
+const TMS = {"ok": true, "storms": [{"name": "Six", "classification": "TD", "intensity": "30", "basin": "al", "basinName": "Atlantic", "models": [], "tracks": {}, "charts": [], "source": "NHC CurrentStorms (no aid file yet)"}]};
 const FAMCOL = {"GFS": "#4fc3f7", "ECMWF": "#ce93d8", "UKMET": "#ffb74d", "CMC": "#a5d6a7", "HWRF": "#ff8a80", "HMON": "#ffab91", "HAFS": "#ef9a9a", "OFCL": "#ffffff", "OFCI": "#e0e0e0", "SHIPS": "#90caf9", "CLIPER": "#b0bec5", "consensus": "#fff59d", "ens": "#b0bec5", "GFDL": "#80cbc4", "Navy": "#bcaaa4"};
 let map, famGroups = {};
 const KT_COL = kt => kt >= 137 ? "#d32f2f" : kt >= 113 ? "#e64a19" : kt >= 96 ? "#f57c00"
