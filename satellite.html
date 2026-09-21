@@ -663,6 +663,7 @@ function onDataRefresh(d) { refresh(d); }
    otherwise share the page's public home (localhost shares are useless) */
 (function () {
   var pub = "https://rpleasant12.github.io/http-localhost-8765-/";
+  window.TNWN_PUBLIC_URL = pub; /* reusable share target (certificate, etc.) */
   var here = location.origin + location.pathname;
   var target = (location.hostname === "localhost" || location.hostname === "127.0.0.1") && pub ? pub : here;
   var u = "https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(target);

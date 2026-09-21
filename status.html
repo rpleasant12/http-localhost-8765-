@@ -324,7 +324,7 @@ GitHub Pages every ~10 minutes. A missing heartbeat means the Windows task
 </table></div>
 
 <script>
-const BUILT = 1789990650816;
+const BUILT = 1789994638061;
 function mins(ms) { const m = Math.round(ms / 60000); return m < 1 ? "<1 min" : m + " min"; }
 function fnum(n) { return n.toLocaleString("en-US"); }
 async function boot() {
@@ -392,6 +392,7 @@ boot();
    otherwise share the page's public home (localhost shares are useless) */
 (function () {
   var pub = "https://rpleasant12.github.io/http-localhost-8765-/";
+  window.TNWN_PUBLIC_URL = pub; /* reusable share target (certificate, etc.) */
   var here = location.origin + location.pathname;
   var target = (location.hostname === "localhost" || location.hostname === "127.0.0.1") && pub ? pub : here;
   var u = "https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(target);

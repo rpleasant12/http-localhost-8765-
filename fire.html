@@ -299,7 +299,7 @@ setTimeout(function () {
 <div class="wrap">
 
 <header class="hero"><h1>🔥 Fire Weather</h1>
-<div class="sub">SPC Fire Weather Outlooks · Red Flag Warnings · fire-danger forecasts · updated 2026-09-21 7:37 AM ET</div></header>
+<div class="sub">SPC Fire Weather Outlooks · Red Flag Warnings · fire-danger forecasts · updated 2026-09-21 8:43 AM ET</div></header>
 
 <div class="card">
   <div class="kpis">
@@ -336,6 +336,7 @@ setTimeout(function () {
    otherwise share the page's public home (localhost shares are useless) */
 (function () {
   var pub = "https://rpleasant12.github.io/http-localhost-8765-/";
+  window.TNWN_PUBLIC_URL = pub; /* reusable share target (certificate, etc.) */
   var here = location.origin + location.pathname;
   var target = (location.hostname === "localhost" || location.hostname === "127.0.0.1") && pub ? pub : here;
   var u = "https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(target);
