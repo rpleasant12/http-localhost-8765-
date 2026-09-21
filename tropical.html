@@ -173,6 +173,7 @@ async function siteRefresh() {
     SITE_DATA = await (await fetch(dataUrl(), {cache: "no-store"})).json();
     if (typeof onDataRefresh === "function") onDataRefresh(SITE_DATA);
     updTick();
+    try { syncAutoPref(); } catch (_e) {}   /* version now known: apply/wipe stale auto pref */
     /* auto-heal: if the served copy is still 30+ min old on two consecutive
        polls (6 min apart), force a cache-busted reload once - recovers from
        a stuck CDN copy or a missed publish without looping. */
@@ -226,8 +227,33 @@ document.getElementById("refreshBtn").onclick = () => {
   if (b) { b.textContent = "…"; }
   hardReload();
 };
-try { autoChk.checked = localStorage.getItem("tnwxAuto") !== "off"; } catch (_e) {}
-autoChk.onchange = () => { AUTO_LEFT = 90; try { localStorage.setItem("tnwxAuto", autoChk.checked ? "on" : "off"); } catch (_e) {} };
+/* auto-refresh preference is remembered per siteVersion (a fingerprint of
+   the site code, served in data.json). A saved "off" therefore cannot
+   survive a site update: after new code pushes, the flag belongs to an old
+   version, is wiped, and auto-refresh resumes - an update always re-opens
+   the refresh tap. Before the first data pull resolves the version is
+   unknown, so the checkbox defaults ON and re-syncs the moment data lands. */
+function autoPrefKey() {
+  const v = (window.SITE_DATA && SITE_DATA.siteVersion) || "";
+  return v ? "tnwxAuto." + v : "";
+}
+function syncAutoPref() {
+  const k = autoPrefKey();
+  if (!k) return;
+  try {
+    /* wipe the legacy flag and flags saved under other versions */
+    Object.keys(localStorage)
+      .filter(x => x === "tnwxAuto" || (x.indexOf("tnwxAuto.") === 0 && x !== k))
+      .forEach(x => localStorage.removeItem(x));
+    autoChk.checked = localStorage.getItem(k) !== "off";
+  } catch (_e) {}
+}
+syncAutoPref();
+autoChk.onchange = () => {
+  AUTO_LEFT = 90;
+  const k = autoPrefKey();
+  try { if (k) localStorage.setItem(k, autoChk.checked ? "on" : "off"); } catch (_e) {}
+};
 /* interacting with the page postpones the auto cycle: a hard reload in the
    middle of a zoom/pinch/scrub reads as "the map won't zoom" (2026-09-18) */
 ["pointerdown", "wheel", "touchstart"].forEach(function (ev) {
@@ -324,7 +350,7 @@ setTimeout(function () {
 <div class="wrap">
 
 <header class="hero"><h1>🌀 NHC Tropical</h1>
-<div class="sub">Active storms with official cones/tracks · NHC outlooks · updated <span id="tropStamp">2026-09-21 1:09 PM ET</span></div></header>
+<div class="sub">Active storms with official cones/tracks · NHC outlooks · updated <span id="tropStamp">2026-09-21 1:23 PM ET</span></div></header>
 
 <div class="card">
   <div id="map" class="map-dark"></div>

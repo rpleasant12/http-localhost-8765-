@@ -173,6 +173,7 @@ async function siteRefresh() {
     SITE_DATA = await (await fetch(dataUrl(), {cache: "no-store"})).json();
     if (typeof onDataRefresh === "function") onDataRefresh(SITE_DATA);
     updTick();
+    try { syncAutoPref(); } catch (_e) {}   /* version now known: apply/wipe stale auto pref */
     /* auto-heal: if the served copy is still 30+ min old on two consecutive
        polls (6 min apart), force a cache-busted reload once - recovers from
        a stuck CDN copy or a missed publish without looping. */
@@ -226,8 +227,33 @@ document.getElementById("refreshBtn").onclick = () => {
   if (b) { b.textContent = "…"; }
   hardReload();
 };
-try { autoChk.checked = localStorage.getItem("tnwxAuto") !== "off"; } catch (_e) {}
-autoChk.onchange = () => { AUTO_LEFT = 90; try { localStorage.setItem("tnwxAuto", autoChk.checked ? "on" : "off"); } catch (_e) {} };
+/* auto-refresh preference is remembered per siteVersion (a fingerprint of
+   the site code, served in data.json). A saved "off" therefore cannot
+   survive a site update: after new code pushes, the flag belongs to an old
+   version, is wiped, and auto-refresh resumes - an update always re-opens
+   the refresh tap. Before the first data pull resolves the version is
+   unknown, so the checkbox defaults ON and re-syncs the moment data lands. */
+function autoPrefKey() {
+  const v = (window.SITE_DATA && SITE_DATA.siteVersion) || "";
+  return v ? "tnwxAuto." + v : "";
+}
+function syncAutoPref() {
+  const k = autoPrefKey();
+  if (!k) return;
+  try {
+    /* wipe the legacy flag and flags saved under other versions */
+    Object.keys(localStorage)
+      .filter(x => x === "tnwxAuto" || (x.indexOf("tnwxAuto.") === 0 && x !== k))
+      .forEach(x => localStorage.removeItem(x));
+    autoChk.checked = localStorage.getItem(k) !== "off";
+  } catch (_e) {}
+}
+syncAutoPref();
+autoChk.onchange = () => {
+  AUTO_LEFT = 90;
+  const k = autoPrefKey();
+  try { if (k) localStorage.setItem(k, autoChk.checked ? "on" : "off"); } catch (_e) {}
+};
 /* interacting with the page postpones the auto cycle: a hard reload in the
    middle of a zoom/pinch/scrub reads as "the map won't zoom" (2026-09-18) */
 ["pointerdown", "wheel", "touchstart"].forEach(function (ev) {
@@ -324,7 +350,7 @@ setTimeout(function () {
 <div class="wrap">
 
 <header class="hero"><h1>🌡️ Observations & Skew-T</h1>
-<div class="sub">Live METARs for East Tennessee and the whole US · city board · RAP 13 km soundings at 8 locations · updated <span id="obsStamp">2026-09-21 1:09 PM ET</span></div></header>
+<div class="sub">Live METARs for East Tennessee and the whole US · city board · RAP 13 km soundings at 8 locations · updated <span id="obsStamp">2026-09-21 1:23 PM ET</span></div></header>
 
 <div class="card">
   <div id="map" class="map-dark"></div>
@@ -345,14 +371,14 @@ setTimeout(function () {
 <div class="card"><h2>🎈 Skew-T / Log-P sounding (RAP 13 km · MetPy)</h2>
   <div class="ctl">
     <select id="sndLoc"></select>
-    <select id="sndH"><option value="0" selected>Now (F000)</option><option value="6">+6 h</option><option value="12">+12 h</option></select>
+    <select id="sndH"><option value="0" selected>Now (F000)</option><option value="6">+6 h</option><option value="12">+12 h</option><option value="18">+18 h</option></select>
   </div>
   <img id="sndImg" class="natimg" loading="lazy" src="soundings/rap_f2276e673a3e.png" alt="Skew-T sounding"/>
   <div class="cap src" id="sndCap"></div>
 </div>
 
 <script>
-const SND = {"hours": {"Greeneville, TN": {"0": {"url": "soundings/rap_f2276e673a3e.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 1, "valid": "2026-09-21 1 PM ET", "cape": 1315.909881612133, "cin": -121.80113063539606}}, "6": {"url": "soundings/rap_2fed8c844c29.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 7, "valid": "2026-09-21 7 PM ET", "cape": 1245.1761632989105, "cin": -222.6297368379858}}, "12": {"url": "soundings/rap_25bf459bf052.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 13, "valid": "2026-09-22 1 AM ET", "cape": 989.1763925415781, "cin": -189.538963883603}}}, "Knoxville TN": {"0": {"url": "soundings/rap_061fe883055e.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 1, "valid": "2026-09-21 1 PM ET", "cape": 1800.7813008905712, "cin": -32.87355099258378}}, "6": {"url": "soundings/rap_77c23884e5dc.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 7, "valid": "2026-09-21 7 PM ET", "cape": 1808.7329598360127, "cin": -127.02400331851945}}, "12": {"url": "soundings/rap_d73e62f9bfa6.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 13, "valid": "2026-09-22 1 AM ET", "cape": 1619.4652886151853, "cin": -156.7496948896863}}}, "Tri-Cities TN": {"0": {"url": "soundings/rap_33e1e4152167.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 1, "valid": "2026-09-21 1 PM ET", "cape": 743.8912703224302, "cin": -162.408310428714}}, "6": {"url": "soundings/rap_15c7032cae15.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 7, "valid": "2026-09-21 7 PM ET", "cape": 396.83192232947545, "cin": -302.3024388902208}}, "12": {"url": "soundings/rap_3824dc285906.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 13, "valid": "2026-09-22 1 AM ET", "cape": 301.2353615930168, "cin": -308.11068095792047}}}, "Chattanooga TN": {"0": {"url": "soundings/rap_c8ec2bd33731.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 1, "valid": "2026-09-21 1 PM ET", "cape": 2437.532282588136, "cin": -38.43009399811179}}, "6": {"url": "soundings/rap_c10e937f6681.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 7, "valid": "2026-09-21 7 PM ET", "cape": 2904.468722658481, "cin": -94.49779791339363}}, "12": {"url": "soundings/rap_e56678d79ec8.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 13, "valid": "2026-09-22 1 AM ET", "cape": 2015.4756610674342, "cin": -152.44470367515774}}}, "Nashville TN": {"0": {"url": "soundings/rap_8bb4babe99df.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 1, "valid": "2026-09-21 1 PM ET", "cape": 2229.7719355328836, "cin": 0.0}}, "6": {"url": "soundings/rap_513b4c5d4f1a.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 7, "valid": "2026-09-21 7 PM ET", "cape": 744.3021560366207, "cin": -130.66407601139645}}, "12": {"url": "soundings/rap_36c84a73a947.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 13, "valid": "2026-09-22 1 AM ET", "cape": 510.1410546954002, "cin": -226.42535507009416}}}, "Crossville TN": {"0": {"url": "soundings/rap_7f3b4814c2e7.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 1, "valid": "2026-09-21 1 PM ET", "cape": 848.1902674142178, "cin": -178.79250797283453}}, "6": {"url": "soundings/rap_d6f298f40284.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 7, "valid": "2026-09-21 7 PM ET", "cape": 2198.902645418551, "cin": -187.30231849935564}}, "12": {"url": "soundings/rap_5b9f2d86ca38.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 13, "valid": "2026-09-22 1 AM ET", "cape": 1271.8710111813627, "cin": -182.3146055547035}}}, "Oak Ridge TN": {"0": {"url": "soundings/rap_05cdae0cdaf2.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 1, "valid": "2026-09-21 1 PM ET", "cape": 1002.0516616502698, "cin": -150.1487755304759}}, "6": {"url": "soundings/rap_ef991f96bd68.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 7, "valid": "2026-09-21 7 PM ET", "cape": 1234.933995779822, "cin": -243.1449886357823}}, "12": {"url": "soundings/rap_04b692ef4b6b.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 13, "valid": "2026-09-22 1 AM ET", "cape": 829.4106955661646, "cin": -251.0263122796508}}}, "Atlanta GA": {"0": {"url": "soundings/rap_dd6e4760db5a.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 1, "valid": "2026-09-21 1 PM ET", "cape": 1603.214895489026, "cin": 0.0}}, "6": {"url": "soundings/rap_d046cecf93fe.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 7, "valid": "2026-09-21 7 PM ET", "cape": 3141.5798028148, "cin": -87.99254614009277}}, "12": {"url": "soundings/rap_addcb6f8b64a.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 13, "valid": "2026-09-22 1 AM ET", "cape": 2420.95741157532, "cin": -86.42592834475893}}}}, "locations": {"Greeneville, TN": {"lat": 36.1627, "lon": -82.8332}, "Knoxville TN": {"lat": 35.9606, "lon": -83.9207}, "Tri-Cities TN": {"lat": 36.3134, "lon": -82.3573}, "Chattanooga TN": {"lat": 35.0456, "lon": -85.3097}, "Nashville TN": {"lat": 36.1628, "lon": -86.7816}, "Crossville TN": {"lat": 35.9479, "lon": -85.0269}, "Oak Ridge TN": {"lat": 35.9903, "lon": -84.2853}, "Atlanta GA": {"lat": 33.6407, "lon": -84.4277}}};
+const SND = {"hours": {"Greeneville, TN": {"0": {"url": "soundings/rap_f2276e673a3e.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 1, "valid": "2026-09-21 1 PM ET"}}, "6": {"url": "soundings/rap_2fed8c844c29.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 7, "valid": "2026-09-21 7 PM ET"}}, "12": {"url": "soundings/rap_25bf459bf052.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 13, "valid": "2026-09-22 1 AM ET"}}, "18": {"url": "soundings/rap_d7121a2c6c04.png", "meta": {"cycle": "2026-09-21 10 AM ET", "fh": 18, "valid": "2026-09-22 4 AM ET"}}}, "Knoxville TN": {"0": {"url": "soundings/rap_061fe883055e.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 1, "valid": "2026-09-21 1 PM ET"}}, "6": {"url": "soundings/rap_77c23884e5dc.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 7, "valid": "2026-09-21 7 PM ET"}}, "12": {"url": "soundings/rap_d73e62f9bfa6.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 13, "valid": "2026-09-22 1 AM ET"}}, "18": {"url": "soundings/rap_a6131ff467c5.png", "meta": {"cycle": "2026-09-21 10 AM ET", "fh": 18, "valid": "2026-09-22 4 AM ET"}}}, "Tri-Cities TN": {"0": {"url": "soundings/rap_33e1e4152167.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 1, "valid": "2026-09-21 1 PM ET"}}, "6": {"url": "soundings/rap_15c7032cae15.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 7, "valid": "2026-09-21 7 PM ET"}}, "12": {"url": "soundings/rap_3824dc285906.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 13, "valid": "2026-09-22 1 AM ET"}}, "18": {"url": "soundings/rap_f579efbf3ec4.png", "meta": {"cycle": "2026-09-21 10 AM ET", "fh": 18, "valid": "2026-09-22 4 AM ET"}}}, "Chattanooga TN": {"0": {"url": "soundings/rap_c8ec2bd33731.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 1, "valid": "2026-09-21 1 PM ET"}}, "6": {"url": "soundings/rap_c10e937f6681.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 7, "valid": "2026-09-21 7 PM ET"}}, "12": {"url": "soundings/rap_e56678d79ec8.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 13, "valid": "2026-09-22 1 AM ET"}}, "18": {"url": "soundings/rap_b5abf60760d2.png", "meta": {"cycle": "2026-09-21 10 AM ET", "fh": 18, "valid": "2026-09-22 4 AM ET"}}}, "Nashville TN": {"0": {"url": "soundings/rap_8bb4babe99df.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 1, "valid": "2026-09-21 1 PM ET"}}, "6": {"url": "soundings/rap_513b4c5d4f1a.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 7, "valid": "2026-09-21 7 PM ET"}}, "12": {"url": "soundings/rap_36c84a73a947.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 13, "valid": "2026-09-22 1 AM ET"}}, "18": {"url": "soundings/rap_d49f8d163685.png", "meta": {"cycle": "2026-09-21 10 AM ET", "fh": 18, "valid": "2026-09-22 4 AM ET"}}}, "Crossville TN": {"0": {"url": "soundings/rap_7f3b4814c2e7.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 1, "valid": "2026-09-21 1 PM ET"}}, "6": {"url": "soundings/rap_d6f298f40284.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 7, "valid": "2026-09-21 7 PM ET"}}, "12": {"url": "soundings/rap_5b9f2d86ca38.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 13, "valid": "2026-09-22 1 AM ET"}}, "18": {"url": "soundings/rap_ba68d317b47b.png", "meta": {"cycle": "2026-09-21 10 AM ET", "fh": 18, "valid": "2026-09-22 4 AM ET"}}}, "Oak Ridge TN": {"0": {"url": "soundings/rap_05cdae0cdaf2.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 1, "valid": "2026-09-21 1 PM ET"}}, "6": {"url": "soundings/rap_ef991f96bd68.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 7, "valid": "2026-09-21 7 PM ET"}}, "12": {"url": "soundings/rap_04b692ef4b6b.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 13, "valid": "2026-09-22 1 AM ET"}}, "18": {"url": "soundings/rap_3b094f5ae8bf.png", "meta": {"cycle": "2026-09-21 10 AM ET", "fh": 18, "valid": "2026-09-22 4 AM ET"}}}, "Atlanta GA": {"0": {"url": "soundings/rap_dd6e4760db5a.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 1, "valid": "2026-09-21 1 PM ET"}}, "6": {"url": "soundings/rap_d046cecf93fe.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 7, "valid": "2026-09-21 7 PM ET"}}, "12": {"url": "soundings/rap_addcb6f8b64a.png", "meta": {"cycle": "2026-09-21 12 PM ET", "fh": 13, "valid": "2026-09-22 1 AM ET"}}, "18": {"url": "soundings/rap_aa90414c903c.png", "meta": {"cycle": "2026-09-21 10 AM ET", "fh": 18, "valid": "2026-09-22 4 AM ET"}}}}, "locations": {"Greeneville, TN": {"lat": 36.1627, "lon": -82.8332}, "Knoxville TN": {"lat": 35.9606, "lon": -83.9207}, "Tri-Cities TN": {"lat": 36.3134, "lon": -82.3573}, "Chattanooga TN": {"lat": 35.0456, "lon": -85.3097}, "Nashville TN": {"lat": 36.1628, "lon": -86.7816}, "Crossville TN": {"lat": 35.9479, "lon": -85.0269}, "Oak Ridge TN": {"lat": 35.9903, "lon": -84.2853}, "Atlanta GA": {"lat": 33.6407, "lon": -84.4277}}};
 /* city board: one renderer used by boot AND every soft refresh, with
    clickable column sorts and prev-observation trend arrows. Sort state
    survives refreshes; arrows come from prevTempF computed at build time. */
