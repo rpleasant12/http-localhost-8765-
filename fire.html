@@ -184,6 +184,26 @@ async function siteRefresh() {
 siteRefresh();
 setInterval(updTick, 30000);
 setInterval(siteRefresh, 180000);
+/* paused-banner: the STOP shortcut writes PAUSED.json, so any page that
+   still loads while updates are paused tells the truth instead of showing
+   a stale timestamp that looks like normal lag. START removes the marker. */
+(async function () {
+  try {
+    const pr = await fetch("PAUSED.json?t=" + Date.now(), { cache: "no-store" });
+    if (!pr.ok) return;   /* 404 = running normally */
+    const p = await pr.json();
+    const pb = document.createElement("div");
+    pb.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:99999;"
+      + "background:#b3261e;color:#fff;text-align:center;font-weight:700;"
+      + "padding:8px 12px;font-size:14px;font-family:inherit;";
+    pb.textContent = "\u23f8 Weather updates are PAUSED - press the START shortcut "
+      + "to resume. Data on this page is frozen"
+      + (p && p.since ? " (paused " + p.since + ")" : "") + ".";
+    document.body.appendChild(pb);
+    document.body.style.paddingTop = "38px";
+    if (autoCnt) autoCnt.textContent = "\u221e";   /* freeze the auto-reload countdown too */
+  } catch (_e) { /* marker unreadable: treat as running */ }
+})();
 /* page auto-refresh: soft (map pages define onDataRefresh) or hard reload.
    Hard reloads MUST cache-bust: GitHub Pages sends max-age=600, so a plain
    location.reload() can serve the same stale HTML for up to 10 minutes. */
@@ -299,7 +319,7 @@ setTimeout(function () {
 <div class="wrap">
 
 <header class="hero"><h1>🔥 Fire Weather</h1>
-<div class="sub">SPC Fire Weather Outlooks · Red Flag Warnings · fire-danger forecasts · updated 2026-09-21 9:59 AM ET</div></header>
+<div class="sub">SPC Fire Weather Outlooks · Red Flag Warnings · fire-danger forecasts · updated 2026-09-21 10:18 AM ET</div></header>
 
 <div class="card">
   <div class="kpis">
