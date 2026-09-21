@@ -72,6 +72,11 @@
   .legend i { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
   table.cells { width:100%; border-collapse:collapse; font-size:14px; }
   table.cells th { text-align:left; color:var(--dim); font-weight:600; font-size:12px; padding:6px; }
+  table.cells th.srt { cursor:pointer; user-select:none; white-space:nowrap; }
+  table.cells th.srt:hover { color:var(--ink); }
+  table.cells th.srt .dir { font-size:10px; margin-left:2px; color:var(--accent); }
+  .trend { font-size:11px; font-weight:700; margin-left:3px; }
+  .trend.up { color:#66bb6a; } .trend.dn { color:#ef5350; } .trend.fl { color:var(--dim); font-weight:400; }
   table.cells td { border-top:1px solid var(--line); padding:7px 6px; }
   .dbz { font-weight:800; } .sev { color:#ff5252; } .mod { color:#ffb74d; } .lit { color:#aed581; }
   .gal { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }
@@ -320,7 +325,7 @@ setTimeout(function () {
 
 <header class="hero"><h1>🌪️ Tropical Model Guidance</h1>
 <div class="sub">Track spaghetti + intensity forecasts from every global & regional model
-· NHC ATCF aid-decks · updated 2026-09-21 11:51 AM ET</div></header>
+· NHC ATCF aid-decks · updated 2026-09-21 11:59 AM ET</div></header>
 
 <div class="card">
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
