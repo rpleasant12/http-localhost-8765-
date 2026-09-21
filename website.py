@@ -32,6 +32,7 @@ import threading
 import time
 
 import config
+from data import _tz
 
 SITE_DIR = os.path.join("static", "site")
 
@@ -176,7 +177,10 @@ def collect_data():
     from data.mrms import (mrms_bundle, start_mrms_renderer,
                            CATALOG as MRMS_CATALOG)
     from data.nws_radar import nws_bundle
-    from data.severe import spc_outlooks
+    from data.nowcast import nowcast_bundle
+    from data.severe import spc_outlooks, severe_forecast
+    from data.sevmaps import sevmaps_bundle
+    from data.winter import winter_bundle
     from data.satellite_bands import BANDS as SAT_BANDS, band_bundle
     from ai.storm_tracker import summarize
 
@@ -219,7 +223,7 @@ def collect_data():
         "event": a.get("event") or "Alert",
         "severity": a.get("severity") or "Unknown",
         "areaDesc": a.get("areaDesc") or "",
-        "expires": (a.get("expires") or "")[:16].replace("T", " ") + "Z" if a.get("expires") else "",
+        "expires": _tz.iso_z(a.get("expires")),
     } for a in (get_active_alerts(lat, lon) or [])]
 
     # SPC risk at home, days 1-3 (point-in-polygon against outlook polygons)
@@ -245,6 +249,14 @@ def collect_data():
     # radar bundles (disk reads; renderers run in app.py / the updater)
     past = get_past_frames()
     nowcast = get_nowcast_frames()
+    if not nowcast:
+        # RainViewer's free API intermittently serves an EMPTY nowcast list
+        # (and its tilecache has outages) - build our own +10/+20/+30 min
+        # extrapolation from the MRMS mosaic we already render every 2 min
+        try:
+            nowcast = nowcast_bundle()
+        except Exception:      # noqa: BLE001 - nowcast must never kill the site
+            nowcast = []
     # RainViewer's index occasionally stalls (its outage on 2026-09-09 served
     # 4-hour-old frames all day) - drop stale frames so the page falls back
     # to the official NWS mosaic instead of presenting old radar as live
@@ -329,14 +341,13 @@ def collect_data():
     except Exception:  # noqa: BLE001
         tn = []
 
-    # SPC mesoscale discussions + storm reports
+    # SPC mesoscale discussions (structured polygons) + storm reports
     md, reports = [], {}
     try:
         import requests
+        from data.mcd import bundle as mcd_bundle
+        md = mcd_bundle().get("features") or []
         UA = {"User-Agent": "Mozilla/5.0 tnwx-site/1.0"}
-        r = requests.get("https://www.spc.noaa.gov/products/spcmd/lastmd.txt", headers=UA, timeout=10)
-        if r.ok and "MESOSCALE" in r.text.upper():
-            md = [{"text": r.text[:1200]}]
         rr = requests.get("https://www.spc.noaa.gov/climo/reports/today.csv", headers=UA, timeout=15)
         if rr.ok:
             # three sections, each with its own header: F_Scale (tornado),
@@ -386,6 +397,15 @@ def collect_data():
     try:
         from data.nws import city_forecasts
         city_fc = city_forecasts()
+    except Exception:  # noqa: BLE001
+        pass
+    # per-city tomorrow-peak WBGT + heat-risk flag (30-min cache) merged
+    # into each forecast entry for the 7-day city cards
+    try:
+        from data.wbgt import city_wbgt_tomorrow
+        _cw = city_wbgt_tomorrow()
+        for cf in city_fc:
+            cf["wbgtTomorrow"] = _cw.get(cf.get("city"))
     except Exception:  # noqa: BLE001
         pass
     # US-wide observations (aviationweather.gov METAR cache file, keyless)
@@ -494,11 +514,12 @@ def collect_data():
     # ---------------- model catalog (everything) ----------------
     model_catalog = {}
     try:
-        from data.model_maps import PRODUCTS_BY_MODEL, PRODUCTS
+        from data.model_maps import PRODUCTS_BY_MODEL, PRODUCTS, NBM_LABELS
         for model, prods in PRODUCTS_BY_MODEL.items():
             model_catalog[model] = {
                 "label": model,
-                "products": [{"key": p, "label": PRODUCTS.get(p, {}).get("label", p)} for p in prods],
+                "products": [{"key": p, "label": PRODUCTS.get(p, {}).get("label")
+                              or NBM_LABELS.get(p, p)} for p in prods],
             }
     except Exception:  # noqa: BLE001
         model_catalog = {}
@@ -506,9 +527,14 @@ def collect_data():
     # MPAS + FV3 (SHiELD) into the same menu: products served from the
     # pre-rendered official frame loops (mpasShield payload), not REND
     try:
-        from data.shield_mpas import MPAS_PRODUCTS, SHIELD_PRODUCTS
+        from data.shield_mpas import MPAS_PRODUCTS, SHIELD_PRODUCTS, mpas_is_archive
+        try:
+            _mpas_archive = bool(mpas_is_archive())
+        except Exception:  # noqa: BLE001
+            _mpas_archive = False
         model_catalog["MPAS"] = {
-            "label": "NCAR MPAS (3.75 km global)",
+            "label": ("NCAR MPAS (3.75 km global) — 2025 demo archive (new season pending)"
+                      if _mpas_archive else "NCAR MPAS (3.75 km global)"),
             "products": [{"key": k, "label": v["label"]} for k, v in MPAS_PRODUCTS.items()],
         }
         model_catalog["FV3 (SHiELD)"] = {
@@ -525,9 +551,16 @@ def collect_data():
     # re-indexed from disk at no network cost.
     mpas_shield = {"mpas": {}, "shield": {}, "mpasProducts": {}, "mpasDomains": {},
                    "shieldProducts": {}, "shieldRegions": {}}
+    mpas_archive = False
     try:
         from data.shield_mpas import (MPAS_PRODUCTS, MPAS_DOMAINS, SHIELD_PRODUCTS,
-                                      SHIELD_REGIONS, mpas_product, shield_product)
+                                      SHIELD_REGIONS, mpas_product, shield_product,
+                                      mpas_is_archive)
+        try:
+            mpas_archive = bool(mpas_is_archive())
+        except Exception:  # noqa: BLE001
+            mpas_archive = False
+        mpas_shield["mpasArchive"] = mpas_archive
         mpas_shield["mpasProducts"] = {k: v["label"] for k, v in MPAS_PRODUCTS.items()}
         mpas_shield["mpasDomains"] = MPAS_DOMAINS
         mpas_shield["shieldProducts"] = {k: v["label"] for k, v in SHIELD_PRODUCTS.items()}
@@ -542,7 +575,7 @@ def collect_data():
             open(_MS_ORDER_FILE, "w").write(str(n + 1))
         except Exception:  # noqa: BLE001
             pass
-        _shield_sets = ["max_reflectivity_wind", "vort500_hgt_wind", "CAPE", "TMP2m"]
+        _shield_sets = list(SHIELD_PRODUCTS)   # rotate through the FULL catalog
 
         def _norm(got):
             """Frames from the live fetchers carry app-absolute 'file'; convert
@@ -600,8 +633,48 @@ def collect_data():
     except Exception:  # noqa: BLE001
         pass
 
+    # Never ship references to frames the disk sweeper already removed: a
+    # sweep racing the build otherwise publishes dead image links.
+    def _live(frames):
+        out = []
+        for f in frames:
+            if not isinstance(f, dict):
+                out.append(f)
+                continue
+            ref = (f.get("pngUrl") or "").replace("\\", "/")
+            if not ref or ref.startswith("http"):
+                out.append(f)
+                continue
+            # Frame refs come in three flavors (mirrors github_deploy.staticrel):
+            #   /app/static/x/y.png  (renderer modules' app-route form)
+            #   ../dir/x.png         (project-root-relative)
+            #   dir/x.png            (static/-relative, post-rewrite style)
+            if ref.startswith("/app/static/"):
+                local = "static/" + ref[len("/app/static/"):]
+            elif ref.startswith("../"):
+                local = ref[len("../"):]
+            elif ref.startswith("static/"):
+                local = ref
+            else:
+                local = "static/" + ref
+            if os.path.isfile(local):
+                out.append(f)
+        return out
+
+    past = _live(past)
+    nowcast = _live(nowcast)
+    future["frames"] = _live(future["frames"])
+    future["ready"] = len(future["frames"])
+    mrms["frames"] = _live(mrms["frames"])
+    mrms_loops = {pk: _live(mrms_bundle(pk)["frames"])[-8:]
+                  for pk in ("cref", "lowref", "l0050", "l0200", "l0400", "l0800",
+                             "l1500", "zdr050", "rho050", "rots", "mesh",
+                             "azshr", "azshr36", "etop", "vil", "shi",
+                             "prate", "qpe1h")}
+
     return {
-        "generated": dt.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"),
+        "generated": _tz.full(dt.datetime.now(dt.timezone.utc)),
+        "dataEpochMs": int(dt.datetime.now(dt.timezone.utc).timestamp() * 1000),
         "pageName": config.PAGE_NAME,
         "pageUrl": config.PAGE_URL,
         "place": config.DEFAULT_LOCATION_NAME,
@@ -614,7 +687,8 @@ def collect_data():
             "rh": round((cur.get("relativeHumidity") or {}).get("value") or 0),
             "wind": (f'{_compass(cur.get("windDirection", {}).get("value") if cur.get("windDirection") else None)} '
                      f'{round(_mph(wind_kmh))} mph').strip() if wind_kmh is not None else "calm",
-            "time": (cur.get("timestamp") or "")[:16].replace("T", " ") + "Z",
+            "time": _tz.hm(dt.datetime.fromisoformat(cur["timestamp"].replace("Z", "+00:00")))
+                    if cur.get("timestamp") else "",
         },
         "days": days,
         "hourly": hourly,
@@ -622,7 +696,11 @@ def collect_data():
         "spc": spc_days,
         "storm": {
             "summary": summarize(cells) if cells else None,
-            "cells": [{"lat": c.get("lat"), "lon": c.get("lon"), "dbz": c.get("dbz")}
+            # storm_tracker emits dbz_max (not "dbz") - the mismatch shipped
+            # dbz: null for every cell and the page filtered them all out
+            # ("No storm cells detected" under a 21-cell summary, 2026-09-18)
+            "cells": [{"lat": c.get("lat"), "lon": c.get("lon"),
+                       "dbz": c.get("dbz_max", c.get("dbz"))}
                       for c in cells[:24] if c.get("lat") is not None],
         },
         "radar": {
@@ -634,14 +712,18 @@ def collect_data():
             "mrms": mrms["frames"][-10:],
             "nws": nws[-6:] if isinstance(nws, list) else nws,
         },
+        "wbgt": _wbgt_bundle_safe(),
+        "wbgtUs": _wbgt_bundle_us_safe(),
+        "heatIndex": _heat_index_safe(),
+        "afd": _afd_safe(),
+        "sun": _sun_safe(),
+        "tropModels": _trop_models_safe(),
+        "climate": _climate_safe(),
         "mrmsProducts": {k: v.get("label", k) for k, v in MRMS_CATALOG.items()},
         # per-product MRMS loops for the radar page's level picker (disk reads;
-        # the shared background renderer fills each over time)
-        "mrmsLoops": {pk: mrms_bundle(pk)["frames"][-8:]
-                      for pk in ("cref", "lowref", "l0050", "l0200", "l0400", "l0800",
-                                 "l1500", "zdr050", "rho050", "rots", "mesh",
-                                 "azshr", "azshr36", "etop", "vil", "shi",
-                                 "prate", "qpe1h")},
+        # the shared background renderer fills each over time) - pre-filtered
+        # into mrms_loops above so only frames still on disk ship
+        "mrmsLoops": mrms_loops,
         "sites": site_frames,
         "siteCatalog": site_catalog,
         "obs": {"stations": obs_stations, "cities": city_obs, "us": us_obs},
@@ -656,7 +738,20 @@ def collect_data():
             "md": md,
             "reports": reports,
             "ltgHistory": ltg_history,
+            "forecast": severe_forecast(),
+            "maps": sevmaps_bundle(),
         },
+        "winter": winter_bundle(),
+        "rivers": _rivers_safe(),
+        "dashboard": _dashboard_safe(),
+        "space": _space_safe(),
+        "wbgt": _wbgt_bundle_safe(),
+        "wbgtUs": _wbgt_bundle_us_safe(),
+        "heatIndex": _heat_index_safe(),
+        "afd": _afd_safe(),
+        "sun": _sun_safe(),
+        "tropModels": _trop_models_safe(),
+        "climate": _climate_safe(),
         "tropical": {
             "storms": storms,
             "graphics": nhc_gfx,
@@ -904,7 +999,7 @@ def _render_index():
     out = []
     for (model, prod, region), items in combos.items():
         newest = max(c for c, _f, _n in items)
-        frames = sorted((f, fn) for c, f, fn in items if c == newest)[-6:]
+        frames = sorted((f, fn) for c, f, fn in items if c == newest)[-8:]
         out.append({
             "model": model, "product": prod, "region": region,
             "cycle": newest,
@@ -933,18 +1028,114 @@ def _model_manifest():
         groups.setdefault(key, []).append((int(fh), cyc, fn))
     out = []
     for (model, prod, region), items in sorted(groups.items()):
-        items.sort()
+        # loops: group by ONE init cycle (the newest on disk). Mixing cycles
+        # interleaved old-cycle frames into the animation when multi-hour
+        # loops arrived (2026-09-15).
+        cyc = max(c for _fh, c, _fn in items)
+        frames = sorted(x for x in items if x[1] == cyc)
         out.append({
             "model": model,
             "product": prod,
             "region": region,
-            "count": len(items),
-            "cycle": items[-1][1],
-            "frames": [{"fh": fh, "url": f"../model_maps/{fn}"} for fh, _cyc, fn in items[-16:]],
+            "count": len(frames),
+            "cycle": cyc,
+            "frames": [{"fh": fh, "url": f"../model_maps/{fn}"} for fh, _cyc, fn in frames[-24:]],
         })
     # newest cycles first
     out.sort(key=lambda g: g["cycle"], reverse=True)
     return out
+
+
+def _wbgt_bundle_us_safe():
+    """National WBGT bundle (never breaks the site build; may be cold)."""
+    try:
+        from data.wbgt import wbgt_bundle_us
+        return wbgt_bundle_us()
+    except Exception:                                  # noqa: BLE001
+        return {"ok": False, "frames": []}
+
+
+def _heat_index_safe():
+    """Heat-Stress Index bundle (never breaks the site build)."""
+    try:
+        from data.heatidx import heat_index_bundle
+        return heat_index_bundle()
+    except Exception:                                  # noqa: BLE001
+        return {"ok": False}
+
+
+def _trop_models_safe():
+    """ATCF spaghetti guidance + intensity charts (never breaks the build)."""
+    try:
+        from data.tropical_models import bundle as _tmb
+        return {"ok": True, "storms": _tmb()}
+    except Exception:                                  # noqa: BLE001
+        return {"ok": False, "storms": []}
+
+
+def _climate_safe():
+    """CPC long-range outlooks + ENSO (never breaks the build)."""
+    try:
+        from data.climate import bundle as _clb
+        return _clb()
+    except Exception:                                  # noqa: BLE001
+        return {"ok": False, "groups": [], "oni": []}
+
+
+def _wbgt_bundle_safe():
+    """WBGT heat-map bundle (never breaks the site build)."""
+    try:
+        from data.wbgt import wbgt_bundle
+        return wbgt_bundle()
+    except Exception:                              # noqa: BLE001
+        return {"ok": False, "frames": []}
+
+
+def _afd_safe():
+    """NWS Area Forecast Discussion (never breaks the site build)."""
+    try:
+        from data.discussion import afd_bundle
+        return afd_bundle()
+    except Exception:                              # noqa: BLE001
+        return {"ok": False, "keyMessages": [], "sections": []}
+
+
+def _sun_safe():
+    """Sun/moon card bundle (never breaks the site build)."""
+    try:
+        from data.sunmoon import sun_bundle
+        return sun_bundle()
+    except Exception:                              # noqa: BLE001
+        return {"ok": False}
+
+
+def _dashboard_safe():
+    """Dashboard bundle - a source failure must never break the build."""
+    try:
+        from data.dashboard import dashboard_bundle
+        return dashboard_bundle()
+    except Exception:  # noqa: BLE001
+        import traceback
+        traceback.print_exc()
+        return {}
+
+
+def _rivers_safe():
+    """River-gauge bundle (never breaks the site build)."""
+    try:
+        from data.rivers import rivers_bundle
+        return rivers_bundle()
+    except Exception:                              # noqa: BLE001
+        return {"ok": False, "gauges": []}
+
+
+def _space_safe():
+    """Space-weather bundle (never breaks the site build)."""
+    try:
+        from data.space import space_bundle
+        return space_bundle()
+    except Exception:                              # noqa: BLE001
+        return {"ok": False, "kp": []}
 
 
 def _psu_manifest():
@@ -1006,6 +1197,9 @@ _CSS = """
   .kpi { background:#10151f; border:1px solid var(--line); border-radius:12px; padding:10px; text-align:center; }
   .kpi b { display:block; font-size:22px; } .kpi span { color:var(--dim); font-size:12px; }
   .ltg-row { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; margin-top:10px; }
+  .wpcfig { flex:1 1 300px; max-width:49%; min-width:260px; margin:0; }
+  .wpcfig img { width:100%; height:auto; display:block; border-radius:10px; }
+  .wpcfig figcaption { font-size:12px; opacity:.75; margin-top:4px; }
   .ltg-cell { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px 10px; min-width:130px; flex:0 0 auto; }
   .ltg-cell b { display:block; font-size:15px; }
   .ltg-cell .h { color:var(--dim); font-size:11px; }
@@ -1172,7 +1366,11 @@ const frameEl = document.getElementById("frame");
 
 function initMap() {{
   window.DATA_LAT = DATA.lat; window.DATA_LON = DATA.lon; window.DATA_PLACE = DATA.place;
-  map = L.map("map", {{ zoomSnap: 0.5, maxZoom: 21 }}).setView([DATA.lat, DATA.lon], 6);
+  /* zoomAnimation: false - the frame loop + soft refresh rebuild overlays
+     continuously; a CSS zoom animation colliding with a rebuild gets
+     cancelled and snaps back to the old zoom ("map won't zoom", 2026-09-18).
+     Instant zoom has nothing to cancel and always sticks. */
+  map = L.map("map", {{ zoomSnap: 0.5, zoomAnimation: false, maxZoom: 21 }}).setView([DATA.lat, DATA.lon], 6);
   addMapControls(map, [DATA.lat, DATA.lon], 6);
   L.circleMarker([DATA.lat, DATA.lon], {{ radius: 7, color: "#fff", weight: 2, fillColor: "#ff5252", fillOpacity: 1 }})
     .addTo(map).bindTooltip(DATA.place);
@@ -1180,6 +1378,75 @@ function initMap() {{
 function fmt(ts) {{ return new Date(ts * 1000).toLocaleTimeString([], {{ hour: "2-digit", minute: "2-digit", hour12: false }}); }}
 function clear() {{ for (const l of curLayers) {{ try {{ map.removeLayer(l); }} catch (_e) {{}} }} curLayers = []; }}
 let glmLayer = null;
+/* RainViewer is THE real-time radar layer (visitor preference, 2026-09-10):
+   no auto-switching to other layers. During a RainViewer outage the page
+   shows its "radar unavailable - retrying" badge and keeps retrying. */
+/* Tile layers are CACHED PER FRAME and re-attached, never recreated: the old
+   code built a fresh tileLayer every 700 ms animation tick, re-requesting
+   every tile each loop (hundreds of req/min) and tripping RainViewer's
+   per-IP rate limit (429). With reuse, each frame's tiles fetch ONCE. */
+const _tileCache = new Map();
+let _builtKind = null;
+let _curTileUrl = null;
+/* Real-time layer = RainViewer when it works; while their tilecache is down
+   (500/429 outages), the SAME layer draws our own NOAA NEXRAD composite PNGs
+   (rendered every 2 min, no rate limit) with a transparent note, and flips
+   back to RainViewer automatically once a probe sees their tiles recover. */
+let rvState = "ok";      /* "ok" | "down" */
+let rvDowns = 0;
+let rvProbed = false;
+const RV_NOTE = "RainViewer is down right now - showing the official NOAA NEXRAD composite. Back to RainViewer automatically the moment it recovers.";
+const RV_RETRY = "RainViewer is having trouble serving tiles right now - retrying automatically. If it keeps failing, the official NOAA NEXRAD mosaic takes over within a couple of minutes.";
+/* The page may have been served with a STALE frame list (CDN lag): RainViewer
+   rotates old frames out of their tilecache within hours, so old paths 500
+   forever. This live refresh pulls their public CORS-open frame list and
+   updates DATA.radar.past/nowcast in place - stale pages heal themselves. */
+let _rvRefT = 0;
+async function rvRefresh() {{
+  const now = Date.now();
+  if (now - _rvRefT < 120000) return;   /* at most every 2 min */
+  _rvRefT = now;
+  try {{
+    const r = await fetch("https://api.rainviewer.com/public/weather-maps.json", {{cache: "no-store"}});
+    if (!r.ok) return;
+    const j = await r.json();
+    const rad = j.radar || {{}};
+    const conv = a => (a || []).map(f => ({{time: f.time, path: f.path, label: fmt(f.time), kind: (rad.nowcast || []).includes(f) ? "nowcast" : "past"}}));
+    const past = conv(rad.past);
+    const now2 = conv(rad.nowcast);
+    if (DATA.radar && past.length) {{
+      const changed = !DATA.radar.past.length || DATA.radar.past[DATA.radar.past.length - 1].time !== past[past.length - 1].time;
+      DATA.radar.past = past;
+      if ((DATA.radar.nowcast || []).length !== now2.length) DATA.radar.nowcast = now2;
+      _tileCache.forEach(l => {{ try {{ map.removeLayer(l); }} catch (_e) {{}} }});
+      _tileCache.clear();
+      if (kind === "past" && changed && rvState === "ok") {{ frames = framesFor("past"); show(frames.length - 1); }}
+      if (kind === "nowcast" && DATA.radar.nowcast.length) {{ frames = framesFor("nowcast"); show(frames.length - 1); }}
+    }}
+  }} catch (_e) {{}}
+}}
+setInterval(rvRefresh, 120000);
+/* Status-aware probe: fetch() can read the HTTP code, Image() cannot.
+   429 = rate limit (our own fault) -> back off, do NOT count as outage.
+   5xx / network error = their outage -> 2 strikes (~2 min) flips to NEXRAD.
+   Any success recovers instantly. */
+async function rvProbe() {{
+  const fr = (DATA.radar && DATA.radar.past) || [];
+  const f = fr.length && fr[fr.length - 1];
+  if (!f || !f.path) return;
+  const url = "https://tilecache.rainviewer.com" + f.path + "/256/6/16/25/2/1_1.png";
+  try {{
+    const r = await fetch(url, {{ cache: "no-store" }});
+    if (r.ok) {{
+      rvDowns = 0;
+      if (rvState === "down") {{ rvState = "ok"; if (kind === "past") build(); }}
+      return;
+    }}
+    if (r.status === 429) return;   /* backed off, not down */
+    rvDowns++;
+  }} catch (_e) {{ rvDowns++; }}
+  if (rvState === "ok" && rvDowns >= 2) {{ rvState = "down"; if (kind === "past") build(); }}
+}}
 function drawGlm(ts) {{
   const box = document.getElementById("ly_glm");
   if (!box) return;   /* lightning overlay is radar-page only */
@@ -1196,21 +1463,40 @@ function drawGlm(ts) {{
   const lb = (Array.isArray(b) && !Array.isArray(b[0])) ? L.latLngBounds([[b[0], b[1]], [b[2], b[3]]]) : b;
   glmLayer = L.imageOverlay(f.pngUrl, lb, {{ opacity: Math.min(1, OPACITY() + 0.15), interactive: false }}).addTo(map);
 }}
+
 function show(i) {{
   idx = i; clear();
   const f = frames[i]; if (!f) return;
+  let frameBad = 0;   /* failed tiles this frame (read by the note below) */
   const spec = LAYERS[kind] || {{}};
   if (spec.mode === "tiles" && f.path) {{
-    const ts = f.time + "";
-    curLayers.push(L.tileLayer("https://tilecache.rainviewer.com" + f.path + spec.path + ts + ".png",
-      {{ opacity: OPACITY(), maxNativeZoom: 10, maxZoom: 21 }}).addTo(map));
+    /* modern RainViewer URL: no legacy _{time} suffix (their tilecache
+       500s that form at high zooms - 2026-09-11 outage) */
+    const url = "https://tilecache.rainviewer.com" + f.path + spec.path + ".png";
+    _curTileUrl = url;
+    let tl = _tileCache.get(url);
+    if (!tl) {{
+      tl = L.tileLayer(url, {{ opacity: OPACITY(), maxNativeZoom: 10, maxZoom: 21 }});
+      let okT = 0;
+      frameBad = 0;
+      tl.on("tileload", () => {{
+        okT++;
+        if (okT === 1) {{ setRadarState("ok"); tl._loadedOnce = true; }}
+      }});
+      tl.on("tileerror", () => {{
+        frameBad++;
+        /* 429 blips trip this fast otherwise - require most of the frame's
+           tiles to fail before showing "empty", and only then probe. */
+        if (!okT && frameBad >= 8) {{ setRadarState("empty"); if (!rvProbed) rvProbe(); }}
+      }});
+      _tileCache.set(url, tl);
+    }}
+    tl.setOpacity(OPACITY());
+    tl.addTo(map);
+    curLayers.push(tl);
     frameEl.textContent = fmt(f.time);
     drawGlm(f.time * 1000);
-    setRadarState("loading");
-    const probe = new Image();
-    probe.onload = () => setRadarState("ok");
-    probe.onerror = () => setRadarState("empty");
-    probe.src = "https://tilecache.rainviewer.com" + f.path + spec.path + ts + ".png";
+    setRadarState(tl._loadedOnce ? "ok" : "loading");
   }} else if (f.pngUrl && f.bounds) {{
     const b = f.bounds;
     const lb = (Array.isArray(b) && !Array.isArray(b[0])) ? L.latLngBounds([[b[0], b[1]], [b[2], b[3]]]) : b;
@@ -1223,24 +1509,32 @@ function show(i) {{
     }}
     curLayers.push(ly);
     frameEl.textContent = f.label || "";
-    const t = Date.parse((f.time || "").replace("Z", "+00:00"));
-    if (!isNaN(t)) drawGlm(t);
+    wbMarkers(f);
+    /* NWS-fallback frames carry an ISO string 'time', RV frames an epoch int:
+       coerce both to ms so the GLM overlay match cannot throw (a throw here
+       killed show() mid-frame and left the map stuck "retrying"). */
+    const tMs = (typeof f.time === "number") ? f.time * 1000 : Date.parse((f.time || "").replace("Z", "+00:00"));
+    if (!isNaN(tMs)) drawGlm(tMs);
   }} else {{ frameEl.textContent = "rendering\\u2026"; setRadarState("empty"); }}
   preload(idx);
   if (document.getElementById("pend")) {{
     const r = DATA.radar || {{}};
-    document.getElementById("pend").textContent = (typeof queuedNote !== "undefined" && queuedNote) ||
+    const tileTrouble = (kind === "past" && rvState === "ok" && frameBad >= 8);
+    document.getElementById("pend").textContent =
+      (kind === "past" && rvState === "down") ? RV_NOTE :
+      (tileTrouble ? RV_RETRY :
+      ((typeof queuedNote !== "undefined" && queuedNote) ||
       ((kind === "future" && r.futureReady < r.futureTotal)
-        ? "Rendering future radar: " + r.futureReady + "/" + r.futureTotal + " hours ready - new hours appear automatically." : "");
+        ? "Rendering future radar: " + r.futureReady + "/" + r.futureTotal + " hours ready - new hours appear automatically." : "")));
   }}
 }}
-function play() {{ playing = true; document.getElementById("play").textContent = "\\u23f8"; timer = setInterval(() => show((idx + 1) % frames.length), 700); }}
-/* preload: warm the next 3 frames so stepping/animation never stalls on a
-   cold fetch; broken URLs are retried once on their next turn */
+function play() {{ playing = true; document.getElementById("play").textContent = "\\u23f8"; timer = setInterval(() => show((idx + 1) % frames.length), 1500); }}
+/* preload: warm the NEXT frame so stepping never stalls on a cold fetch;
+   kept to 1 frame - bulk prewarming trips RainViewer's per-IP rate limit */
 const _preloaded = new Set();
 function preload(i) {{
   if (!frames.length) return;
-  for (let k = 1; k <= 3; k++) {{
+  for (let k = 1; k <= 1; k++) {{
     const f = frames[(i + k) % frames.length];
     if (!f || !f.pngUrl) continue;
     const url = f.pngUrl;
@@ -1259,12 +1553,33 @@ function setRadarState(state) {{
 }}
 function pause() {{ playing = false; document.getElementById("play").textContent = "\\u25b6"; clearInterval(timer); }}
 function framesFor(k) {{
+  if (k === "past")   /* real-time layer: RainViewer frames, NEXRAD while down */
+    return rvState === "down" ? ((DATA.radar && DATA.radar.nws) || [])
+                              : ((DATA.radar && DATA.radar.past) || []);
+  if (k === "wbgt") return wbFrames();   /* scope-aware (East TN / US) */
   const spec = LAYERS[k] || {{}};
   if (spec.framesKey) return (DATA.radar && DATA.radar[spec.framesKey]) || [];
   if (spec.satKey) return (DATA.satBands[spec.satKey] || {{}}).frames || [];
   return [];
 }}
+/* Leaflet never refetches failed tiles: while the radar shows "empty"
+   (RainViewer 429/outage), drop the current frame's cached layer every 60 s
+   so the next show() recreates it with FRESH requests - recovery is automatic. */
+setInterval(() => {{
+  const m = document.getElementById("map");
+  if (!m || m.dataset.radarState !== "empty" || !_curTileUrl || rvState === "down") return;
+  const l = _tileCache.get(_curTileUrl);
+  if (l) {{ try {{ map.removeLayer(l); }} catch (_e) {{}} _tileCache.delete(_curTileUrl); }}
+}}, 60000);
+setInterval(rvProbe, 60000);   /* recovery check while RainViewer is down */
 function build() {{
+  if (!DATA) return;   /* data.json fetch failed/truncated - retry lands via refresh */
+  if (kind === "past" && !rvProbed) {{ rvProbed = true; rvProbe(); }}
+  if (_builtKind !== kind) {{   /* layer switched: drop cached tile layers */
+    _tileCache.forEach(l => {{ try {{ map && map.removeLayer(l); }} catch (_e) {{}} }});
+    _tileCache.clear();
+    _builtKind = kind;
+  }}
   if (kind.startsWith("site:")) {{
     const sid = kind.slice(5), rendered = DATA.sites[sid];
     frames = (rendered && rendered.frames) || [];
@@ -1277,21 +1592,87 @@ function build() {{
   const spec0 = LAYERS[kind] || {{}};
   for (const fb of (spec0.fallbacks || [])) if (!frames.length && framesFor(fb).length) {{ kind = fb; break; }}
   frames = framesFor(kind);
+  /* these pickers exist on the radar page; the satellite page reuses this
+     build() but has none of them - guard so a missing element can't crash
+     the whole map (satellite was blank since the WBGT scope-picker addition) */
+  const mp = document.getElementById("mrmsProd"); if (mp) mp.style.display = kind === "mrms" ? "" : "none";
+  const wbh = document.getElementById("wbHour"); if (wbh) wbh.style.display = kind === "wbgt" ? "" : "none";
+  const wbs = document.getElementById("wbScope"); if (wbs) wbs.style.display = kind === "wbgt" ? "" : "none";
+  wbMarkers();
+  if (kind === "wbgt") wbFill();
   const sel = document.getElementById("layer"); if (sel && sel.value !== kind) sel.value = kind;
   if (!frames.length) {{ frameEl.textContent = "no frames yet"; setRadarState("empty"); return; }}
   setRadarState("loading");
   if (!timer) {{ show(frames.length - 1); if (playing) play(); }} else show(frames.length - 1);
 }}
-function refresh(d) {{ DATA = d; if (map) build(); }}
+/* ---- WBGT heat-stress layer: region + hour pickers + per-point markers ---- */
+function wbFrames() {{
+  const scope = (document.getElementById("wbScope") || {{}}).value || "etn";
+  const src = scope === "us" ? DATA.wbgtUs : DATA.wbgt;
+  return (src && src.frames) || [];
+}}
+let wbHourSel = null, wbMarkerLayer = null;
+function wbCatColor(v) {{
+  return v >= 93 ? "#c828c8" : v >= 90 ? "#eb3c3c" : v >= 88 ? "#ff783c"
+       : v >= 85 ? "#ffb242" : v >= 82 ? "#ffe066" : "#81c784";
+}}
+function wbFill() {{
+  wbHourSel = wbHourSel || document.getElementById("wbHour");
+  const prev = wbHourSel.value;
+  const fr = wbFrames();
+  wbHourSel.innerHTML = fr.map(f => `<option value="${{f.id}}">${{f.label}}</option>`).join("");
+  if (prev && fr.some(x => x.id === prev)) wbHourSel.value = prev;
+}}
+function wbActive() {{
+  if (kind !== "wbgt") return null;
+  wbHourSel = wbHourSel || document.getElementById("wbHour");
+  const fr = wbFrames();
+  return fr.find(x => x.id === wbHourSel.value) || fr[fr.length - 1] || null;
+}}
+function wbMarkers(f) {{
+  f = f || wbActive();
+  if (wbMarkerLayer) {{ try {{ map.removeLayer(wbMarkerLayer); }} catch (_e) {{}} wbMarkerLayer = null; }}
+  const box = document.getElementById("ly_wb");
+  if (!f || !f.vals || !f.vals.length || (box && !box.checked)) return;
+  wbMarkerLayer = L.layerGroup();
+  for (const p of f.vals) {{
+    const c = wbCatColor(p[2]);
+    wbMarkerLayer.addLayer(L.circleMarker([p[0], p[1]], {{
+      radius: 5, color: "#1b2027", weight: 1.5, fillColor: c, fillOpacity: .95,
+    }}).bindTooltip(`WBGT ${{Math.round(p[2])}}\u00b0F`));
+  }}
+  wbMarkerLayer.addTo(map);
+}}
+document.addEventListener("change", e => {{
+  if (e.target && e.target.id === "wbHour") {{
+    /* explicit hour choice: stop the loop so the selection sticks */
+    if (playing) pause();
+    const i = frames.findIndex(x => x.id === e.target.value);
+    show(i >= 0 ? i : frames.length - 1);
+  }}
+  if (e.target && e.target.id === "wbScope") {{
+    wbFill(); frames = framesFor("wbgt");
+    if (playing) pause();
+    idx = frames.length - 1; show(idx);
+  }}
+  if (e.target && e.target.id === "ly_wb") {{
+    if (e.target.checked) wbMarkers(); else wbMarkers({{vals: []}});
+  }}
+}});
+function refresh(d) {{ if (!d) return; DATA = d; if (map) build(); }}
+window.onDataRefresh = function (d) {{ refresh(d); }};   /* soft auto-refresh: the 90 s cycle updates frames in place - a hard reload here kills zoom/pinch gestures mid-move ("map won't zoom", 2026-09-18) */
 """
 
 
 def _page(title, active, body, extra_head=""):
     pages = [("index.html", "Home"), ("radar.html", "Radar"), ("satellite.html", "Satellite"),
-             ("models.html", "Models"), ("tropical.html", "NHC"), ("severe.html", "Severe"),
+             ("models.html", "Models"), ("tropical.html", "NHC"),
+             ("tropmodels.html", "Trop Models"), ("climate.html", "Climate"),
+             ("severe.html", "Severe"),             ("winter.html", "Winter Forecast"),
+             ("rivers.html", "Rivers"), ("fire.html", "Fire"), ("dashboard.html", "Dashboard"),
              ("meso.html", "Mesoanalysis"),
              ("obs.html", "Obs & Skew-T"), ("charts.html", "Charts & MOS"), ("national.html", "National"),
-             ("forecast.html", "Forecast")]
+             ("forecast.html", "Forecast"), ("education.html", "Education")]
     nav = "".join(
         f'<a class="pg{" on" if p == active else ""}" href="{p}">{label}</a>'
         for p, label in pages
@@ -1327,19 +1708,57 @@ def _page(title, active, body, extra_head=""):
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const SITE_DATA_URL = "data.json";
-/* live-update watchdog: re-fetch data.json every 3 min and show its age */
+/* GitHub Pages caches data.json up to 10 min (max-age=600); the timestamp
+   query makes the browser fetch a fresh copy from the Pages CDN instead of
+   reusing a stale cached one. Public data publishes ~every 10 min, so the
+   footer age normally reads 0-10 min - that is the honest cadence. */
+function dataUrl() {{
+  try {{ return SITE_DATA_URL + "?t=" + Date.now(); }} catch (_e) {{ return SITE_DATA_URL; }}
+}}
+/* live-update watchdog: re-fetch data.json every 3 min and show its age.
+   The footer age is computed from dataEpochMs (server epoch), NOT from the
+   human-readable 'generated' string (now "... 12:17 AM ET" - unparseable). */
 let SITE_DATA = null;
+function fmtAge(mins) {{
+  if (mins < 1) return "just now";
+  if (mins < 60) return mins + " min ago";
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return h + " h " + (m ? m + " min " : "") + "ago";
+}}
+function updTick() {{
+  if (!SITE_DATA) return;
+  const el = document.getElementById("upd");
+  if (!el) return;
+  const ms = Date.now() - (SITE_DATA.dataEpochMs || 0);
+  if (!SITE_DATA.dataEpochMs || ms < 0) {{ el.textContent = "\\u2705 Live data"; return; }}
+  const mins = Math.floor(ms / 60000);
+  /* Public site: GitHub publishes ~every 10 min, so age up to ~12 min is the
+     normal cadence - warn only past that. Pages' own max-age=600 means the
+     fetch itself can lag a couple minutes behind the publish. */
+  if (mins <= 12) el.textContent = "\\u2705 Live data \\u00b7 refreshed " + fmtAge(mins);
+  else if (mins <= 30) el.textContent = "\\u23f3 Data " + fmtAge(mins) + " old \\u00b7 next publish soon";
+  else el.textContent = "\\u26a0\\ufe0f Data " + fmtAge(mins) + " old \\u00b7 checking for updates";
+}}
 async function siteRefresh() {{
   try {{
-    SITE_DATA = await (await fetch(SITE_DATA_URL, {{ cache: "no-store" }})).json();
+    SITE_DATA = await (await fetch(dataUrl(), {{cache: "no-store"}})).json();
     if (typeof onDataRefresh === "function") onDataRefresh(SITE_DATA);
-    const gen = new Date(SITE_DATA.generated.replace(" ", "T"));
-    const mins = Math.max(0, Math.round((Date.now() - gen.getTime()) / 60000));
-    const el = document.getElementById("upd");
-    if (el) el.textContent = mins <= 5 ? (`\\u2705 Live data \\u00b7 updated ${{mins}} min ago`) : (`\\u26a0\\ufe0f Data ${{mins}} min old \\u00b7 waiting for refresh`);
+    updTick();
+    /* auto-heal: if the served copy is still 30+ min old on two consecutive
+       polls (6 min apart), force a cache-busted reload once - recovers from
+       a stuck CDN copy or a missed publish without looping. */
+    if (SITE_DATA.dataEpochMs && Date.now() - SITE_DATA.dataEpochMs > 30 * 60000) {{
+      siteRefresh._stale = (siteRefresh._stale || 0) + 1;
+      if (siteRefresh._stale >= 2 && !sessionStorage.getItem("tnwxHealed")) {{
+        sessionStorage.setItem("tnwxHealed", "1");
+        const u = new URL(location.href); u.searchParams.set("t", Date.now());
+        location.replace(u); return;
+      }}
+    }} else siteRefresh._stale = 0;
   }} catch (e) {{ /* offline: keep last data */ }}
 }}
 siteRefresh();
+setInterval(updTick, 30000);
 setInterval(siteRefresh, 180000);
 /* page auto-refresh: soft (map pages define onDataRefresh) or hard reload.
    Hard reloads MUST cache-bust: GitHub Pages sends max-age=600, so a plain
@@ -1360,6 +1779,11 @@ document.getElementById("refreshBtn").onclick = () => {{
 }};
 try {{ autoChk.checked = localStorage.getItem("tnwxAuto") !== "off"; }} catch (_e) {{}}
 autoChk.onchange = () => {{ AUTO_LEFT = 90; try {{ localStorage.setItem("tnwxAuto", autoChk.checked ? "on" : "off"); }} catch (_e) {{}} }};
+/* interacting with the page postpones the auto cycle: a hard reload in the
+   middle of a zoom/pinch/scrub reads as "the map won't zoom" (2026-09-18) */
+["pointerdown", "wheel", "touchstart"].forEach(function (ev) {{
+  document.addEventListener(ev, function () {{ AUTO_LEFT = 90; }}, {{ passive: true, capture: true }});
+}});
 setInterval(() => {{
   if (!autoChk.checked) {{ if (autoCnt) autoCnt.textContent = "\\u221e"; return; }}
   AUTO_LEFT -= 1;
@@ -1428,6 +1852,96 @@ def _icon(text):
 
 
 # ---------------------------------------------------------------- pages
+def _trop_card_js():
+    """Home-page tropical mini-map: active NHC storms + detail popups.
+
+    Same cone/track/wind-radii drawing and popup fields as the NHC page, in a
+    small non-interactive-basemap card linking to tropical.html. Renders from
+    data.json (tropical.storms / tropical.windRadii) and re-renders on every
+    live data refresh; shows a quiet-tropics note when no storms are active.
+    Dark base is the site's .map-dark CSS invert - deliberate: setBase() keeps
+    module-level tile state that would collide across map rebuilds here.
+    """
+    return r"""<script>
+/* Tropical outlook mini-map: active NHC storms with cone/track, wind radii
+   and full detail popups. Re-renders from data.json on every live refresh. */
+let tmap = null, tLayer = null;
+function tcls(c) { return ({ "HU": "Hurricane", "MH": "Major Hurricane", "TS": "Tropical Storm",
+  "TD": "Tropical Depression", "SD": "Subtropical Depression", "SS": "Subtropical Storm",
+  "PTC": "Post-tropical Cyclone" })[c] || c || "Storm"; }
+function tkt(v) { return Math.round((parseFloat(v) || 0) * 1.15078); }
+function tdeg(dg) {
+  const dirs = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+  const n = parseFloat(dg);
+  return isNaN(n) ? "" : dirs[Math.round(n / 22.5) % 16];
+}
+function tpopup(s) {
+  const mv = (s.movement || "").trim();
+  const m = mv.match(/^([\d.]+)\s*kt\s*@?\s*([\d.]+)\s*deg$/);
+  const moveTxt = m ? m[1] + " kt (" + tkt(m[1]) + " mph) toward the " + tdeg(m[2]) : (mv || "movement n/a");
+  const w = s.watches || [];
+  return "<b>\ud83c\udf00 " + (s.name || "Storm") + " (" + tcls(s.classification) + ")</b>"
+    + "<br/>Winds: <b>" + (s.intensity || "?") + " kt</b> (" + tkt(s.intensity) + " mph)"
+    + "<br/>Pressure: <b>" + (s.pressure || "?") + " mb</b>"
+    + "<br/>Movement: <b>" + moveTxt + "</b>"
+    + "<br/>Position: " + (s.lat != null ? Math.abs(s.lat) + (s.lat >= 0 ? "\u00b0N" : "\u00b0S") : "?")
+    + ", " + (s.lon != null ? Math.abs(s.lon) + (s.lon >= 0 ? "\u00b0W" : "\u00b0E") : "?")
+    + (w.length ? "<br/><b>\u26a0\ufe0f " + w.join("</b><br/><b>\u26a0\ufe0f ") + "</b>"
+                : "<br/><span class=src>No coastal watches/warnings in effect</span>")
+    + (s.lastUpdate ? "<br/><span class=src>Advisory " + s.lastUpdate + "</span>" : "");
+}
+function buildTropMap() {
+  if (tmap) { tmap.remove(); tmap = null; }
+  tmap = L.map("tropMap", { zoomSnap: 0.5, maxZoom: 21, attributionControl: false });
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxNativeZoom: 19, maxZoom: 21 }).addTo(tmap);
+  document.getElementById("tropMap").classList.add("map-dark");
+}
+function tropRender(d2) {
+  const box = document.getElementById("tropBody");
+  if (!box) return;
+  const T = (d2 && d2.tropical) || (typeof SITE_DATA !== "undefined" && SITE_DATA ? SITE_DATA.tropical : null) || {};
+  const list = (T.storms || []).filter(s => s.lat != null && s.lon != null);
+  const count = document.getElementById("tropCount");
+  if (!list.length) {
+    box.innerHTML = '<span class="src">\ud83c\udf00 Tropics are quiet right now - no active NHC cyclones.</span>';
+    if (count) count.textContent = "Atlantic + East Pacific";
+    if (tmap) { tmap.remove(); tmap = null; }
+    return;
+  }
+  if (count) count.textContent = list.length + " active storm" + (list.length > 1 ? "s" : "") + " \u00b7 click one for details";
+  box.innerHTML = '<div id="tropMap" style="height:260px;border-radius:10px"></div>'
+    + '<div class="legend"><span><i style="background:#e1bee7"></i>Cone + track</span>'
+    + '<span><i style="background:#ff8a80"></i>34-kt wind radii</span>'
+    + '<span style="margin-left:auto"><a href="tropical.html">Full NHC map \u2197</a></span></div>';
+  if (!tmap || !document.getElementById("tropMap")._leaflet_id) buildTropMap();
+  if (tLayer) tLayer.remove();
+  tLayer = L.layerGroup().addTo(tmap);
+  list.forEach(s => {
+    const g = (geo, style) => { if (geo) L.geoJSON({ type: "Feature", properties: {}, geometry: geo }, { style }).addTo(tLayer); };
+    g(s.cone, { color: "#e1bee7", weight: 1.5, fillOpacity: 0.08 });
+    g(s.track, { color: "#e1bee7", weight: 2.5, dashArray: "6 6" });
+    g(s.trackFcst, { color: "#ff5252", weight: 3 });
+    (s.points || []).forEach(p => { if (p) L.geoJSON({ type: "Feature", properties: {}, geometry: p },
+      { color: "#fff", fillColor: "#e1bee7", weight: 1, fillOpacity: .9 }).addTo(tLayer); });
+    L.circleMarker([s.lat, s.lon], { radius: 8, color: "#fff", weight: 2, fillColor: "#e1bee7", fillOpacity: .95 })
+      .bindPopup(tpopup(s), { maxWidth: 300 }).addTo(tLayer);
+  });
+  (T.windRadii || []).slice(0, 20).forEach(w => {
+    if (w.geometry) L.geoJSON({ type: "Feature", properties: w, geometry: w.geometry },
+      { style: { color: "#ff8a80", weight: 1.5, fillOpacity: 0.1 } }).addTo(tLayer);
+  });
+  const b = L.latLngBounds(list.map(s => [s.lat, s.lon]));
+  setTimeout(() => { if (tmap) { tmap.invalidateSize(); tmap.fitBounds(b.pad(0.65)); } }, 80);
+}
+/* wrap (not replace) the city card's refresh hook so both cards live-update */
+(function () {
+  const prev = window.onDataRefresh;
+  window.onDataRefresh = function (d2) { if (typeof prev === "function") prev(d2); tropRender(d2); };
+})();
+if (typeof SITE_DATA !== "undefined" && SITE_DATA) tropRender(SITE_DATA);
+</script>"""
+
+
 def page_index(d):
     cur = d["current"]
     alerts = d["alerts"]
@@ -1447,6 +1961,11 @@ def page_index(d):
         f'<div class="kpi"><span>SPC {label}</span>'
         f'<b class="chip" style="background:{v["fill"]};font-size:16px">{html.escape(v["label"])}</b></div>'
         for label, v in spc.items())
+
+    # Active tropical cyclones -> mini-map card linking to the NHC page
+    trop_storms = [s for s in ((d.get("tropical") or {}).get("storms") or [])
+                   if s.get("lat") is not None and s.get("lon") is not None]
+    trop_js = _trop_card_js()
 
     days_html = "".join(
         f'<div class="day"><div class="tx" style="font-weight:700;color:#cdd7e4">{html.escape(day["name"])}</div>'
@@ -1537,6 +2056,11 @@ cityRender();
 
 <div class="card"><h2>🎩 SPC convective outlook</h2><div class="kpis">{spc_html or '<span class="src">SPC data unavailable.</span>'}</div></div>
 
+<div class="card"><h2>🌀 Tropical outlook</h2>
+  <p class="src" id="tropCount">{len(trop_storms)} active tropical cyclone(s) · live from NHC</p>
+  <div id="tropBody"></div>
+</div>
+
 <div class="card">{cells_html or '<h2>🧠 AI storm tracker</h2><span class="src">No storm cells detected in the current HRRR forecast window.</span>'}</div>
 
 <div class="card"><h2>📅 7-day forecast</h2><div class="grid cards7">{days_html}</div></div>
@@ -1562,18 +2086,19 @@ cityRender();
   </div>
 </div>
 """
-    return _page("Live", "index.html", body, extra_head=CITY_JS)
+    return _page("Live", "index.html", body, extra_head=CITY_JS + trop_js)
 
 
 def page_radar(d):
     layers = {
         "past": {"label": "Real-time (RainViewer)", "mode": "tiles", "framesKey": "past",
-                 "path": "/256/{z}/{x}/{y}/2/1_1_", "fallbacks": ["nws"]},
+                 "path": "/256/{z}/{x}/{y}/2/1_1", "fallbacks": ["nws"]},
         "nowcast": {"label": "Nowcast (+10-30 min)", "mode": "tiles", "framesKey": "nowcast",
-                    "path": "/256/{z}/{x}/{y}/2/1_1_", "fallbacks": ["past", "nws"]},
+                    "path": "/256/{z}/{x}/{y}/2/1_1", "fallbacks": ["past", "nws"]},
         "future": {"label": "Future radar (HRRR + NAM, 48 h)", "mode": "png", "framesKey": "future"},
         "mrms": {"label": "MRMS mosaic (official)", "mode": "png", "framesKey": "mrms"},
         "nws": {"label": "NWS mosaic (official)", "mode": "png", "framesKey": "nws"},
+        "wbgt": {"label": "Heat stress - WBGT (next 24 h)", "mode": "png", "framesKey": None},
     }
     site_opts = "".join(
         f'<option value="site:{sid}">{sid} — {html.escape(v["name"])} radar</option>'
@@ -1599,16 +2124,24 @@ def page_radar(d):
       <option value="future">Future radar (HRRR + NAM, 48 h)</option>
       <option value="mrms">MRMS mosaic (official)</option>
       <option value="nws">NWS mosaic (official)</option>
+      <option value="wbgt">🌡️ Heat stress - WBGT (next 24 h)</option>
       <optgroup label="Individual radar sites" id="siteGroup">{site_opts}</optgroup>
     </select>
     <select id="sitePick"></select>
     <select id="siteMode" style="display:none" title="Radar mode"></select>
     <select id="mrmsProd" style="display:none" title="MRMS product / level">{mrms_opts}</select>
+    <select id="wbScope" style="display:none" title="WBGT region">
+      <option value="etn">East Tennessee</option>
+      <option value="us">United States</option>
+    </select>
+    <select id="wbHour" style="display:none" title="WBGT forecast hour"></select>
     <input type="range" id="opacity" min="20" max="100" value="80"/>
   </div>
   <div class="ctl" style="margin-top:12px">
     <label><input type="checkbox" id="ly_glm" checked/> ⚡ Lightning (GLM)</label>
     <label><input type="checkbox" id="ly_obs" checked/> Observations</label>
+    <label><input type="checkbox" id="ly_wb" checked/> 🌡️ WBGT readings</label>
+    <label><input type="checkbox" id="ly_mcd" checked/> 📌 SPC MCDs</label>
     <select id="obsSel">
       <option value="tn">East Tennessee stations</option>
       <option value="us">All US stations</option>
@@ -1626,6 +2159,7 @@ document.getElementById("layer").onchange = (e) => {{
   kind = e.target.value;
   if (!kind.startsWith("site:")) queuedNote = "";
   document.getElementById("mrmsProd").style.display = kind === "mrms" ? "" : "none";
+  document.getElementById("wbHour").style.display = kind === "wbgt" ? "" : "none";
   if (kind.startsWith("site:")) {{
     const sid = kind.slice(5), site = DATA.sites[sid];
     if (site) {{ curSite = sid; fillModePicker(site); map.setView([site.lat, site.lon], 7);
@@ -1673,6 +2207,22 @@ function mrmsPick() {{
   if (timer) {{}} else if (playing) play(); else show(frames.length - 1);
 }}
 document.getElementById("mrmsProd").onchange = () => mrmsPick();
+let mcdLayer = null;
+function drawMcd() {{
+  if (mcdLayer) {{ map.removeLayer(mcdLayer); mcdLayer = null; }}
+  const box = document.getElementById("ly_mcd");
+  if (!box || !box.checked) return;
+  const feats = (DATA.severe && DATA.severe.md) || [];
+  if (!feats.length) return;
+  mcdLayer = L.layerGroup(feats.map(f => {{
+    const ring = f.geometry.coordinates[0].map(c => [c[1], c[0]]);
+    return L.polygon(ring, {{ color: f.current ? "#ff5722" : "#b0bec5", weight: 2, dashArray: "6 4",
+        fillColor: f.current ? "#ff5722" : "#90a4ae", fillOpacity: f.current ? 0.18 : 0.08 }})
+      .bindTooltip(`<b>SPC MD ${{f.num}}${{f.current ? " (active)" : ""}}</b><br/>${{f.concerning || ""}}<br/>${{(f.areas || "").slice(0, 90)}}${{f.prob != null ? "<br/>Watch prob " + f.prob + "%" : ""}}`, {{ sticky: true }})
+      .bindPopup(`<b>SPC Mesoscale Discussion ${{f.num}}</b>${{f.current ? " · <b style=color:#ff5722>ACTIVE</b>" : " (expired)"}}<br/>${{f.validStart !== "-" ? "Valid " + f.validStart + " - " + f.validEnd + "<br/>" : ""}}<a href="${{f.url}}" target="_blank">Full product (SPC) ↗</a>`);
+  }}));
+  mcdLayer.addTo(map);
+}}
 let obsLayer = null;
 function drawObs() {{
   if (obsLayer) map.removeLayer(obsLayer);
@@ -1715,9 +2265,27 @@ function pickSite(sid) {{
   }}
 }}
 async function boot() {{
-  DATA = await (await fetch(SITE_DATA_URL, {{cache: "no-store"}})).json();
+  try {{
+    const r = await fetch(dataUrl(), {{cache: "no-store"}});
+    if (!r.ok) throw new Error("data " + r.status);
+    DATA = await r.json();
+  }} catch (_e) {{
+    /* packaging race / server blip: retry once before giving up */
+    await new Promise(res => setTimeout(res, 4000));
+    try {{
+      const r2 = await fetch(dataUrl(), {{cache: "no-store"}});
+      DATA = await r2.json();
+    }} catch (_e2) {{ DATA = null; }}
+  }}
+  if (!DATA || !DATA.pageName) {{
+    const mapEl = document.getElementById("map");
+    if (mapEl) mapEl.dataset.radarState = "empty";
+    frameEl.textContent = "data loading - retrying\u2026";
+    setTimeout(boot, 10000);   /* self-heal: try again until the data lands */
+    return;
+  }}
   document.title = DATA.pageName + " - Radar";
-  initMap(); build(); drawObs(); fillSitePicker();
+  initMap(); build(); drawObs(); drawMcd(); fillSitePicker();
   document.getElementById("sitePick").onchange = (e) => pickSite(e.target.value);
   document.getElementById("obsSel").onchange = () => drawObs();
   document.getElementById("ly_obs").onchange = (e) => {{
@@ -1725,7 +2293,8 @@ async function boot() {{
     if (!e.target.checked && map.hasLayer(obsLayer)) map.removeLayer(obsLayer);
   }};
   document.getElementById("ly_glm").onchange = () => show(idx);
-  setInterval(async () => {{ refresh(await (await fetch(SITE_DATA_URL, {{cache: "no-store"}})).json()); drawObs(); fillSitePicker(); }}, 180000);
+  document.getElementById("ly_mcd").onchange = () => drawMcd();
+  setInterval(async () => {{ refresh(await (await fetch(dataUrl(), {{cache: "no-store"}})).json()); drawObs(); drawMcd(); fillSitePicker(); }}, 180000);
 }}
 boot();
 document.addEventListener("visibilitychange", () => document.hidden ? pause() : play());
@@ -1763,7 +2332,12 @@ function fillLayerPicker() {
   }
 }
 async function boot() {
-  DATA = await (await fetch(SITE_DATA_URL, {cache: "no-store"})).json();
+  /* one failed fetch used to leave the page blank until a manual reload -
+     retry a few times before giving up (auto-refresh heals it after that) */
+  for (let tries = 0; tries < 4; tries++) {
+    try { DATA = await (await fetch(dataUrl(), {cache: "no-store"})).json(); break; }
+    catch (_e) { if (tries === 3) return; await new Promise(r => setTimeout(r, 2500)); }
+  }
   document.title = DATA.pageName + " - Satellite";
   LAYERS = {};
   for (const [k, v] of Object.entries(DATA.satBands || {}))
@@ -1772,7 +2346,7 @@ async function boot() {
   if (LAYERS[DATA.satHome]) kind = DATA.satHome;
   else if (Object.keys(LAYERS).length) kind = Object.keys(LAYERS)[0];
   initMap(); fillLayerPicker(); build();
-  setInterval(async () => { refresh(await (await fetch(SITE_DATA_URL, {cache: "no-store"})).json()); }, 180000);
+  setInterval(async () => { refresh(await (await fetch(dataUrl(), {cache: "no-store"})).json()); }, 180000);
 }
 boot();
 document.addEventListener("visibilitychange", () => document.hidden ? pause() : play());
@@ -1922,18 +2496,26 @@ function msShow() {
   const e = (MS[msSrc.value] || {})[msProd.value] || {};
   msCap.textContent = "Init " + (e.init || "") + " \u00b7 frame " + (msIdx + 1) + "/" + msFrames.length;
 }
+const msArch = document.getElementById("msArchiveNote");
+function msArchCheck() {
+  if (!msArch) return;
+  const stale = msSrc.value === "mpas" && MS.mpasArchive && msFrames.length &&
+                (msFrames[0].url || "").indexOf("_2025") !== -1;
+  msArch.style.display = stale ? "" : "none";
+}
 function msBuild() {
   msStop();
   const e = (MS[msSrc.value] || {})[msProd.value];
   msFrames = (e && e.frames) || [];
   msIdx = Math.max(0, msFrames.length - 1);
   msShow();
+  msArchCheck();
   if (msFrames.length > 1) {
     msPlaying = true; msPlay.textContent = "\u23f8";
     msTimer = setInterval(() => { msIdx = (msIdx + 1) % msFrames.length; msShow(); }, 900);
   }
 }
-msSrc.onchange = () => { msFill(); msBuild(); };
+msSrc.onchange = () => { msFill(); msBuild(); msArchCheck(); };
 msProd.onchange = msBuild;
 msPlay.onclick = () => {
   if (!msFrames.length) return;
@@ -1941,7 +2523,77 @@ msPlay.onclick = () => {
   else { msPlaying = true; msPlay.textContent = "\u23f8";
     msTimer = setInterval(() => { msIdx = (msIdx + 1) % msFrames.length; msShow(); }, 900); }
 };
-msFill(); msBuild();
+msFill(); msBuild(); msArchCheck();
+if (MS.mpasArchive) {
+  const mo = msSrc.querySelector("option[value=mpas]");
+  if (mo) mo.textContent = "NCAR MPAS (3.75 km global) \u2014 2025 archive";
+}
+"""
+
+
+_MPROG_JS = """
+/* models-page render progress: how much of the full catalog is on disk.
+   Boot counts the combos shipped in this build's data.json; a 5-min poll
+   re-counts from fresh data so the bar fills live as the updater renders. */
+const mprogBar = document.getElementById("mprogBar"), mprogTxt = document.getElementById("mprogTxt");
+function mprogFrom(data) {
+  const cat = (data && data.modelCatalog) || CAT;
+  const rend = (data && data.renderIndex) || REND;
+  let total = 0, have = 0;
+  const rows = [];
+  for (const m of Object.keys(cat)) {
+    const prods = (cat[m].products || []).map(p => p.key);
+    let mt = 0, mh = 0;
+    if (m === "MPAS" || m.indexOf("FV3") === 0) {
+      const key = m === "MPAS" ? "mpas" : "shield";
+      for (const p of prods) {
+        mt++;
+        const e = (MS[key] || {})[p];
+        if (e && e.frames && e.frames.length) mh++;
+      }
+    } else {
+      const set = new Set(rend.filter(c => c.model === m).map(c => c.product + "|" + c.region));
+      for (const p of prods) for (const r of ["etn", "us"]) {
+        mt++;
+        if (set.has(p + "|" + r)) mh++;
+      }
+    }
+    total += mt; have += mh;
+    if (mt) rows.push({ label: (cat[m] && cat[m].label) || m, have: mh, total: mt,
+                        pct: Math.round(100 * mh / mt) });
+  }
+  const pct = total ? Math.round(100 * have / total) : 0;
+  mprogBar.style.width = pct + "%";
+  mprogBar.style.background = pct >= 99 ? "#2e7d32" : (pct >= 60 ? "#ef6c00" : "#c62828");
+  mprogTxt.textContent = pct >= 99
+    ? "All " + total + " model maps are rendered. Fresh cycles keep them current."
+    : have + " of " + total + " model maps rendered (" + pct + "%) - " + (total - have) +
+      " pending. The updater renders about 72 more every hour, missing ones first; " +
+      "this bar refills itself every 5 minutes.";
+  /* per-model completeness strip - starving models (lowest %) float to the
+     top so a stuck downloader is visible at a glance (2026-09-14) */
+  const mbox = document.getElementById("mprogModels");
+  if (mbox) {
+    rows.sort((a, b) => a.pct - b.pct);
+    mbox.innerHTML = rows.map(r =>
+      '<div style="display:flex;align-items:center;gap:8px;margin:3px 0">' +
+        '<span title="' + r.label + '" style="width:170px;flex:none;font-size:12px;' +
+          'white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + r.label + '</span>' +
+        '<div style="flex:1;background:#e5e7eb;border-radius:4px;height:10px;overflow:hidden">' +
+          '<div style="width:' + r.pct + '%;height:100%;border-radius:4px;background:' +
+            (r.pct >= 99 ? "#2e7d32" : (r.pct >= 50 ? "#ef6c00" : "#c62828")) + '"></div></div>' +
+        '<span style="width:84px;flex:none;text-align:right;font-size:12px;color:#555">' +
+          r.have + '/' + r.total + '</span>' +
+      '</div>').join("");
+  }
+}
+mprogFrom(null);                       /* boot: count what shipped in this build */
+setInterval(async () => {
+  try {
+    const nd = await (await fetch("data.json?t=" + Date.now(), {cache: "no-store"})).json();
+    mprogFrom(nd);
+  } catch (_e) { /* offline tick - keep the last known state */ }
+}, 300000);
 """
 
 
@@ -1993,6 +2645,15 @@ def page_models(d):
 <header class="hero"><h1>🧮 Model maps</h1>
 <div class="sub">Every model, every product — MetPy × Cartopy renders from NOAA/ECMWF GRIB2 · East Tennessee + US · updated {d["generated"]}</div></header>
 
+<div class="card"><h2>📊 Render progress</h2>
+  <div style="background:#e5e7eb;border-radius:8px;height:22px;overflow:hidden;margin:6px 0 4px">
+    <div id="mprogBar" style="height:100%;width:0;background:#ef6c00;border-radius:8px;transition:width .6s"></div>
+  </div>
+  <div class="src" id="mprogTxt">Counting rendered maps…</div>
+  <div id="mprogModels" style="margin-top:10px"></div>
+  <div class="src" style="margin-top:4px">Per-model completeness - lowest first, so a starved or broken model shows at the top. Refills every 5 minutes.</div>
+</div>
+
 <div class="card"><h2>🔍 Render any model product</h2>
   <div class="ctl">
     <select id="catModel">{model_opts}</select>
@@ -2018,7 +2679,7 @@ def page_models(d):
     <span class="frame" id="cmpFrame">--</span>
   </div>
   <div class="cmp4" id="cmpGrid"></div>
-  <div class="src">All 20 models (NWS global + CAM + AI + MPAS + FV3) × every product/level, animated side-by-side — each pane plays its own loop and the big clock advances every pane that has that hour. Missing hours snap to the nearest earlier frame; unrendered combos queue and fill in automatically.</div>
+  <div class="src">All 20 models (NWS global + CAM + AI + MPAS + FV3) × every product/level, animated side-by-side — each pane plays its own loop and the big clock advances every pane that has that hour. Missing hours snap to the nearest earlier frame; unrendered combos queue and fill in automatically — watch the 📊 render-progress bar at the top of this page.</div>
 </div>
 
 {psu_html}
@@ -2034,6 +2695,7 @@ def page_models(d):
     <button id="msPlay">⏸</button>
     <span class="frame" id="msFrame">--</span>
   </div>
+  <div class="alert" id="msArchiveNote" style="display:none;border-left-color:#ffb74d">📝 MPAS is showing its archived October 2025 demonstration run — NCAR's real-time experiment ended and a new season hasn't started. Frames stay browsable and this clears itself the moment NCAR publishes a new run.</div>
   <img id="msImg" class="natimg" loading="lazy" alt="MPAS / SHiELD frame"/>
   <div class="cap src" id="msCap"></div>
   <div class="src">NCAR MPAS-A real-time global 3.75 km and GFDL SHiELD — the FV3-core model — official pre-rendered frames, animated. One product set downloads per update cycle and is cached; the rest queue and fill in automatically.</div>
@@ -2052,6 +2714,7 @@ function fillProds() {{
   catProd.innerHTML = m.products.map(p => `<option value="${{p.key}}">${{p.label}}</option>`).join("");
 }}
 catModel.onchange = fillProds; fillProds();
+let catSpeed = 900;   /* loop frame interval (ms) — shared by the catalog loop player, persists across combos */
 document.getElementById("catGo").onclick = () => {{
   const msg = document.getElementById("catMsg"), wrap = document.getElementById("catWrap");
   const m = catModel.value, p = catProd.value, r = document.getElementById("catRegion").value;
@@ -2082,22 +2745,34 @@ document.getElementById("catGo").onclick = () => {{
     return;
   }}
   if (c && c.frames.length) {{
-    msg.textContent = `${{m}} ${{p}} (${{r}}) - init ${{String(c.cycle).slice(-6,-2)}}Z ${{String(c.cycle).slice(-2)}}Z, ${{c.frames.length}} frames`;
+    msg.textContent = `${{m}} ${{p}} (${{r}}) - init ${{String(c.cycle).slice(-6,-2)}}Z ${{String(c.cycle).slice(-2)}}Z, ${{c.frames.length}}-frame loop`;
     const im = new Image(); im.src = c.frames[c.frames.length - 1].url;
     im.style.width = "100%"; im.style.borderRadius = "10px"; wrap.appendChild(im);
-    if (c.frames.length > 1) {{
-      const st = document.createElement("div"); st.className = "stepper";
-      const sel = document.createElement("select");
-      sel.innerHTML = c.frames.map(f => `<option value="${{f.fh}}">F${{String(f.fh).padStart(3, "0")}}</option>`).join("");
-      sel.value = c.frames[c.frames.length - 1].fh;
-      sel.onchange = () => {{ im.src = c.frames.find(f => f.fh === +sel.value).url; }};
-      const back = document.createElement("button"); back.textContent = "\u25c0";
-      const fwd = document.createElement("button"); fwd.textContent = "\u25b6";
-      const step = dd => {{ const at = c.frames.findIndex(f => f.fh === +sel.value);
-        const f = c.frames[Math.min(c.frames.length - 1, Math.max(0, at + dd))]; if (f) {{ sel.value = f.fh; im.src = f.url; }} }};
-      back.onclick = () => step(-1); fwd.onclick = () => step(1);
-      st.append(back, sel, fwd); wrap.appendChild(st);
-    }}
+    const st = document.createElement("div"); st.className = "stepper";
+    const sel = document.createElement("select");
+    sel.innerHTML = c.frames.map(f => `<option value="${{f.fh}}">F${{String(f.fh).padStart(3, "0")}}</option>`).join("");
+    sel.value = c.frames[c.frames.length - 1].fh;
+    sel.onchange = () => {{ im.src = c.frames.find(f => f.fh === +sel.value).url; }};
+    const back = document.createElement("button"); back.textContent = "\u25c0";
+    const fwd = document.createElement("button"); fwd.textContent = "\u25b6";
+    const play = document.createElement("button"); play.textContent = "\u23f8";
+    const spd = document.createElement("select"); spd.title = "Loop speed"; spd.className = "catSpeed";
+    spd.innerHTML = `<option value="2400">0.4x</option><option value="1500">0.6x</option><option value="900">1x</option><option value="600">1.5x</option><option value="400">2.5x</option><option value="200">4.5x</option>`;
+    spd.value = String(catSpeed);
+    let at = c.frames.length - 1, timer = null;
+    const show = i => {{ const f = c.frames[(i + c.frames.length) % c.frames.length];
+      sel.value = f.fh; im.src = f.url; }};
+    const step = dd => {{ at = (at + dd + c.frames.length) % c.frames.length; show(at); }};
+    const start = () => {{ clearInterval(timer); timer = setInterval(() => step(1), catSpeed); }};
+    back.onclick = () => step(-1); fwd.onclick = () => step(1);
+    spd.onchange = () => {{ catSpeed = +spd.value; if (timer) start(); }};   /* live speed change, keeps playing */
+    play.onclick = () => {{
+      if (timer) {{ clearInterval(timer); timer = null; play.textContent = "\u25b6\u25b6"; }}
+      else {{ start(); play.textContent = "\u23f8"; }}
+    }};
+    if (c.frames.length > 1) {{ at = 0; show(0); start(); }}   /* autoplay the loop */
+    else play.disabled = true;
+    st.append(back, sel, play, fwd, spd); wrap.appendChild(st);
   }} else {{
     msg.textContent = `${{m}} ${{p}} (${{r}}) is not pre-rendered in this build yet - the site updater adds more combos every few minutes. Popular products are in the gallery below.`;
   }}
@@ -2171,6 +2846,7 @@ if (psu && psu.frames && psu.frames.length) {{
 }}
 
 const MS = {json.dumps(d.get("mpasShield") or {})};
+{_MPROG_JS}
 {_CMP4_JS}
 {_MSVIEWER_JS}
 </script>
@@ -2216,7 +2892,7 @@ function toggle(id, lyr) {{
   if (!on && map.hasLayer(lyr)) map.removeLayer(lyr);
 }}
 async function boot() {{
-  DATA = await (await fetch(SITE_DATA_URL, {{cache: "no-store"}})).json();
+  DATA = await (await fetch(dataUrl(), {{cache: "no-store"}})).json();
   const T = DATA.tropical || TROP;
   document.title = DATA.pageName + " - NHC";
   {_mapbox_token_js()}
@@ -2281,6 +2957,518 @@ function onDataRefresh(d) {{ /* overlays rebuilt on reload */ }}
     return _page("NHC", "tropical.html", body)
 
 
+def page_tropmodels(d):
+    tm = d.get("tropModels") or {}
+    try:
+        from data.tropical_models import FAMILY_COLORS as _FAMCOL
+    except Exception:                                  # noqa: BLE001
+        _FAMCOL = {}
+    storms = tm.get("storms") or []
+    n_mods = sum(len(s.get("models") or []) for s in storms)
+    n_charts = sum(len(s.get("charts") or []) for s in storms)
+
+    body = f"""
+<header class="hero"><h1>🌪️ Tropical Model Guidance</h1>
+<div class="sub">Track spaghetti + intensity forecasts from every global & regional model
+· NHC ATCF aid-decks · updated {d["generated"]}</div></header>
+
+<div class="card">
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+    <label class="src" for="stormPick">Storm:</label>
+    <select id="stormPick" class="sel"></select>
+    <span class="src" id="tmSummary">{len(storms)} storm(s) · {n_mods} guidance members · {n_charts} chart(s)</span>
+  </div>
+  <div id="map" class="map-dark"></div>
+  <div class="legend" id="famLegend">
+    <span><i style="background:#ffffff"></i>Official (OFCL)</span>
+    <span><i style="background:#4fc3f7"></i>GFS</span>
+    <span><i style="background:#ce93d8"></i>ECMWF</span>
+    <span><i style="background:#ffb74d"></i>UKMET</span>
+    <span><i style="background:#a5d6a7"></i>CMC</span>
+    <span><i style="background:#ff8a80"></i>HWRF</span>
+    <span><i style="background:#ffab91"></i>HMON</span>
+    <span><i style="background:#80cbc4"></i>GFDL</span>
+    <span><i style="background:#bcaaa4"></i>Navy</span>
+    <span class="src">checkboxes toggle model families · dots = +24/48/72/120 h, colored by intensity</span>
+  </div>
+  <div id="famChecks" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:6px"></div>
+</div>
+
+<div class="card" id="chartsCard"><h2>📈 Intensity guidance</h2><div id="charts"></div></div>
+<div class="card" id="tblCard"><h2>🧭 Guidance members</h2><div id="tbl"></div></div>
+
+<script>
+const TMS = {json.dumps(tm)};
+const FAMCOL = {json.dumps(_FAMCOL)};
+let map, famGroups = {{}};
+const KT_COL = kt => kt >= 137 ? "#d32f2f" : kt >= 113 ? "#e64a19" : kt >= 96 ? "#f57c00"
+  : kt >= 83 ? "#ffa000" : kt >= 64 ? "#fbc02d" : kt >= 34 ? "#03a9f4" : "#90a4ae";
+function drawStorm(idx) {{
+  const s = (TMS.storms || [])[idx];
+  // Array.isArray guard: a storm without guidance used to ship tracks as an
+  // object, .forEach threw, and the whole map boot died (2026-09-20).
+  if (!s || !Array.isArray(s.tracks)) return;
+  Object.values(famGroups).forEach(g => map.removeLayer(g));
+  famGroups = {{}};
+  s.tracks.forEach(tr => {{
+    const fam = tr.family || "ens";
+    if (!famGroups[fam]) {{
+      famGroups[fam] = L.layerGroup();
+      famGroups[fam].addTo(map);
+    }}
+    const w = tr.isOfficial ? 4 : 2, dash = tr.isOfficial ? null : "5 5";
+    L.geoJSON({{ type: "Feature", properties: {{}}, geometry: tr.geo }},
+      {{ style: {{ color: tr.color, weight: w, opacity: .85, dashArray: dash }} }})
+      .bindTooltip((tr.tech || fam) + " track")
+      .addTo(famGroups[fam]);
+    (tr.geo.props || []).forEach(p => {{
+      if ([24, 48, 72, 120].includes(p.hour) && p.kt != null)
+        L.circleMarker([p.lat, p.lon], {{ radius: 4.5, color: "#fff", weight: 1,
+          fillColor: KT_COL(parseFloat(p.kt) || 0), fillOpacity: .95 }})
+          .bindPopup("<b>" + (tr.tech || fam) + "</b><br/>+" + p.hour + " h · " +
+            Math.round(parseFloat(p.kt)) + " kt<br/>" +
+            (p.mslp && parseInt(p.mslp) > 800 ? parseInt(p.mslp) + " mb" : ""))
+          .addTo(famGroups[fam]);
+    }});
+  }});
+  // fit to official track (or all)
+  const ofcl = (s.tracks || []).find(t => t.isOfficial) || (s.tracks || [])[0];
+  if (ofcl && ofcl.geo && ofcl.geo.coordinates && ofcl.geo.coordinates.length)
+    map.fitBounds(L.latLngBounds(ofcl.geo.coordinates.map(c => [c[1], c[0]])).pad(0.35));
+  // family checkboxes (one per family actually present on this storm)
+  const fc = document.getElementById("famChecks");
+  fc.innerHTML = "";
+  Object.keys(famGroups).sort((a, b) =>
+    (a === "OFCL" ? -1 : b === "OFCL" ? 1 : a.localeCompare(b))).forEach(fam => {{
+    const lab = document.createElement("label");
+    lab.style.cssText = "display:flex;gap:5px;align-items:center;cursor:pointer;font-size:13px";
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = true;
+    cb.onchange = () => {{
+      const g = famGroups[fam];
+      if (!g) return;
+      if (cb.checked) {{ if (!map.hasLayer(g)) g.addTo(map); }}
+      else {{ if (map.hasLayer(g)) map.removeLayer(g); }}
+    }};
+    const dot = document.createElement("span");
+    dot.style.cssText = "width:11px;height:11px;border-radius:3px;display:inline-block;background:"
+      + (FAMCOL[fam] || "#b0bec5");
+    lab.appendChild(cb); lab.appendChild(dot);
+    lab.appendChild(document.createTextNode(fam + " (" + (s.tracks || []).filter(t => (t.family || "ens") === fam).length + ")"));
+    fc.appendChild(lab);
+  }});
+  // charts
+  document.getElementById("charts").innerHTML = (s.charts || []).map(c =>
+    `<div><img src="${{c.href}}" alt="${{c.name}}" style="max-width:100%;border-radius:10px"/></div>`)
+    .join("") || '<span class=src>No intensity chart for this storm yet.</span>';
+  // model table
+  const rows = (s.models || []).map(m =>
+    `<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${{m.color}}"></span></td>` +
+    `<td><b>${{m.tech}}</b></td><td>${{m.name}}</td><td>${{m.family}}</td>` +
+    `<td>+${{m.max_hour}} h</td></tr>`).join("");
+  document.getElementById("tbl").innerHTML = rows
+    ? `<table><tr><th></th><th>ID</th><th>Model</th><th>Family</th><th>Max lead</th></tr>${{rows}}</table>`
+    : '<span class=src>No aid-deck guidance parsed for this storm yet.</span>';
+}}
+async function boot() {{
+  DATA = await (await fetch(dataUrl(), {{cache: "no-store"}})).json();
+  const T = DATA.tropModels || TMS;
+  document.title = DATA.pageName + " - Tropical Models";
+  // Empty season: NHC currently reports zero storms. Say so plainly instead
+  // of leaving a blank map and empty cards (2026-09-17).
+  if (!(T.storms || []).length) {{
+    const mapEl = document.getElementById("map");
+    if (mapEl) mapEl.outerHTML =
+      '<div class="alert ok" style="margin:4px 0"><b>🌪️ Quiet Atlantic & Pacific — no active tropical cyclones.</b><br/>' +
+      'NHC reports zero active storms right now, so there are no tracks or intensity guidance to plot. ' +
+      'Spaghetti tracks, model tables and intensity charts appear here automatically the moment the next system gets an ATCF ID. ' +
+      'The official NHC development outlooks below always stay current.</div>';
+    const sp = document.getElementById("stormPick");
+    if (sp) sp.style.display = "none";
+    const cc = document.getElementById("chartsCard");
+    if (cc) cc.style.display = "none";
+    const tc = document.getElementById("tblCard");
+    if (tc) tc.style.display = "none";
+    const sm = document.getElementById("tmSummary");
+    if (sm) sm.textContent = "0 active storms · guidance auto-appears when one forms";
+    // NHC 2-day/7-day development outlooks - hotlinked live from NHC, so
+    // they stay current every time NHC republishes (verified 200 on 09-18).
+    // (Same always-live graphics the NHC Tropical tab shows.)
+    const outlook = document.createElement("div");
+    outlook.className = "card";
+    outlook.innerHTML =
+      '<h2>🌧️ NHC Tropical Weather Outlooks</h2>' +
+      '<div class="src">Atlantic · 2-day and 7-day tropical formation chances - updated with each NHC issuance</div>' +
+      '<div style="display:flex;gap:12px;flex-wrap:wrap">' +
+      '<img src="https://www.nhc.noaa.gov/xgtwo/two_atl_2d0.png" alt="Atlantic 2-day outlook" style="max-width:49%;min-width:280px;border-radius:10px"/>' +
+      '<img src="https://www.nhc.noaa.gov/xgtwo/two_atl_7d0.png" alt="Atlantic 7-day outlook" style="max-width:49%;min-width:280px;border-radius:10px"/>' +
+      '</div>' +
+      '<div class="src" style="margin-top:8px">Eastern Pacific · 2-day and 7-day formation chances</div>' +
+      '<div style="display:flex;gap:12px;flex-wrap:wrap">' +
+      '<img src="https://www.nhc.noaa.gov/xgtwo/two_pac_2d0.png" alt="East Pacific 2-day outlook" style="max-width:49%;min-width:280px;border-radius:10px"/>' +
+      '<img src="https://www.nhc.noaa.gov/xgtwo/two_pac_7d0.png" alt="East Pacific 7-day outlook" style="max-width:49%;min-width:280px;border-radius:10px"/>' +
+      '</div>';
+    // chartsCard sits inside the page container (not directly under body),
+    // so insert relative to ITS parent - inserting vs document.body threw
+    // NotFoundError and silently killed the whole quiet branch (2026-09-18).
+    if (cc && cc.parentNode) cc.parentNode.insertBefore(outlook, cc);
+    else document.body.appendChild(outlook);
+    return;                    // skip map/plot setup entirely
+  }}
+  {_mapbox_token_js()}
+  map = L.map("map", {{ zoomSnap: 0.5, maxZoom: 21 }}).setView([26, -82], 5);
+  addMapControls(map, [26, -82], 5);
+  const sel = document.getElementById("stormPick");
+  (T.storms || []).forEach((s, i) => {{
+    const nM = Array.isArray(s.models) ? s.models.length : 0;
+    const o = document.createElement("option");
+    o.value = i;
+    o.textContent = `${{s.name || "Storm"}} (${{s.classification || "?"}}) - ${{nM}} models`;
+    sel.appendChild(o);
+  }});
+  sel.onchange = () => drawStorm(parseInt(sel.value) || 0);
+  // Open on the storm that actually has guidance: a newly-minted NHC storm
+  // with no aid-deck file yet used to open first, shipped an empty shape,
+  // and killed the boot (2026-09-20).
+  let defIdx = 0, best = -1;
+  (T.storms || []).forEach((s, i) => {{
+    const nM = Array.isArray(s.models) ? s.models.length : 0;
+    if (nM > best) {{ best = nM; defIdx = i; }}
+  }});
+  if (sel.options[defIdx]) sel.selectedIndex = defIdx;
+  drawStorm(defIdx);
+}}
+boot();
+function onDataRefresh(d) {{ /* picker keeps place; reload for new storms */ }}
+</script>
+"""
+    return _page("Tropical Models", "tropmodels.html", body)
+
+
+def page_climate(d):
+    cl = d.get("climate") or {}
+    groups = cl.get("groups") or []
+    oni = cl.get("oni") or []
+    enso = cl.get("enso") or {}
+    phase = cl.get("ensoPhase") or "unknown"
+    phase_col = cl.get("ensoPhaseColor") or "#9e9e9e"
+
+    outlook_html = ""
+    for g in groups:
+        imgs = g.get("images") or {}
+        t, p = imgs.get("temp"), imgs.get("prcp")
+        if not (t or p):
+            continue
+        outlook_html += f'<div class="card"><h2>🗺️ {html.escape(g.get("label") or g.get("id"))}</h2>'
+        for kind, href in (("Temperature", t), ("Precipitation", p)):
+            if href:
+                outlook_html += (f'<div style="margin:6px 0"><div class="src">{kind} outlook</div>'
+                                 f'<img src="{href}" alt="{g.get("id")} {kind}" '
+                                 f'style="max-width:100%;border-radius:10px" loading="lazy"/></div>')
+        outlook_html += "</div>"
+    if not outlook_html:
+        outlook_html = '<div class="alert">CPC outlook graphics unavailable this cycle.</div>'
+
+    oni_rows = "".join(
+        f'<tr><td>{r["season"]}</td><td style="color:{"#ef5350" if r["anom"] >= 0.5 else "#42a5f5" if r["anom"] <= -0.5 else "inherit"}">'
+        f'{r["anom"]:+.2f}°C</td></tr>' for r in oni[-8:])
+    enso_paras = "".join(f'<p style="margin:6px 0">{html.escape(p)}</p>'
+                         for p in (enso.get("paragraphs") or [])[:3])
+
+    body = f"""
+<header class="hero"><h1>🗓️ Climate & Long-Range</h1>
+<div class="sub">CPC 6-10 day · 8-14 day · monthly · seasonal outlooks · ENSO status
+· updated {d["generated"]}</div></header>
+
+<div class="card">
+  <h2>🌊 ENSO Status</h2>
+  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <span style="background:{phase_col};color:#0b0f14;font-weight:700;border-radius:20px;padding:6px 16px">{html.escape(phase.upper())}</span>
+    <b class="src">{html.escape(enso.get("title") or "")}</b>
+  </div>
+  {enso_paras or '<span class=src>ENSO discussion unavailable this cycle.</span>'}
+  <div style="margin-top:10px"><b class="src">Oceanic Niño Index - recent seasons</b>
+  <table>{'<tr><th>Season</th><th>SST anomaly (Nino 3.4)</th></tr>'}{oni_rows}</table>
+  <span class="src">El Niño threshold +0.5°C · La Niña threshold -0.5°C (CPC ONI)</span></div>
+</div>
+
+{outlook_html}
+
+<div class="card"><span class="src">Sources: NOAA CPC long-range outlooks (updated daily-weekly),
+CPC ONI & ENSO Diagnostic Discussion (updated monthly-ish or as advisories change).
+Graphics mirrored from CPC so they load fast; refresh happens on the site update cycle.</span></div>
+
+<script>
+async function boot() {{
+  DATA = await (await fetch(dataUrl(), {{cache: "no-store"}})).json();
+  document.title = DATA.pageName + " - Climate";
+}}
+boot();
+</script>
+"""
+    return _page("Climate", "climate.html", body)
+
+
+def page_status(d):
+    """Tiny status page: updater heartbeat, data age, public publish lag.
+
+    Self-contained JS - measures the PUBLIC lag live from the visitor's
+    browser against this build's dataEpochMs, so it stays honest on both
+    the local mirror and GitHub Pages.
+    """
+    body = f"""
+<header class="hero"><h1>🩺 Site Status</h1>
+<div class="sub">Updater heartbeat · data age · public publish lag - measured live in your browser</div></header>
+
+<div class="kpis">
+  <div class="kpi"><span>Data build (this server)</span><b id="stBuild">…</b></div>
+  <div class="kpi"><span>Data age (vs your clock)</span><b id="stAge">…</b></div>
+  <div class="kpi"><span>Public GitHub copy</span><b id="stPub">…</b></div>
+  <div class="kpi"><span>Publish pipeline</span><b id="stPipe">…</b></div>
+</div>
+
+<div class="card"><h2>💓 Updater heartbeat</h2>
+<div id="stBeat" class="src">watching for the next rebuild…</div>
+<p style="margin:6px 0">The updater rebuilds all data + maps every ~2-3 minutes and pushes to
+GitHub Pages every ~10 minutes. A missing heartbeat means the Windows task
+"TNWN-WeatherCenter" is stopped - start it from Task Scheduler or run
+`python startup_task.py` in the project folder.</p></div>
+
+<div class="card"><h2>What the numbers mean</h2>
+<table>
+<tr><th>Indicator</th><th>Healthy</th><th>Action</th></tr>
+<tr><td><b>Data age</b></td><td>under 5 min</td><td>over 15 min: updater stopped - run the Windows task or startup_task.py</td></tr>
+<tr><td><b>Public copy</b></td><td>under 15 min behind</td><td>over 30 min: publish pipeline trouble; the updater auto-recovers (watchdog), check `.freebuff/PUBLIC_STALE.alert`</td></tr>
+<tr><td><b>Heartbeat</b></td><td>advancing every 2-3 min</td><td>frozen: updater process dead - see above</td></tr>
+</table></div>
+
+<script>
+const BUILT = {int(d.get("dataEpochMs") or 0)};
+function mins(ms) {{ const m = Math.round(ms / 60000); return m < 1 ? "<1 min" : m + " min"; }}
+function fnum(n) {{ return n.toLocaleString("en-US"); }}
+async function boot() {{
+  DATA = await (await fetch(dataUrl(), {{cache: "no-store"}})).json();
+  document.title = DATA.pageName + " - Status";
+  let built = DATA.dataEpochMs || BUILT;
+  const bd = new Date(built);
+  document.getElementById("stBuild").textContent =
+    bd.toLocaleTimeString("en-US", {{hour: "numeric", minute: "2-digit"}});
+  const setAge = () => {{
+    const a = Date.now() - built;
+    const el = document.getElementById("stAge");
+    el.textContent = mins(a) + " ago";
+    el.style.color = a < 5 * 60000 ? "#7ddc7d" : a < 15 * 60000 ? "#ffc46b" : "#ff6b6b";
+  }};
+  setAge(); setInterval(setAge, 15000);
+  // public lag: compare the live public data.json against this build
+  fetch("https://rpleasant12.github.io/http-localhost-8765-/data.json?t=" + Date.now(),
+        {{cache: "no-store"}}).then(r => r.json()).then(pub => {{
+    const lag = built - (pub.dataEpochMs || 0);
+    const el = document.getElementById("stPub");
+    el.textContent = lag <= 0 ? "this build or newer" : mins(lag) + " behind";
+    el.style.color = lag < 15 * 60000 ? "#7ddc7d" : lag < 30 * 60000 ? "#ffc46b" : "#ff6b6b";
+    const pipe = document.getElementById("stPipe");
+    pipe.textContent = lag < 30 * 60000 ? "✅ publishing normally" : "⚠️ lagging - auto-recovery should catch it";
+    pipe.style.color = lag < 30 * 60000 ? "#7ddc7d" : "#ffc46b";
+  }}).catch(() => {{
+    document.getElementById("stPub").textContent = "unreachable";
+  }});
+  /* heartbeat: poll data.json every 60 s; each NEW build stamp = one beat */
+  let lastBuilt = built, beats = 0, lastBeatAt = Date.now();
+  setInterval(async () => {{
+    try {{
+      const nd = await (await fetch(dataUrl(), {{cache: "no-store"}})).json();
+      if ((nd.dataEpochMs || 0) > lastBuilt) {{
+        beats++; lastBuilt = nd.dataEpochMs; lastBeatAt = Date.now();
+        document.getElementById("stBuild").textContent =
+          new Date(lastBuilt).toLocaleTimeString("en-US", {{hour: "numeric", minute: "2-digit"}});
+        built = lastBuilt;   // the age card tracks the newest build too
+      }}
+    }} catch (_e) {{}}
+    const since = Date.now() - lastBeatAt;
+    const el = document.getElementById("stBeat");
+    el.textContent = "\u2764\ufe0f " + beats + " rebuild" + (beats === 1 ? "" : "s") +
+      " while you watched \u00b7 last " + Math.round(since / 60000) +
+      " min ago \u00b7 next expected within " +
+      Math.max(0, 3 - Math.round(since / 60000)) + " min";
+    el.style.color = since < 6 * 60000 ? "#7ddc7d" : "#ffc46b";
+  }}, 60000);
+}}
+boot();
+</script>
+"""
+    return _page("Status", "status.html", body)
+
+
+def page_education(d):
+    """Learning hub: how to read the site's own maps + official NOAA/NWS resources."""
+
+    tools = [
+        ("radar.html", "📡", "Radar & RainViewer",
+         "Colors are reflectivity (dBZ): green = light rain, yellow = moderate, red = heavy rain or hail. "
+         "The Futurecast layers are a 30-60 min projection of where storms are moving - great for \"is it about to rain on me?\"."),
+        ("models.html", "🧭", "Forecast Models",
+         "GFS, NAM, RRFS and AI models each divide the atmosphere into stacked pressure levels (500 mb ≈ 18,000 ft, "
+         "850 mb ≈ 5,000 ft). Lower vorticity values usually mark storm systems. Compare several models - when they agree, confidence is high."),
+        ("obs.html", "🎈", "Obs & Skew-T",
+         "A sounding is a vertical snapshot of the atmosphere. Watch for CAPE (fuel for thunderstorms) and lifted index; "
+         "the wind profile tells you whether storms will rotate."),
+        ("severe.html", "🌪️", "Severe & SPC Outlooks",
+         "SPC outlooks rank storm risk by probability: MRGL (marginal) < SLGT (slight) < ENH (enhanced) < MDT (moderate) < HIGH. "
+         "Hatched areas mean significant (EF2+, 75+ mph, 2\"+ hail) events are possible."),
+        ("rivers.html", "🌊", "River Gauges",
+         "AHPS river gauges show stage against official flood categories: action, minor, moderate, major. "
+         "When a gauge crosses minor-flood stage, low-lying roads near the river flood first."),
+        ("fire.html", "🔥", "Fire Weather",
+         "SPC Fire Weather Outlooks flag areas where wind + dry air + dry fuels let fires spread dangerously. "
+         "A Red Flag Warning means no outdoor burning - embers can start wildfires miles away."),
+        ("forecast.html", "🥵", "Heat Index vs WBGT",
+         "Heat index is shade comfort; WBGT adds sun and humidity stress - what coaches and outdoor crews use. "
+         "Both are on the Heat-Stress card with color-coded risk bands."),
+        ("tropmodels.html", "🌀", "Tropical Spaghetti",
+         "Each colored line is one hurricane model's idea of a storm's future path. The bunch of lines = uncertainty; "
+         "where they converge is where the storm is most likely to go. The official forecast is the white line."),
+        ("satellite.html", "🛰️", "Satellite Bands",
+         "Satellites see beyond visible light. Water vapor (6.9 µm) shows the rivers of moisture steering storms; "
+         "the infrared window (10.3 µm) shows cloud tops - colder = higher = stronger storms, day or night."),
+        ("meso.html", "🔬", "Mesoanalysis",
+         "This zooms into the storm environment right now: surface winds, instability (CAPE), shear. Forecasters "
+         "watch the overlap of high CAPE + strong shear - that is where rotating storms become possible."),
+        ("charts.html", "📈", "MOS & Charts",
+         "MOS is a statistical correction of model output for each airport - often better than raw model numbers "
+         "for temperature and wind. The hourly tables show dew point, wind and precip odds hour by hour."),
+        ("winter.html", "❄️", "Winter Maps",
+         "Snow maps differ: 6-hourly bars (NBM) show short bursts; storm-total fields (GFS/GEFS) accumulate. "
+         "Ensemble spread is the honesty meter - wide spread means the snow band's position is still uncertain."),
+        ("dashboard.html", "📊", "Dashboard",
+         "One screen, whole county: station temperatures with 24-hour trends, river stages, and what changed "
+         "since yesterday. Built for the morning glance before you head out."),
+    ]
+    tools_html = "".join(
+        f'<div class="card"><h2>{ic} {html.escape(t)}</h2><p style="margin:6px 0">{txt}</p>'
+        f'<a class="src" href="{href}">Open the {html.escape(t.split(" &")[0])} page →</a></div>'
+        for href, ic, t, txt in tools)
+
+    learn = [
+        ("JetStream - NOAA's weather school",
+         "Self-paced lessons on how storms, fronts and the atmosphere work. The classic starting point.",
+         "https://www.noaa.gov/jetstream"),
+        ("NWS Training Portal - How radar works",
+         "Official explanations of reflectivity, velocity and dual-pol products.",
+         "https://training.weather.gov/nws_courses/"),
+        ("SKYWARN storm spotter program",
+         "Free volunteer training to report severe weather to the NWS - many sessions are online.",
+         "https://www.weather.gov/skywarn/"),
+        ("NOAA/NWS Severe Weather 101 (NSSL)",
+         "Plain-language science on tornadoes, hail, lightning and flash floods.",
+         "https://www.nssl.noaa.gov/education/"),
+        ("Weather Safety - NWS",
+         "Tornado, flood, lightning, heat and winter safety pages with checklists.",
+         "https://www.weather.gov/safety"),
+        ("CoCoRaHS - be a rain gauge volunteer",
+         "Community rain-reporting network; your observations feed real hydrology.",
+         "https://www.cocorahs.org/"),
+        ("NOAA SciJinks (for kids)",
+         "Games and simple explanations of weather for younger learners.",
+         "https://scijinks.gov/"),
+        ("NWS Knoxville office (our home office)",
+         "Local forecasts, spotter training schedules and East TN climatology.",
+         "https://www.weather.gov/mrx/"),
+    ]
+    learn_html = "".join(
+        f'<div class="card"><h2>🎓 {html.escape(t)}</h2><p style="margin:6px 0">{txt}</p>'
+        f'<a href="{u}" target="_blank" rel="noopener" class="src">{u.split("//")[1].split("/")[0]} ↗</a></div>'
+        for t, txt, u in learn)
+
+    safety = [
+        ("🌪️", "Tornado", "In a warning: lowest floor, interior room, away from windows. Mobile homes and vehicles are unsafe - get to a sturdy building.", "#ef5350"),
+        ("🌊", "Flash flood", "Turn Around Don't Drown® - never drive through a flooded road. Six inches of moving water can knock you down; a foot floats many cars.", "#42a5f5"),
+        ("⚡", "Lightning", "When thunder roars, go indoors! Wait 30 minutes after the last thunder before going back outside.", "#ffb74d"),
+        ("🥵", "Heat", "Water, rest, shade. At WBGT 90°F+, cancel outdoor exertion. Check on elderly neighbors.", "#ff8a65"),
+        ("❄️", "Winter storms", "Dress in layers, keep a car blanket and charger. Black ice forms first on bridges and shaded curves.", "#90caf9"),
+    ]
+    safety_html = "".join(
+        f'<div class="card" style="border-left:4px solid {c}"><h2>{ic} {html.escape(t)} safety</h2>'
+        f'<p style="margin:6px 0">{txt}</p></div>' for ic, t, txt, c in safety)
+
+    gloss = [
+        ("CAPE", "Instability fuel for storms - higher = stronger updrafts possible. 1000+ J/kg storms; 2500+ severe potential."),
+        ("Dew point", "Moisture measure - 55°F muggy-ish, 65°F+ oppressive, and thunderstorms feed on it."),
+        ("Vorticity", "Spin in the airflow - maxima aloft often kick off storm systems and heavy rain."),
+        ("dBZ", "Radar echo strength - 20 light rain, 40 heavy rain, 55+ likely hail."),
+        ("WBGT", "Wet-Bulb Globe Temperature - heat stress in the sun, used by schools and athletic programs."),
+        ("Skew-T", "The atmospheric vertical profile chart - temperature, moisture and wind from ground to jet stream."),
+        ("Ensemble", "Many model runs with tiny tweaks - the spread between members shows forecast confidence."),
+        ("SPC MCD", "Mesoscale Discussion - SPC's short-fuse technical note on where organized severe weather is about to develop."),
+        ("Helicity", "Wind that turns with height - storms ingest it and rotate. 150+ m²/s² in a storm environment gets forecasters' attention."),
+        ("Lapse rate", "How fast air cools with height - steep rates (8°C/km+) make air rise explosively and fuel storms."),
+        ("PWAT", "Precipitable water - the rain in a column if it all fell at once. 2+ inches = torrential-rain flood potential."),
+        ("MOS", "Model Output Statistics - raw model output statistically corrected for each airport's climate; often beats the raw model."),
+        ("AI models", "Forecasts (FourCastNet, GraphCast, AIFS) learned from decades of data - fast and often skillful, but new and still audited."),
+        ("Dew point vs RH", "Dew point is real moisture (better for comfort & storms); relative humidity changes with temperature alone."),
+        ("Flood stage", "Gauge height where a river starts causing impacts: action → minor → moderate → major."),
+        ("AFD", "Area Forecast Discussion - the local NWS office's plain-language notes on WHY the forecast is what it is."),
+    ]
+    gloss_rows = "".join(f'<tr><td><b>{k}</b></td><td>{v}</td></tr>' for k, v in gloss)
+
+    mini = [
+        ("🧭", "How to compare two models (and know which to trust)",
+         "Open the Models page in two tabs - GFS in one, NAM in the same product and hour. Where the 500-mb vorticity "
+         "and surface lows line up, confidence is high. Where they diverge, check the ensemble spread: tight spread + "
+         "diverging deterministic runs usually means the ensemble mean wins. Rule of thumb: days 1-3 trust the high-res "
+         "models (HRRR/NAM), days 4-7 trust the global ensembles (GEFS/EPS), day 8+ treat everything as a pattern hint."),
+        ("🌪️", "Reading a severe weather setup in 5 minutes",
+         "Start on Mesoanalysis: is CAPE above 1500 J/kg? Is the 0-6 km shear vector crossing the warm front at 40 kt+? "
+         "Then check SPC's outlook for probability and hatching. Finally watch the radar for discrete cells ahead of any "
+         "line - those are the ones that rotate. If all three agree, that is when the Skywarn group chat lights up."),
+        ("🌊", "Why river flooding lags the rain",
+         "Rain must first fill the soil, then the hollows, then the tributaries before the main stem crests. That is why "
+         "the Rivers page matters days after a storm: the Nolichucky can keep rising 12-24 h after the sky clears. "
+         "Compare the gauge trend (rising/steady/falling) - the trend matters more than the number."),
+        ("❄️", "The 32°F line and why elevation wins in East Tennessee",
+         "Our valleys routinely sit 5-8°F warmer than the ridges at night. A 34°F valley rain can be a 28°F ridge ice "
+         "event. When winter maps show blue over the plateau but not the valley, that is not a model error - that is "
+         "the actual elevation profile of East Tennessee. Always check the temperature column below the snow map."),
+        ("📡", "What the radar actually measures",
+         "Radar sends microwaves and listens for echoes off raindrops. Reflectivity (dBZ) is echo strength - but it "
+         "measures DROPS, not flood impact: drizzle with huge drops can out-echo a steady soaker. That is why the "
+         "site pairs radar with MRMS gauge-calibrated QPE - the radar shape with real rain-gauge truth."),
+    ]
+    mini_html = "".join(
+        f'<details class="card" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700">'
+        f'{ic} {html.escape(t)}</summary><p style="margin:8px 0 2px">{txt}</p></details>'
+        for ic, t, txt in mini)
+
+    body = f"""
+<header class="hero"><h1>📚 Education & Resources</h1>
+<div class="sub">Learn to read weather data like a forecaster - official NOAA/NWS learning links,\nsafety guides, and how to use every tool on this site · free, always here</div></header>
+
+<div class="card" style="background:linear-gradient(135deg,#1d3557,#2a6f97);color:#fff">
+  <h2 style="color:#fff">Weather school, in order</h2>
+  <p style="margin:6px 0">New to meteorology? Do these three: <b>1)</b> skim NOAA JetStream for the big picture,\n  <b>2)</b> read the radar &amp; model guides below while looking at this site's real data,\n  <b>3)</b> join SKYWARN for local, hands-on severe-weather training. That path takes most people\n  from \"just curious\" to reading soundings in a few weeks.</p>
+</div>
+
+<h2 style="margin:14px 0 6px">Learn with this site</h2>
+<div class="kpis">{tools_html}</div>
+
+<h2 style="margin:14px 0 6px">Forecaster mini-lessons</h2>
+{mini_html}
+
+<h2 style="margin:14px 0 6px">Official learning resources</h2>
+<div class="kpis">{learn_html}</div>
+
+<h2 style="margin:14px 0 6px">Safety essentials</h2>
+<div class="kpis">{safety_html}</div>
+
+<div class="card"><h2>📖 Glossary - words used on this site</h2>
+<table>{'<tr><th>Term</th><th>What it means</th></tr>'}{gloss_rows}</table>
+<span class="src">Deeper definitions: NOAA JetStream glossary and the NWS glossary at weather.gov/glossary.</span></div>
+
+<div class="card"><span class="src">All links go to NOAA / NWS / official programs (open in a new tab).\nThis site is a free, independent service for East Tennessee - no accounts, no cost.</span></div>
+"""
+    return _page("Education", "education.html", body)
+
+
 def page_severe(d):
     sev = d.get("severe") or {}
     outlooks = sev.get("outlooks") or []
@@ -2311,9 +3499,75 @@ def page_severe(d):
                 f'<div class="kpi"><span>Hail reports</span><b style="color:#4da3ff">{rep.get("hail", 0)}</b></div>'
                 f'</div>')
 
-    md_html = ""
-    for m in md[:1]:
-        md_html = f'<div class="card"><h2>📍 Latest SPC Mesoscale Discussion</h2><div class="pre">{html.escape(m.get("text", ""))}</div></div>'
+    def _mcd_card(m):
+        cur = ' · <b style="color:#ff5722">ACTIVE</b>' if m.get("current") else " (expired)"
+        prob = f" · watch probability {m['prob']}%" if m.get("prob") is not None else ""
+        wfos = f' · WFOs: {html.escape(m["wfos"])}' if m.get("wfos") else ""
+        return (f'<div class="card"><h2>📍 SPC Mesoscale Discussion {m["num"]}{cur}</h2>'
+                f'<div class="alert" style="border-left-color:#ff5722"><b>{html.escape(m.get("concerning") or "")}</b>'
+                f'<span>{html.escape(m.get("areas") or "")} · valid {m.get("validStart", "-")} - {m.get("validEnd", "-")}{prob}</span></div>'
+                f'<div class="pre">{html.escape(m.get("summary") or "")}</div>'
+                f'<div class="pre">{html.escape(m.get("discussion") or "")}</div>'
+                f'<div class="src"><a href="{m.get("url", "#")}" target="_blank">Full product on SPC ↗</a>{wfos}</div></div>')
+    md_html = ("".join(_mcd_card(m) for m in md[:2])
+               or '<div class="card"><h2>📍 SPC Mesoscale Discussions</h2><div class="src">No discussions in the last day.</div></div>')
+
+    hail = sev.get("forecast") or {}
+    if hail.get("ok") and hail.get("hours"):
+        from data._tz import iso_local
+        peak = hail.get("peak") or {}
+        prot = hail.get("peakRot") or {}
+        pk = peak.get("cat")
+
+        def _et(t):
+            try:
+                return iso_local(dt.datetime.strptime(t, "%Y-%m-%dT%H:%M:%SZ")
+                                 .replace(tzinfo=dt.timezone.utc))
+            except (ValueError, TypeError):
+                return (t or "-").replace("T", " ").replace("Z", "")
+        pk_line = (f'<b style="color:{peak.get("catColor", "#81c784")}">'
+                   f'{peak.get("mm", 0):.0f} mm ({pk})</b> at {_et(peak.get("time"))}'
+                   if pk else f'<b style="color:#81c784">{peak.get("mm", 0):.0f} mm</b> - no severe hail expected')
+        pr_line = (f'<b style="color:{prot.get("catColor", "#81c784")}">'
+                   f'{prot.get("val", 0):.0f} m²/s² ({prot.get("cat")})</b> at {_et(prot.get("time"))}'
+                   if prot.get("cat") else f'<b style="color:#81c784">{prot.get("val", 0):.0f} m²/s²</b> - no rotating storms forecast')
+
+        def _hrow(h):
+            hcat_cell = (f'<b style="color:{h["catColor"]}">{h["cat"]}</b>'
+                         if h.get("cat") else "—")
+            ucat_cell = (f'<b style="color:{h["ucatColor"]}">{h["ucat"]}</b>'
+                         if h.get("ucat") else "—")
+            return (f'<tr><td>{_et(h.get("time"))}</td>'
+                    f'<td>{(h.get("tn_max") if h.get("tn_max") is not None else 0):.0f} mm</td>'
+                    f'<td>{hcat_cell}</td>'
+                    f'<td>{(h.get("tn_uphl") if h.get("tn_uphl") is not None else 0):.0f}</td>'
+                    f'<td>{ucat_cell}</td></tr>')
+        rows = "".join(_hrow(h) for h in hail["hours"])
+        cities = {k: v for k, v in (hail.get("cities") or {}).items()
+                  if v.get("hail") or v.get("uphl")}
+        city_rows = "".join(
+            f'<tr><td>{html.escape(k)}</td>'
+            f'<td>{v["hail"]:.0f} mm</td><td>{v["hcat"] or "—"}</td>'
+            f'<td>{v["uphl"]:.0f}</td><td>{v["ucat"] or "—"}</td></tr>'
+            for k, v in sorted(cities.items(),
+                               key=lambda kv: -(kv[1]["hail"] + kv[1]["uphl"])))
+        hail_html = (
+            '<div class="card"><h2>🧊 Hail &amp; 🌪️ tornado-rotation forecast - next 8 hours (HRRR)</h2>'
+            '<div class="kpis">'
+            f'<div class="kpi"><span>East TN peak hail</span>{pk_line}</div>'
+            f'<div class="kpi"><span>Peak rotation (tornado proxy)</span>{pr_line}</div>'
+            f'<div class="kpi"><span>Model run</span><b>{hail.get("cycle", "-")}</b></div></div>'
+            '<div class="ltg-row">'
+            '<table class="minitable" style="min-width:430px"><tr><th>Valid (ET)</th><th>Hail max</th><th>Size class</th><th>UPHL</th><th>Rotation</th></tr>'
+            + rows + '</table>'
+            + (f'<table class="minitable" style="min-width:300px"><tr><th>City</th><th>Hail</th><th>Class</th><th>UPHL</th><th>Rotation</th></tr>'
+               + city_rows + '</table>' if city_rows else
+               '<div class="src">No hail or rotating storms forecast at any East TN city today.</div>')
+            + '</div>'
+            '<div class="src">HRRR HAIL (max hail diameter, mm) + UPHL (2-5 km updraft helicity, m²/s² - the standard HRRR tornado proxy; 130+ = mesocyclone-strength rotation, 250+ = tornado threat signal). Size classes: small &lt;19 · 3/4-1 in · 1-1.75 in (severe) · 1.75-2.75 in · 2.75+ in. Rotation: weak &lt;75 · rotation &lt;130 · strong 130-250 · TORNADO THREAT 250+. Updates every model cycle.</div></div>')
+    else:
+        hail_html = ('<div class="card"><h2>🧊 Hail &amp; 🌪️ tornado-rotation forecast</h2>'
+                     '<div class="src">Forecast temporarily unavailable - the next model cycle will fill it in.</div></div>')
 
     ltg = sev.get("ltgHistory") or {}
     ltg_cells = [c for c in (ltg.get("cells") or []) if c.get("peak", 0) > 0]
@@ -2362,6 +3616,7 @@ def page_severe(d):
     <span><i style="background:#ffd54f"></i>Watch</span>
     <span><i style="background:#c1e9c1"></i><i style="background:#66cdaa"></i><i style="background:#ffff00"></i><i style="background:#ff8c00"></i><i style="background:#ff0000"></i><i style="background:#ff00ff"></i> SPC Day 1-3</span>
     <span><i style="background:#ff8a80"></i>Storm report</span>
+    <span><i style="background:#ff5722"></i>SPC MCD (active)</span>
   </div>
   <div class="ctl" style="margin-top:12px">
     <label><input type="checkbox" id="ly_ww" checked/> Warnings &amp; watches</label>
@@ -2377,11 +3632,20 @@ def page_severe(d):
     </select>
     <label><input type="checkbox" id="ly_reports" checked/> Storm reports</label>
     <label><input type="checkbox" id="ly_cells" checked/> AI cells</label>
+    <label><input type="checkbox" id="ly_mcd" checked/> SPC MCDs</label>
+    <label><input type="checkbox" id="ly_fc" checked/> HRRR forecast maps</label>
+    <select id="fcKind" title="Forecast hazard layer">
+      <option value="severe">Severe chance (combined)</option>
+      <option value="hail">Hail forecast</option>
+      <option value="tornado">Tornado rotation (UPHL)</option>
+    </select>
+    <select id="fcHour"></select>
   </div>
-  <div class="src">{len(ww)} warning polygons · {len(outlooks)} outlook areas · {len(tn)} TN alerts · basemap {'Mapbox' if _MAPBOX_TOKEN else 'OpenStreetMap'}</div>
+  <div class="src">{len(ww)} warning polygons · {len(outlooks)} outlook areas · {len(tn)} TN alerts · HRRR forecast maps: hail size classes · UPHL rotation · combined severe chance · basemap {'Mapbox' if _MAPBOX_TOKEN else 'OpenStreetMap'}</div>
 </div>
 
 <div class="card"><h2>📊 Storm reports today (SPC)</h2>{rep_html}</div>
+{hail_html}
 {ltg_html}
 <div class="card"><h2>🎩 SPC risk at home</h2><div class="kpis">{spc_html or '<span class="src">SPC data unavailable.</span>'}</div></div>
 <div class="card"><h2>⚠️ Tennessee alerts (all counties)</h2><div class="alerts">{tn_html}</div></div>
@@ -2397,6 +3661,15 @@ function styleWW(f) {{
   return {{ color: p.color || "#ff9f43", weight: tor ? 2.5 : 1.5,
            dashArray: p.kind === "watch" ? "5 4" : null, fillOpacity: 0.10 }};
 }}
+function fmtAlertET(iso) {{
+  /* ISO UTC alert expiry -> visitor-local '9/11, 2:00 PM' (labeled ET at home) */
+  try {{
+    const dte = new Date(iso);
+    if (isNaN(dte)) return iso;
+    return dte.toLocaleString([], {{ month: "numeric", day: "numeric",
+      hour: "numeric", minute: "2-digit" }});
+  }} catch (e) {{ return iso; }}
+}}
 function warnPopup(f) {{
   const p = f.properties || {{}};
   const torTag = p.tor === "POSSIBLE" ? " · <b style='color:#ff1744'>TORNADO POSSIBLE</b>"
@@ -2405,7 +3678,7 @@ function warnPopup(f) {{
     + (p.severity ? "<br/><span class=src>Severity: " + p.severity + "</span>" : "")
     + (p.areaDesc ? "<br/>" + p.areaDesc : "")
     + (p.headline ? "<br/><span class=src>" + p.headline + "</span>" : "")
-    + (p.expires ? "<br/><span class=src>Until " + p.expires + "Z</span>" : "")
+    + (p.expires ? "<br/><span class=src>Until " + fmtAlertET(p.expires) + "</span>" : "")
     + (p.url ? "<br/><a href='" + p.url + "' target='_blank'>Full alert (NWS) ↗</a>" : "");
 }}
 function spcPopup(o) {{
@@ -2441,13 +3714,33 @@ function buildSpcLayer(S) {{
   }}));
   if (document.getElementById("ly_spc").checked) layers.spc.addTo(map);
 }}
+function mdPopup(f) {{
+  return "<b>SPC Mesoscale Discussion " + f.num + "</b>" + (f.current ? " · <b style='color:#ff5722'>ACTIVE</b>" : " (expired)")
+    + (f.concerning ? "<br/>" + f.concerning : "")
+    + (f.areas ? "<br/>" + f.areas : "")
+    + (f.validStart && f.validStart !== "-" ? "<br/><span class=src>Valid " + f.validStart + " - " + f.validEnd + "</span>" : "")
+    + (f.prob != null ? "<br/><span class=src>Probability of watch issuance: " + f.prob + "%</span>" : "")
+    + (f.summary ? "<br/><span class=src>" + f.summary + "</span>" : "")
+    + (f.url ? "<br/><a href='" + f.url + "' target='_blank'>Full product (SPC) ↗</a>" : "");
+}}
+function buildMcdLayer(S) {{
+  if (layers.mcd) map.removeLayer(layers.mcd);
+  layers.mcd = L.layerGroup((S.md || []).map(f => {{
+    const ring = f.geometry.coordinates[0].map(c => [c[1], c[0]]);
+    return L.polygon(ring, {{ color: f.current ? "#ff5722" : "#b0bec5", weight: 2, dashArray: "6 4",
+        fillColor: f.current ? "#ff5722" : "#90a4ae", fillOpacity: f.current ? 0.18 : 0.08 }})
+      .bindTooltip("<b>SPC MD " + f.num + (f.current ? " (active)" : "") + "</b><br/>" + (f.concerning || ""), {{ sticky: true }})
+      .bindPopup(mdPopup(f));
+  }}));
+  if (document.getElementById("ly_mcd").checked) layers.mcd.addTo(map);
+}}
 function toggle(id, lyr) {{
   const on = document.getElementById(id).checked;
   if (on && !map.hasLayer(lyr)) lyr.addTo(map);
   if (!on && map.hasLayer(lyr)) map.removeLayer(lyr);
 }}
 async function boot() {{
-  DATA = await (await fetch(SITE_DATA_URL, {{cache: "no-store"}})).json();
+  DATA = await (await fetch(dataUrl(), {{cache: "no-store"}})).json();
   const S = DATA.severe || SEV;
   document.title = DATA.pageName + " - Severe";
   {_mapbox_token_js()}
@@ -2457,6 +3750,7 @@ async function boot() {{
   layers.ww = L.geoJSON({{ type: "FeatureCollection", features: (S.warnings || []).map(w => ({{ type: "Feature", properties: w, geometry: w.geometry }})) }},
     {{ style: styleWW, onEachFeature: (f, l) => {{ l.bindPopup(warnPopup(f)); l.bindTooltip((f.properties.event || "") + (f.properties.tor ? " 🌪" : "") + "<br/>" + (f.properties.areaDesc || ""), {{ sticky: true }}); }} }});
   buildSpcLayer(S);
+  buildMcdLayer(S);
   document.getElementById("spcDay").onchange = () => buildSpcLayer(S);
   layers.reports = L.layerGroup((S.reports && S.reports.rows || []).map(r => {{
     if (!r.lat || !r.lon) return null;
@@ -2469,13 +3763,466 @@ async function boot() {{
       fillColor: c.dbz >= 55 ? "#ff1744" : c.dbz >= 45 ? "#ffb74d" : "#aed581", fillOpacity: .85 }})
       .bindTooltip("AI cell " + c.dbz.toFixed(0) + " dBZ")));
   toggle("ly_ww", layers.ww); toggle("ly_reports", layers.reports); toggle("ly_cells", layers.cells);
-  for (const id of ["ly_ww", "ly_spc", "ly_reports", "ly_cells"])
+  toggle("ly_mcd", layers.mcd);
+  for (const id of ["ly_ww", "ly_spc", "ly_reports", "ly_cells", "ly_mcd"])
     document.getElementById(id).onchange = () => toggle(id, layers[id]);
+  /* ---- HRRR forecast map overlays (hail / tornado-rotation / severe chance) ---- */
+  const FC = (S.maps && S.maps.frames) || null;
+  const fcHour = document.getElementById("fcHour");
+  let fcLayer = null;
+  function fcFillHours() {{
+    const kind = document.getElementById("fcKind").value;
+    const frames = (FC && FC[kind]) || [];
+    fcHour.innerHTML = frames.map(f => `<option value="${{f.id}}">${{f.label}}</option>`).join("");
+    if (frames.length) fcHour.value = frames[frames.length - 1].id;   // newest hour
+  }}
+  function fcShow() {{
+    if (fcLayer) {{ map.removeLayer(fcLayer); fcLayer = null; }}
+    const kind = document.getElementById("fcKind").value;
+    const frames = (FC && FC[kind]) || [];
+    const f = frames.find(x => x.id === fcHour.value);
+    if (!f || !f.pngUrl || !f.bounds) return;
+    fcLayer = L.imageOverlay(f.pngUrl, [[f.bounds[0], f.bounds[1]], [f.bounds[2], f.bounds[3]]],
+      {{ opacity: .75, interactive: false }});
+    if (document.getElementById("ly_fc").checked) fcLayer.addTo(map);
+  }}
+  if (FC) {{
+    fcFillHours();
+    document.getElementById("fcKind").onchange = () => {{ fcFillHours(); fcShow(); }};
+    fcHour.onchange = fcShow;
+    document.getElementById("ly_fc").onchange = fcShow;
+    fcShow();     /* checkbox is off by default - show() respects that */
+  }} else {{
+    document.getElementById("fcKind").disabled = true;
+    fcHour.disabled = true;
+  }}
 }}
 boot();
 </script>
 """
     return _page("Severe", "severe.html", body)
+
+
+def page_winter(d):
+    """Winter weather: HRRR snow/ice overlays, multi-model snowfall maps,
+    WPC winter desks, CPC extended outlooks, winter alerts."""
+    wnt = d.get("winter") or {}
+    frames = wnt.get("frames") or {}
+    alerts = wnt.get("alerts") or {}
+    wpc = wnt.get("wpc") or []
+    cpc = wnt.get("cpc") or []
+    msnow = wnt.get("modelSnow") or {}
+
+    us_n = alerts.get("usCount", 0)
+    if us_n:
+        a_color, a_word = "#ff9f43", f"{us_n} active winter alert{'s' if us_n != 1 else ''} nationwide"
+    else:
+        a_color, a_word = "#81c784", "No active winter alerts nationwide right now"
+    tn_rows = "".join(
+        f'<tr><td><b style="color:#4da3ff">{html.escape(a.get("event") or "")}</b></td>'
+        f'<td>{html.escape(a.get("area") or "")}</td>'
+        f'<td>{html.escape(a.get("expires") or "")}</td></tr>'
+        for a in (alerts.get("tn") or []))
+    tn_html = (f'<table class="minitable" style="min-width:420px">'
+               '<tr><th>Alert</th><th>Area</th><th>Expires (ET)</th></tr>' + tn_rows + '</table>'
+               if tn_rows else
+               '<div class="alert ok">No winter alerts for Tennessee - exactly what a quiet day looks like.</div>')
+
+    wpc_tiles = "".join(
+        f'<figure class="wpcfig"><img loading="lazy" src="../winter/wpc/{p["file"]}" alt="{html.escape(p["label"])}"/'
+        f'<figcaption>{html.escape(p["label"])}</figcaption></figure>'
+        for p in wpc)
+
+    cpc_tiles = "".join(
+        f'<figure class="wpcfig"><img loading="lazy" src="../winter/cpc/{p["file"]}" alt="{html.escape(p["label"])}"/'
+        f'<figcaption>{html.escape(p["label"])}</figcaption></figure>'
+        for p in cpc)
+
+    body = f"""
+<header class="hero"><h1>❄️ Winter Weather</h1>
+<div class="sub">HRRR snow &amp; ice forecast maps · WPC Winter Weather Desk · winter alerts - updated {d["generated"]}</div></header>
+
+<div class="card">
+  <div class="kpis">
+    <div class="kpi"><span>Nationwide winter alerts</span><b style="color:{a_color}">{a_word}</b></div>
+    <div class="kpi"><span>HRRR cycle</span><b>{wnt.get("cycle") or "-"}</b></div>
+  </div>
+  <div id="map" class="map-dark" style="height:460px"></div>
+  <div class="legend">
+    <span><i style="background:#add8e6"></i>0.1-1&quot;</span>
+    <span><i style="background:#78bee6"></i>1-2&quot;</span>
+    <span><i style="background:#5096e6"></i>2-4&quot;</span>
+    <span><i style="background:#3c6ed7"></i>4-6&quot;</span>
+    <span><i style="background:#783cc8"></i>6-12&quot;</span>
+    <span><i style="background:#e63ce6"></i>12&quot;+</span>
+    <span><i style="background:#ffb3c8"></i>ice 0.1-0.25&quot;</span>
+    <span><i style="background:#ff3c64"></i>ice 0.25&quot;+</span>
+  </div>
+  <div class="ctl" style="margin-top:12px">
+    <label><input type="checkbox" id="ly_fc" checked/> HRRR forecast map</label>
+    <select id="fcKind" title="Winter hazard">
+      <option value="snow">Snowfall accumulation</option>
+      <option value="ice">Freezing rain accumulation</option>
+    </select>
+    <select id="fcHour"></select>
+  </div>
+  <div class="ctl" style="margin-top:8px">
+    <label><input type="checkbox" id="ly_ms"/> Model snowfall</label>
+    <select id="msModel" title="Forecast model"></select>
+    <select id="msHour" title="Forecast hour"></select>
+    <span class="src" id="msCycle"></span>
+  </div>
+  <div class="src">HRRR {wnt.get("cycle") or ""} - accumulated snowfall (ASNOW) and freezing rain (FROZR) through each window, decoded from NOAA's open-data bucket and rendered here. On warm days the maps are honestly empty; the first cold storm paints them automatically.</div>
+</div>
+
+<div class="card"><h2>🌨️ Model snowfall forecasts - every model with a snow field</h2>
+<div class="src">Same maps the Models tab renders, overlaid on the winter map: <b>GFS</b> (day 1-10 accumulated snowfall), <b>GEFS ensemble mean + spread</b> (spread = where runs disagree - wide spread means low forecast confidence), and the <b>NBM 6-hour blend</b>. Tick <b>Model snowfall</b>, pick a model and hour. The rotation keeps these current every model cycle; hours appear as they render.</div>
+</div>
+
+<div class="card"><h2>⚠️ Winter alerts</h2>
+<div class="kpis"><div class="kpi"><span>Tennessee</span><b>{len(alerts.get("tn") or [])} alert(s)</b></div></div>
+{tn_html}
+</div>
+
+<div class="card"><h2>🗺️ WPC Winter Weather Desk (national)</h2>
+<div class="src">Weather Prediction Center winter desks run twice daily in the cold season; probabilities are for at least the amount shown through each day.</div>
+<div class="ltg-row">{wpc_tiles}</div>
+</div>
+
+<div class="card"><h2>📅 Weeks 2-4: CPC extended outlooks</h2>
+<div class="src">Climate Prediction Center 6-10 and 8-14 day outlooks - the standard extended-range winter guidance. Below-normal temperatures (blues) + a wet signal = the pattern that produces Tennessee Valley snow.</div>
+<div class="ltg-row">{cpc_tiles}</div>
+</div>
+
+<script>
+const WNT = {json.dumps(wnt)};
+let map, wLayer = null;
+async function boot() {{
+  DATA = await (await fetch(dataUrl(), {{cache: "no-store"}})).json();
+  const W = (DATA.winter || WNT);
+  document.title = DATA.pageName + " - Winter";
+  {_mapbox_token_js()}
+  map = L.map("map", {{ zoomSnap: 0.5, maxZoom: 21 }}).setView([DATA.lat, DATA.lon], 5);
+  addMapControls(map, [DATA.lat, DATA.lon], 5);
+  L.circleMarker([DATA.lat, DATA.lon], {{ radius: 6, color: "#fff", weight: 2, fillColor: "#4da3ff", fillOpacity: 1 }}).addTo(map).bindTooltip(DATA.place);
+  const fcKind = document.getElementById("fcKind"), fcHour = document.getElementById("fcHour");
+  function fillHours() {{
+    const frames = ((W.frames || {{}})[fcKind.value]) || [];
+    fcHour.innerHTML = frames.map(f => `<option value="${{f.id}}">${{f.label}}</option>`).join("");
+  }}
+  function show() {{
+    if (wLayer) {{ map.removeLayer(wLayer); wLayer = null; }}
+    const frames = ((W.frames || {{}})[fcKind.value]) || [];
+    const f = frames.find(x => x.id === fcHour.value);
+    if (!f || !f.pngUrl || !f.bounds) return;
+    wLayer = L.imageOverlay(f.pngUrl, [[f.bounds[0], f.bounds[1]], [f.bounds[2], f.bounds[3]]],
+      {{ opacity: .8, interactive: false }});
+    if (document.getElementById("ly_fc").checked) wLayer.addTo(map);
+  }}
+  fillHours();
+  fcKind.onchange = () => {{ fillHours(); show(); }};
+  fcHour.onchange = show;
+  document.getElementById("ly_fc").onchange = show;
+  show();
+  // ---- multi-model snowfall overlays (GFS / GEFS / GEFS-Spread / NBM) ----
+  const MS = W.modelSnow || {{}};
+  const msModel = document.getElementById("msModel");
+  const msHour = document.getElementById("msHour");
+  const msCycle = document.getElementById("msCycle");
+  let msLayer = null;
+  function msModels() {{
+    msModel.innerHTML = Object.keys(MS).map(k =>
+      `<option value="${{k}}">${{MS[k].label}} (${{MS[k].frames.length}})</option>`).join("");
+  }}
+  function msHours() {{
+    const m = MS[msModel.value];
+    msHour.innerHTML = (m ? m.frames : []).map(f =>
+      `<option value="${{f.id}}">${{f.label}}</option>`).join("");
+    msCycle.textContent = m ? ("cycle " + m.cycle.slice(6, 8) + "/"
+      + m.cycle.slice(8, 10) + "Z") : "";
+  }}
+  function msShow() {{
+    if (msLayer) {{ map.removeLayer(msLayer); msLayer = null; }}
+    const m = MS[msModel.value];
+    const f = m && (m.frames.find(x => x.id === msHour.value));
+    if (!f || !f.bounds) return;
+    msLayer = L.imageOverlay(f.pngUrl, [[f.bounds[0], f.bounds[1]], [f.bounds[2], f.bounds[3]]],
+      {{ opacity: .82, interactive: false }});
+    if (document.getElementById("ly_ms").checked) msLayer.addTo(map);
+  }}
+  if (Object.keys(MS).length) {{
+    msModels(); msHours();
+    msModel.onchange = () => {{ msHours(); msShow(); }};
+    msHour.onchange = msShow;
+    document.getElementById("ly_ms").onchange = msShow;
+  }} else {{
+    const row = document.getElementById("msModel").closest(".ctl");
+    if (row) row.style.display = "none";
+  }}
+}}
+boot();
+</script>
+"""
+    return _page("Winter", "winter.html", body)
+
+
+def page_dashboard(d):
+    """Marine-style dashboard (LakeErieWX model): station panels with current
+    readings big + 24 h temp sparkline, river gauge panels with the official
+    NWPS hydrograph embedded, KPI strip on top."""
+    db = d.get("dashboard") or {}
+    stations = db.get("stations") or []
+    gauges = db.get("gauges") or []
+    kpi = db.get("kpi") or {}
+    kpis = [
+        ("Stations reporting", str(kpi.get("stations") or len(stations)), None),
+        ("Warmest right now", (f"{kpi['tempMax']}\u00b0F" if kpi.get("tempMax") is not None else "-"), "#ef6c00"),
+        ("Coolest right now", (f"{kpi['tempMin']}\u00b0F" if kpi.get("tempMin") is not None else "-"), "#0288d1"),
+        ("Peak gust", (f"{kpi['gustMax']} mph" if kpi.get("gustMax") else "calm"), None),
+        ("Rivers in flood", str(kpi.get("riversInFlood") or 0),
+         "#d32f2f" if kpi.get("riversInFlood") else "#43a047"),
+    ]
+    kpi_html = "".join(
+        f'<div class="kpi"><span>{lbl}</span>'
+        f'<b style="{f"color:{color}" if color else ""}">{val}</b></div>'
+        for lbl, val, color in kpis)
+    body = f"""
+<header class="hero"><h1>🖥️ Live Dashboard</h1>
+<div class="sub">Marine-style condition boards - every panel shows current readings with a 24 h trend \u00b7 updated {d["generated"]}</div></header>
+
+<div class="card"><div class="kpis">{kpi_html}</div></div>
+
+<div class="card"><h2>🌦️ Station panels - current + 24 h trend</h2>
+<div class="src">Live observations from the NWS station network (ASOS/AWOS). The bar under each reading is the last 24 hours of temperature - watch it climb or fall through the day.</div>
+<div id="stGrid" class="dash-grid"></div>
+</div>
+
+<div class="card"><h2>📏 River gauge panels - live stage + official hydrograph</h2>
+<div class="src">Stage from the NWS water prediction service; each chart is the OFFICIAL NWPS hydrograph (click through for the full one).</div>
+<div id="rvGrid" class="dash-grid"></div>
+</div>
+
+<style>
+.dash-grid {{ display:grid; grid-template-columns:repeat(auto-fill,minmax(310px,1fr)); gap:14px; }}
+.dpanel {{ background:#12161d; border:1px solid #232b37; border-radius:10px; padding:12px 14px; }}
+.dpanel .pname {{ font-weight:700; margin-bottom:6px; display:flex; justify-content:space-between; align-items:baseline; gap:8px; }}
+.dpanel .ptime {{ font-size:.72rem; color:#8b97a5; font-weight:400; white-space:nowrap; }}
+.dpanel .big {{ font-size:2rem; font-weight:800; line-height:1.1; }}
+.dpanel .unit {{ font-size:.9rem; color:#8b97a5; font-weight:600; }}
+.dpanel .row {{ display:flex; gap:14px; flex-wrap:wrap; margin-top:6px; font-size:.85rem; }}
+.dpanel .row b {{ font-size:.95rem; }}
+.dpanel .spark {{ margin-top:8px; width:100%; height:44px; }}
+.dpanel .dtag {{ display:inline-block; padding:1px 8px; border-radius:4px; font-size:.72rem; font-weight:700; color:#fff; }}
+.dpanel img.hydro {{ width:100%; border-radius:6px; margin-top:8px; background:#fff; }}
+.dpanel .quiet {{ color:#8b97a5; font-size:.8rem; }}
+</style>
+
+<script>
+const DST = {json.dumps(stations)};
+const DRV = {json.dumps(gauges)};
+function spark(el, hist) {{
+  // inline SVG 24 h temperature sparkline
+  if (!hist || hist.length < 2) return;
+  const vs = hist.map(h => h[1]);
+  const lo = Math.min(...vs), hi = Math.max(...vs), span = Math.max(1, hi - lo);
+  const W = 280, H = 40, P = 3;
+  const pts = hist.map((h, i) =>
+    [P + i * (W - 2 * P) / (hist.length - 1), H - P - (h[1] - lo) * (H - 2 * P) / span]);
+  const d = pts.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
+  el.innerHTML = `<svg viewBox="0 0 ${{W}} ${{H}}" preserveAspectRatio="none" width="100%" height="44">`
+    + `<path d="${{d}}" fill="none" stroke="#ffb74d" stroke-width="2"/>`
+    + `<text x="2" y="12" font-size="10" fill="#8b97a5">24h ${{lo}}\u00b0-${{hi}}\u00b0F</text></svg>`;
+}}
+function fmtTime(t) {{
+  if (!t) return "";
+  try {{ return new Date(t).toLocaleTimeString("en-US", {{hour: "numeric", minute: "2-digit", timeZone: "America/New_York"}}); }}
+  catch (_e) {{ return t; }}
+}}
+function stPanel(s) {{
+  const gust = s.gustMph ? `<span>gusting <b>${{s.gustMph}}</b> mph</span>` : "";
+  return `<div class="dpanel">
+    <div class="pname"><span>${{s.name}}</span><span class="ptime">${{fmtTime(s.time)}} ET</span></div>
+    <div><span class="big">${{s.tempF ?? "-"}}</span><span class="unit">\u00b0F</span>
+      <span class="dtag" style="background:#37474f">${{s.desc || "-"}}</span></div>
+    <div class="row">
+      <span>dew <b>${{s.dewF ?? "-"}}\u00b0</b></span>
+      <span>rh <b>${{s.rh ?? "-"}}%</b></span>
+      <span>wind <b>${{s.windDir ?? "-"}} ${{s.windMph ?? 0}}</b> mph ${{gust}}</span>
+      <span>pres <b>${{s.pressureHg ?? "-"}}</b> in</span>
+      <span>vis <b>${{s.visMi ?? "-"}}</b> mi</span>
+    </div>
+    <div class="spark"></div>
+  </div>`;
+}}
+function rvPanel(g) {{
+  const thr = g.thresholds || {{}};
+  const floodAt = thr.minor || thr.action || thr.moderate || thr.major;
+  const rel = (floodAt && g.stage != null) ? ` <span class="quiet">(${{(floodAt - g.stage).toFixed(1)}} ft to flood stage)</span>` : "";
+  return `<div class="dpanel">
+    <div class="pname"><span>${{g.name}}</span><span class="ptime">${{g.river}}</span></div>
+    <div><span class="big">${{g.stage ?? "-"}}</span><span class="unit">${{g.stageUnit || "ft"}} stage</span>
+      <span class="dtag" style="background:${{g.catColor || "#666"}}">${{g.catWord || ""}}</span>${{rel}}</div>
+    <div class="row"><span>flow <b>${{g.flow ?? "-"}}</b> ${{g.flowUnit || ""}}</span>
+      <span>obs <b>${{fmtTime(g.obsTime)}}</b></span></div>
+    <a href="${{g.url}}" target="_blank" rel="noopener"><img class="hydro" src="${{g.chart}}" alt="hydrograph ${{g.lid}}" loading="lazy"></a>
+  </div>`;
+}}
+function build() {{
+  const sg = document.getElementById("stGrid");
+  sg.innerHTML = DST.length ? DST.map(stPanel).join("") : '<span class=src>No station data right now.</span>';
+  DST.forEach((s, i) => spark(sg.children[i].querySelector(".spark"), s.history));
+  document.getElementById("rvGrid").innerHTML =
+    DRV.length ? DRV.map(rvPanel).join("") : '<span class=src>No gauge data right now.</span>';
+}}
+build();
+</script>
+"""
+    return _page("Dashboard", "dashboard.html", body)
+
+
+def page_rivers(d):
+    """River gauges: NWS NWPS (AHPS) stages, flood status, map + table."""
+    rv = d.get("rivers") or {}
+    gauges = rv.get("gauges") or []
+    counts = rv.get("counts") or {}
+    flood_n = rv.get("floodCount") or 0
+    if flood_n:
+        f_color, f_word = ("#d32f2f",
+                           f"{flood_n} river{'s' if flood_n != 1 else ''} IN FLOOD right now")
+    else:
+        f_color, f_word = "#43a047", "No flooding on any monitored river"
+    gauges_js = json.dumps(gauges)
+    body = f"""
+<header class="hero"><h1>🌊 Rivers &amp; Flooding</h1>
+<div class="sub">NWS Northwest River Prediction Center gauges - stage, flood category and forecasts · updated {d["generated"]}</div></header>
+
+<div class="card">
+  <div class="kpis">
+    <div class="kpi"><span>Status</span><b style="color:{f_color}">{f_word}</b></div>
+    <div class="kpi"><span>Gauges reporting</span><b>{len(gauges)}</b></div>
+    <div class="kpi"><span>Categories</span><b>{" \u00b7 ".join(f"{v} {k.replace('_', ' ')}" for k, v in sorted(counts.items(), key=lambda kv: -kv[1])[:4])}</b></div>
+  </div>
+  <div id="map" class="map-dark" style="height:470px"></div>
+  <div class="legend">
+    <span><i style="background:#d32f2f"></i>major</span>
+    <span><i style="background:#ef6c00"></i>moderate</span>
+    <span><i style="background:#f9a825"></i>minor</span>
+    <span><i style="background:#0288d1"></i>near stage</span>
+    <span><i style="background:#43a047"></i>no flooding</span>
+    <span><i style="background:#9e9e9e"></i>no data</span>
+  </div>
+  <div class="src">Nolichucky · French Broad · Holston · Watauga · Doe · Pigeon · Little Pigeon · Clinch · Powell · Hiwassee · Ocoee · Obed · Cumberland · Stones · Harpeth · Duck · Elk · Buffalo and more - {len(gauges)} gauges across Tennessee. Click a dot for stage vs flood level + the official hydrograph link.</div>
+</div>
+
+<div class="card"><h2>📏 All gauges - worst first</h2>
+<div class="ctl"><label>Filter river: <select id="riverSel"><option value="">All rivers</option></select></label></div>
+<div id="tbl"></div>
+</div>
+
+<script>
+const GAUGES = {gauges_js};
+async function boot() {{
+  DATA = await (await fetch(dataUrl(), {{cache: "no-store"}})).json();
+  document.title = DATA.pageName + " - Rivers";
+  {_mapbox_token_js()}
+  map = L.map("map", {{ zoomSnap: 0.5, maxZoom: 21 }}).setView([35.9, -84.2], 6);
+  addMapControls(map, [35.9, -84.2], 6);
+  L.circleMarker([DATA.lat, DATA.lon], {{ radius: 6, color: "#fff", weight: 2, fillColor: "#4da3ff", fillOpacity: 1 }}).addTo(map).bindTooltip(DATA.place);
+  const groups = {{}};
+  GAUGES.forEach(g => {{
+    if (g.lat == null) return;
+    const m = L.circleMarker([g.lat, g.lon], {{ radius: 6.5, color: "#1b2027", weight: 1.5,
+      fillColor: g.catColor || "#9e9e9e", fillOpacity: .95 }}).addTo(map);
+    m.bindPopup(`<b>${{g.name}}</b><br/>Stage: <b>${{g.stage ?? "?"}} ${{g.stageUnit || "ft"}}</b> - ${{g.catWord || ""}}<br/>` +
+      (g.fcstStage != null ? `Forecast: ${{g.fcstStage}} ${{g.stageUnit || "ft"}}<br/>` : "") +
+      `<a href="${{g.url}}" target="_blank" rel="noopener">Official hydrograph (NWPS)</a>`);
+    (groups[g.group] = groups[g.group] || []).push(g);
+  }});
+  // river filter + table
+  const sel = document.getElementById("riverSel");
+  Object.keys(groups).sort().forEach(r => {{
+    const o = document.createElement("option"); o.value = r; o.textContent = `${{r}} (${{groups[r].length}})`;
+    sel.appendChild(o);
+  }});
+  function table() {{
+    const rows = GAUGES.filter(g => !sel.value || g.group === sel.value).map(g =>
+      `<tr><td><span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:${{g.catColor}}"></span></td>` +
+      `<td><b>${{g.group}}</b></td><td>${{g.name.replace(", TN", "")}}</td>` +
+      `<td><b>${{g.stage ?? "?"}}</b> ${{g.stageUnit || "ft"}}</td>` +
+      `<td style="color:${{g.catColor}}"><b>${{g.catWord}}</b></td>` +
+      (g.fcstStage != null ? `<td>fcst ${{g.fcstStage}} ft</td>` : `<td>-</td>`) +
+      `<td><a href="${{g.url}}" target="_blank" rel="noopener">hydrograph</a></td></tr>`).join("");
+    document.getElementById("tbl").innerHTML = rows
+      ? `<table><tr><th></th><th>River</th><th>Gauge</th><th>Stage</th><th>Status</th><th>Forecast</th><th></th></tr>${{rows}}</table>`
+      : '<span class=src>No gauges in this filter right now.</span>';
+  }}
+  sel.onchange = table;
+  table();
+}}
+boot();
+function onDataRefresh(d) {{ /* statuses refresh with the page data */ }}
+</script>
+"""
+    return _page("Rivers", "rivers.html", body)
+
+
+def page_fire(d):
+    """Fire weather: SPC fire outlooks, red-flag warnings, fire-danger HRRR fields."""
+    try:
+        from data.fire import fire_bundle
+        fw = fire_bundle()
+    except Exception:                              # noqa: BLE001
+        fw = {}
+    rfw = fw.get("redFlag") or {{}} if False else (fw.get("redFlag") or {})
+    rfw_n = rfw.get("usCount") or 0
+    rfw_rows = "".join(
+        f'<tr><td><b style="color:#ff7043">{html.escape(a.get("event") or "Red Flag Warning")}</b></td>'
+        f'<td>{html.escape(a.get("area") or "")}</td>'
+        f'<td>{html.escape(a.get("expires") or "")}</td></tr>'
+        for a in (rfw.get("sample") or []))
+    rfw_html = (f'<table class="minitable">'
+                '<tr><th>Alert</th><th>Area</th><th>Expires (ET)</th></tr>' + rfw_rows + '</table>'
+                if rfw_rows else '<div class="alert ok">No Red Flag Warnings anywhere in the US right now.</div>')
+    tn_fires = (fw.get("tnAlerts") or [])
+    tn_html = ("".join(
+        f'<tr><td><b style="color:#ff7043">{html.escape(a.get("event") or "")}</b></td>'
+        f'<td>{html.escape(a.get("area") or "")}</td></tr>'
+        for a in tn_fires) or "")
+    tn_block = (f'<table class="minitable"><tr><th>Alert</th><th>Area</th></tr>{tn_html}</table>'
+                if tn_html else
+                '<div class="alert ok">No fire-related alerts for Tennessee.</div>')
+    d1 = fw.get("day1Url") or ""
+    d2 = fw.get("day2Url") or ""
+    # ../fire/... form: the packager rewrites + copies it (bare "fire/..."
+    # refs are invisible to its scanner - images 404'd, 2026-09-20)
+    d1u = d1.replace("/app/static/", "../") if d1 else ""
+    d2u = d2.replace("/app/static/", "../") if d2 else ""
+    body = f"""
+<header class="hero"><h1>🔥 Fire Weather</h1>
+<div class="sub">SPC Fire Weather Outlooks · Red Flag Warnings · fire-danger forecasts · updated {d["generated"]}</div></header>
+
+<div class="card">
+  <div class="kpis">
+    <div class="kpi"><span>Red Flag Warnings (US)</span><b style="color:{'#ff7043' if rfw_n else '#43a047'}">{rfw_n} active</b></div>
+    <div class="kpi"><span>Tennessee fire alerts</span><b>{len(tn_fires)}</b></div>
+  </div>
+  <div class="src">SPC Fire Weather Outlooks highlight areas where critical fire-weather conditions (dry fuels + strong wind + low humidity) support dangerous fire spread. Day 1 = today through tonight; Day 2 = tomorrow.</div>
+  <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px">
+    {f'<figure class="wpcfig"><img loading="lazy" src="{d1u}" alt="Day 1 fire outlook"/><figcaption>Day 1 Fire Weather Outlook (SPC)</figcaption></figure>' if d1u else ''}
+    {f'<figure class="wpcfig"><img loading="lazy" src="{d2u}" alt="Day 2 fire outlook"/><figcaption>Day 2 Fire Weather Outlook (SPC)</figcaption></figure>' if d2u else ''}
+  </div>
+</div>
+
+<div class="card"><h2>🚒 Fire alerts</h2>
+<h3 style="margin:6px 0 4px">Tennessee</h3>
+{tn_block}
+<h3 style="margin:14px 0 4px">Nationwide Red Flag Warnings</h3>
+{rfw_html}
+</div>
+
+<div class="src">Wildfire safety: never burn on dry, windy days - embers travel. If a wildfire threatens, follow Tennessee Division of Forestry and local emergency-management evacuation orders immediately.</div>
+"""
+    return _page("Fire", "fire.html", body)
 
 
 def page_meso(d):
@@ -2519,6 +4266,7 @@ def page_meso(d):
 const MESO = {json.dumps(meso)};
 const SEC = MESO.sectors || {{}};
 let curSec = (SEC.ET ? "ET" : "19"), curFld = "sbcp";   // East TN zoom when available
+let bootET = !!SEC.ET, userPicked = false;               // stale-HTML self-heal state
 function baseFor(sec) {{ return SEC[sec] && SEC[sec].fields[curFld] ? SEC[sec].fields[curFld].url : null; }}
 function show() {{
   const u = baseFor(curSec);
@@ -2549,8 +4297,8 @@ function tick() {{
   show();
 }}
 fillPickers();
-document.getElementById("fld").onchange = e => {{ curFld = e.target.value; if (!baseFor(curSec)) curSec = "19"; document.getElementById("sec").value = curSec; tick(); }};
-document.getElementById("sec").onchange = e => {{ curSec = e.target.value; tick(); }};
+document.getElementById("fld").onchange = e => {{ userPicked = true; curFld = e.target.value; if (!baseFor(curSec)) curSec = "19"; document.getElementById("sec").value = curSec; tick(); }};
+document.getElementById("sec").onchange = e => {{ userPicked = true; curSec = e.target.value; tick(); }};
 for (const id of ["ovRadar", "ovWarns", "ovOtlk"]) document.getElementById(id).onchange = show;
 /* 6-hour animation through SPC's hourly archive images
    (data/meso.py pre-fetches field_yymmddhh.gif for the past 6 hours) */
@@ -2588,12 +4336,24 @@ function play() {{
 function stopAnim() {{ clearInterval(animT); animT = null; document.getElementById("btnPlay").textContent = "▶ Animate 6 h"; }}
 document.getElementById("btnPlay").onclick = play;
 tick();
-setInterval(async () => {{
+async function pollData() {{
   try {{
-    const d = await (await fetch(SITE_DATA_URL, {{cache: "no-store"}})).json();
-    if (d.meso) {{ MESO.analysis = d.meso.analysis; Object.assign(MESO.sectors || {{}}, d.meso.sectors || {{}}); tick(); }}
+    const d = await (await fetch(dataUrl(), {{cache: "no-store"}})).json();
+    if (d.meso) {{
+      MESO.analysis = d.meso.analysis;
+      Object.assign(MESO.sectors || {{}}, d.meso.sectors || {{}});
+      if (d.meso.sectorOrder) MESO.sectorOrder = d.meso.sectorOrder;
+      if (d.meso.sectorNames) MESO.sectorNames = d.meso.sectorNames;
+      if (d.meso.fieldGroups) MESO.fieldGroups = d.meso.fieldGroups;
+      const ss = document.getElementById("sec");
+      if (MESO.sectorOrder && ss && ss.options.length !== MESO.sectorOrder.length) fillPickers();
+      if (!bootET && MESO.sectors.ET && !userPicked) {{ bootET = true; curSec = "ET"; document.getElementById("sec").value = "ET"; }}
+      tick();
+    }}
   }} catch (_e) {{}}
-}}, 180000);
+}}
+pollData();
+setInterval(pollData, 180000);
 </script>
 """
     return _page("Mesoanalysis", "meso.html", body)
@@ -2665,7 +4425,7 @@ function obsTip(s) {{
   return `<b>${{s.id}}</b>${{s.name && s.name !== s.id ? " " + s.name : ""}}<br/>${{s.tempF == null ? "-" : s.tempF + "°F"}} · dew ${{s.dewF == null ? "-" : s.dewF + "°F"}}<br/>${{s.windDir || ""}} ${{s.windMph == null ? "" : s.windMph + " mph"}} ${{s.desc || ""}} ${{s.time || ""}}`;
 }}
 async function boot() {{
-  DATA = await (await fetch(SITE_DATA_URL, {{cache: "no-store"}})).json();
+  DATA = await (await fetch(dataUrl(), {{cache: "no-store"}})).json();
   document.title = DATA.pageName + " - Obs & Skew-T";
   {_mapbox_token_js()}
   map = L.map("map", {{ zoomSnap: 0.5, maxZoom: 21 }}).setView([DATA.lat, DATA.lon], 7);
@@ -2737,19 +4497,35 @@ def page_charts(d):
             rows = m.get("rows") or []
             if not rows:
                 continue
-            first = rows[0]
-            mos_bits += (f'<div class="alert" style="border-left-color:#4da3ff">'
-                         f'<b>📍 {html.escape(name)} ({html.escape(m.get("model", "GFS LAMP"))})</b>'
-                         f'<span>init {html.escape(m.get("init", ""))} · {len(rows)} hourly rows · '
-                         f'F{first["fhr"]:03d}: {first.get("tmp", "?") or "?"}°F, dew {first.get("dpt") or "?"}°F, '
-                         f'PoP {first.get("pop") or 0}%, sky {first.get("sky") or "?"}%</span></div>')
-        mos_html = mos_bits or '<div class="alert ok">No MOS bulletins parsed yet.</div>'
-        mos_note = ""
+            # full hour-by-hour table (ET labels from the payload's 'valid')
+            trs = ""
+            for r in rows:
+                wdr = r.get("wdr")
+                wdr_txt = f'{int(wdr):03d}°' if wdr is not None else "-"
+                valid = r.get("valid") or ("F%03d" % (r.get("fhr") or 0))
+                trs += (f'<tr><td>{html.escape(str(valid))}</td>'
+                        f'<td><b>{r.get("tmp") if r.get("tmp") is not None else "-"}°F</b></td>'
+                        f'<td>{r.get("dpt") if r.get("dpt") is not None else "-"}°F</td>'
+                        f'<td>{r.get("pop") if r.get("pop") is not None else 0}%</td>'
+                        f'<td>{r.get("sky") if r.get("sky") is not None else "-"}%</td>'
+                        f'<td>{r.get("wsp") if r.get("wsp") is not None else "-"} mph {wdr_txt}</td></tr>')
+            mos_bits += (f'<details class="card" style="padding:12px;margin-bottom:10px">'
+                         f'<summary style="cursor:pointer;font-weight:700">📍 {html.escape(name)} '
+                         f'({html.escape(m.get("model", "GFS LAMP"))}) - {len(rows)} hourly rows, '
+                         f'init {html.escape(m.get("init", ""))}</summary>'
+                         f'<div style="max-height:420px;overflow-y:auto">'
+                         f'<table class="minitable" style="min-width:420px">'
+                         f'<tr><th>Valid (ET)</th><th>Temp</th><th>Dew</th><th>PoP</th><th>Sky</th><th>Wind</th></tr>'
+                         f'{trs}</table></div></details>')
+        mos_html = mos_bits or '<div class="alert ok">No MOS guidance parsed yet.</div>'
+        mos_note = ('<div class="src">Guidance source: GFS-LAMP / MAV MOS bulletins via the Iowa '
+                    'Environmental Mesonet, with NWS NDFD hourly guidance (MOS-blend) as automatic '
+                    'fallback — hourly out to +60 h for 7 stations, times in Eastern.</div>')
     else:
-        mos_html = ('<div class="alert ok">MOS bulletins are temporarily unavailable - the public '
-                    'bulletin service (Iowa Environmental Mesonet) is down for maintenance right now. '
-                    'The charts on this page come straight from the NWS forecast grid and stay live; '
-                    'MOS rows will appear here automatically once the service returns.</div>')
+        mos_html = ('<div class="alert ok">MOS guidance is temporarily unavailable - both the '
+                    'bulletin service (Iowa Environmental Mesonet) and the NDFD fallback are '
+                    'unreachable right now. The charts on this page come straight from the NWS '
+                    'forecast grid and stay live; guidance rows return automatically.</div>')
         mos_note = '<div class="src">MOS source: GFS-LAMP / MAV bulletins, hourly out to +60 h for 7 stations.</div>'
 
     body = f"""
@@ -2778,12 +4554,37 @@ def page_national(d):
     nat = _national_payload()
     wpc = nat["wpc"]
     upper = nat["upperAir"]
+    sp = d.get("space") or {}
+    kp_rows = sp.get("kp") or []
+    kp_vals = [k.get("kp") for k in kp_rows[-16:] if isinstance(k.get("kp"), (int, float))]
+    kp_n = len(kp_vals)
+    kp_pts = "".join(
+        f'<span title="Kp {v}" style="flex:1;height:{max(3, min(28, v * 3.2)):.0f}px;'
+        f'background:{"#f9a825" if v >= 5 else "#0288d1"};border-radius:2px"></span>'
+        for v in kp_vals)
+    kp_now = sp.get("latestKp")
+    kp_word = sp.get("kpWord") or "Space-weather data unavailable"
+    kp_color = sp.get("kpColor") or "#9e9e9e"
+    fcst = sp.get("forecast") or {}
+    fcst_daily = fcst.get("dailyMax") or {}
+    fcst_txt = " \u00b7 ".join(f"{k}: max Kp {v}" for k, v in list(fcst_daily.items())[:3])
     wpc_opts = "".join(f'<option value="{w["url"]}">{html.escape(w["title"])}</option>' for w in wpc)
     levels = sorted({u["level"] for u in upper})
     upper_opts = "".join(f'<option value="{html.escape(lv)}">{html.escape(lv)}</option>' for lv in levels)
     body = f"""
 <header class="hero"><h1>🗺️ National products</h1>
 <div class="sub">WPC operational charts + SPC observed upper-air analyses · updated {d["generated"]}</div></header>
+
+<div class="card"><h2>🌌 Aurora & space weather (NOAA SWPC)</h2>
+  <div class="kpis">
+    <div class="kpi"><span>Current Kp index</span><b style="color:{kp_color}">{kp_now if kp_now is not None else "-"} - {kp_word}</b></div>
+    <div class="kpi"><span>3-day forecast peak</span><b>{sp.get("forecastMaxKp") if sp.get("forecastMaxKp") is not None else "-"}</b></div>
+  </div>
+  {f'<div style="display:flex;align-items:flex-end;gap:2px;height:32px;margin:6px 0">{kp_pts}</div><div class="src">Kp, past 48 h (3-h values). Kp 7+ means the auroral oval can reach Tennessee&apos;s latitude - look north after dark.</div>' if kp_n else '<div class="src">Space-weather feed unavailable right now.</div>'}
+  {f'<div class="src">SWPC 3-day outlook: {html.escape(fcst_txt or fcst.get("headline", ""))}</div>' if (fcst_txt or fcst.get("headline")) else ""}
+  <figure style="margin:10px 0 0"><img loading="lazy" src="{(sp.get("ovationUrl") or "").replace("/app/static/", "")}" alt="OVATION aurora nowcast" style="max-width:100%;border-radius:10px"/>
+  <figcaption class="src">OVATION aurora forecast (view from the north) - mirrored from SWPC each update.</figcaption></figure>
+</div>
 
 <div class="card"><h2>🌧️ WPC charts</h2>
   <div class="ctl"><select id="wpcSel" style="max-width:420px">{wpc_opts}</select></div>
@@ -2829,6 +4630,18 @@ if (UA.length) fillUaTimes();
     return _page("National", "national.html", body)
 
 
+def _hi_cat_color(hi):
+    """Heat-index risk color for the hourly curve chips."""
+    from data.heatidx import _hi_cat
+    return (_hi_cat(hi)[1] if hi is not None else "#777") or "#777"
+
+
+def _wb_cat_color(wf):
+    """WBGT risk color for the hourly curve chips."""
+    from data.wbgt import _cat
+    return (_cat(wf)[1] if wf is not None else "#777") or "#777"
+
+
 def page_forecast(d):
     days_html = "".join(
         f'<div class="day"><div style="font-weight:700;color:#cdd7e4">{html.escape(day["name"])}</div>'
@@ -2861,6 +4674,9 @@ def page_forecast(d):
         now_t = periods[0]
         summary = f"{now_t['tempF']}°F · {html.escape(now_t['short'])}" if now_t.get("tempF") is not None else html.escape(now_t.get("short", ""))
         hi = next((p["tempF"] for p in periods if p.get("name", "").startswith("Today") or "Day" in p.get("name", "")), None)
+        wb = cf.get("wbgtTomorrow") or {}
+        wb_chip = (f' · <span style="color:{wb["color"]};font-weight:700" '
+                   f'title="Tomorrow peak heat stress index">🔥 {wb["peakF"]}°F</span>' if wb else "")
         rows = "".join(
             f'<div class="cfrow"><div class="cfd">{html.escape(p["name"])}</div>'
             f'<div style="font-size:22px">{_icon(p["short"])}</div>'
@@ -2871,14 +4687,126 @@ def page_forecast(d):
         det = next((p.get("detailed") for p in periods if p.get("detailed")), "")
         city_cards.append(
             f'<div class="cfcard"><button class="cftoggle" data-k="{k}"><b>{city}</b>'
-            f'<span class="cfsum">{summary}{f" · high {hi}°F" if hi else ""}</span><span class="chev">▾</span></button>'
+            f'<span class="cfsum">{summary}{f" · high {hi}°F" if hi else ""}{wb_chip}</span><span class="chev">▾</span></button>'
             f'<div class="cfbody" id="cf{k}">{rows}'
+            + (f'<div class="src" style="margin-top:6px">🔥 Tomorrow\'s peak heat stress: '
+               f'<b style="color:{wb["color"]}">{wb["peakF"]}°F WBGT</b> ({html.escape(wb["cat"])}) '
+               f'around {html.escape(wb["peakTime"])} ET</div>' if wb else "")
             + (f'<div class="src" style="margin-top:6px">{html.escape(det)}</div>' if det else "")
             + '</div></div>')
     city_html = ("".join(city_cards) or '<div class="src">City forecasts load on the next update cycle.</div>')
+    # ---- Heat-Stress Index card (heat index + WBGT combined) ----
+    hx = d.get("heatIndex") or {}
+    hh = hx.get("home") or {}
+    if hx.get("ok") and hh:
+        curve = "".join(
+            f'<div class="hr"><span>{p["t"]}</span><b style="color:{_hi_cat_color(p["hi"])}">'
+            f'{p["hi"] if p["hi"] is not None else "-"}\u00b0F</b>'
+            f'<span style="color:{_wb_cat_color(p["wbgt"])}">W {p["wbgt"]}</span></div>'
+            for p in (hh.get("hours") or []))
+        city_rows = "".join(
+            f'<tr><td>{html.escape(c)}</td>'
+            f'<td><b style="color:{v["peakHiColor"]}">{v["peakHi"]}\u00b0F</b></td>'
+            f'<td>{html.escape(v["peakHiCat"])}</td>'
+            f'<td><b style="color:{_wb_cat_color(v["peakWbgt"])}">{v["peakWbgt"]}\u00b0F</b></td></tr>'
+            for c, v in sorted((hx.get("cities") or {}).items(),
+                               key=lambda kv: -(kv[1].get("peakHi") or 0)))
+        heat_card = (f'<div class="card"><h2>\U0001f321\ufe0f Heat-Stress Index \u2014 how hot it feels (next 24 h)</h2>'
+                     f'<div class="kpis">'
+                     f'<div class="kpi"><span>Feels like now (heat index)</span><b style="color:{hh.get("nowHiColor")}">{hh.get("nowHi")}\u00b0F</b>'
+                     f'<span class="h">{html.escape(hh.get("nowHiCat") or "")} \u00b7 peak {hh.get("peakHi")}\u00b0F {html.escape(hh.get("peakHiTime") or "")}</span></div>'
+                     f'<div class="kpi"><span>In the sun / exertion (WBGT)</span><b style="color:{hh.get("nowWbgtColor")}">{hh.get("nowWbgt")}\u00b0F</b>'
+                     f'<span class="h">{html.escape(hh.get("nowWbgtCat") or "")} \u00b7 peak {hh.get("peakWbgt")}\u00b0F {html.escape(hh.get("peakWbgtTime") or "")}</span></div>'
+                     f'</div>'
+                     f'<div class="hourly">{curve}</div>'
+                     f'<details style="margin-top:10px"><summary style="cursor:pointer">City peaks (heat index, next 24 h)</summary>'
+                     f'<table class="cells" style="margin-top:8px"><tr><th>City</th><th>Peak feels-like</th><th>Risk</th><th>Peak WBGT</th></tr>{city_rows}</table></details>'
+                     f'<div class="src">Heat index = shade comfort (NWS Rothfusz); WBGT = sun + exertion stress \u2014 at WBGT 90\u00b0F+ outdoor work/rest cycles become critical. '
+                     f'Risk bands: caution 80\u00b0F \u00b7 extreme caution 90\u00b0F (HI) / 85\u00b0F (WBGT) \u00b7 danger 103\u00b0F (HI) / 90\u00b0F (WBGT) \u00b7 as of {html.escape(hx.get("fetched") or "-")}</div></div>')
+    else:
+        heat_card = ""
+    # ---- WBGT heat map card ----
+    wb = d.get("wbgt") or {}
+    if wb.get("ok"):
+        legend = "".join(f'<span><i style="background:{c}"></i>{html.escape(lbl)}</span>'
+                         for c, lbl in wb.get("legend", []))
+        wbgt_card = (f'<div class="card"><h2>🌡️ Heat stress - WBGT map (next 24 h)</h2>'
+                     f'<div id="wbmap" class="map-dark" style="height:420px"></div>'
+                     f'<div class="legend">{legend}</div>'
+                     f'<div class="ctl" style="margin-top:10px">'
+                     f'<label><input type="checkbox" id="ly_wb" checked/> WBGT forecast</label>'
+                     f'<select id="wbScope"><option value="etn">East Tennessee</option><option value="us">United States</option></select>'
+                     f'<select id="wbHour"></select></div>'
+                     f'<div class="src">Wet-bulb globe temperature - the heat-stress index used by coaches and crews '
+                     f'(sun-exposed estimate, NWS official forecast). Unpainted = below 82\u00b0F. '
+                     f'At 90\u00b0F+ outdoor work/rest cycles and extra hydration become critical.</div></div>')
+    else:
+        wbgt_card = ""
+    # ---- Forecaster's discussion (AFD) - the WHY behind the forecast ----
+    afd = d.get("afd") or {}
+    if afd.get("ok"):
+        key_html = "".join(f"<li style='margin:4px 0'>{html.escape(m)}</li>"
+                           for m in afd.get("keyMessages") or [])
+        secs = "".join(
+            f'<details style="margin:6px 0"><summary style="cursor:pointer">'
+            f'{html.escape(s["title"])}</summary>'
+            f'<pre style="white-space:pre-wrap;font-size:12.5px;color:#b8c4d4;margin:6px 0 0">'
+            f'{html.escape(s["text"])}</pre></details>'
+            for s in afd.get("sections") or [])
+        afd_card = (
+            f'<div class="card"><h2>🧑‍🔬 Forecaster\'s discussion - {html.escape(afd.get("officeName") or "NWS")}</h2>'
+            f'<div class="src">Issued {html.escape(afd.get("issued") or "-")} · the meteorologists who write the local forecast explain their reasoning.</div>'
+            + (f'<ul style="margin:10px 0 4px 20px;padding:0">{key_html}</ul>' if key_html else "")
+            + secs
+            + '<a class="src" href="https://www.weather.gov/mrx/" target="_blank" rel="noopener">Full product at NWS Morristown ↗</a></div>')
+    else:
+        afd_card = ""
+    # ---- Today at a glance (computed from the 24 h hourly + sun card) ----
+    sun = d.get("sun") or {}
+    hours24 = d.get("hourly") or []
+    peak_h = None
+    rain_h = None
+    for h in hours24:
+        if peak_h is None or (h.get("temp") or 0) > (peak_h.get("temp") or 0):
+            peak_h = h
+        if rain_h is None and (h.get("pop") or 0) >= 40:
+            rain_h = h
+    glance = []
+    if peak_h:
+        glance.append(("🌡️ Peak temp", f'{peak_h["temp"]}°F around {peak_h["t"]}'))
+    glance.append(("🌧️ First rain window",
+                   (f'{rain_h["pop"]}% around {rain_h["t"]}' if rain_h else "None in 24 h")))
+    day0 = (d.get("days") or [{}])[0]
+    if day0.get("hi") is not None:
+        glance.append(("📅 Today's high", f'{day0["hi"]}°F'))
+    if sun.get("ok"):
+        glance.append(("🌅 Sunrise", sun.get("sunrise") or "-"))
+        glance.append(("🌇 Sunset", sun.get("sunset") or "-"))
+    glance_html = "".join(
+        f'<div class="kpi"><span>{lbl}</span><b>{val}</b></div>' for lbl, val in glance)
+    glance_card = (f'<div class="card"><h2>🧭 Today at a glance</h2><div class="kpis">{glance_html}</div>'
+                   f'<div class="src">Rain window = first hour at 40%+ chance; timing shifts - check the radar loop before heading out.</div></div>')
+    # ---- Sun & moon card ----
+    if sun.get("ok"):
+        sun_card = (
+            f'<div class="card"><h2>{sun.get("moonIcon") or "🌙"} Sun &amp; moon - {html.escape(d["place"])}</h2>'
+            f'<div class="kpis">'
+            f'<div class="kpi"><span>🌅 Sunrise</span><b>{sun.get("sunrise") or "-"}</b><span class="h">civil twilight {sun.get("civilBegin") or "-"}</span></div>'
+            f'<div class="kpi"><span>🌇 Sunset</span><b>{sun.get("sunset") or "-"}</b><span class="h">civil twilight {sun.get("civilEnd") or "-"}</span></div>'
+            f'<div class="kpi"><span>☀️ Day length</span><b>{sun.get("dayLength") or "-"}</b><span class="h">right now: {html.escape(sun.get("dayPhase") or "-")}</span></div>'
+            f'<div class="kpi"><span>{sun.get("moonIcon") or "🌙"} Moon</span><b>{html.escape(sun.get("moonPhase") or "-")}</b><span class="h">illuminated ≈ {int(round((sun.get("moonFrac") or 0) * 100))}%</span></div>'
+            f'</div>'
+            f'<div class="src">Eastern times for {html.escape(d["place"])} (api.sunrise-sunset.org). Late September sheds ~2 min of daylight a day - the outdoor-work window shrinks with it.</div></div>')
+    else:
+        sun_card = ""
     body = f"""
 <header class="hero"><h1>📋 Forecast & alerts</h1><div class="sub">{html.escape(d["place"])} + every East Tennessee city · National Weather Service · updated {d["generated"]}</div></header>
 <div class="card"><h2>⚠️ Active alerts</h2><div class="alerts">{alerts_html}</div></div>
+{glance_card}
+{afd_card}
+{heat_card}
+{sun_card}
+{wbgt_card}
 <div class="card"><h2>📅 7-day — {html.escape(d["place"])}</h2><div class="grid cards7">{days_html}</div></div>
 <div class="card"><h2>⏱️ Next 24 hours</h2><div class="hourly">{hourly_html}</div></div>
 <div class="card"><h2>🏙️ 7-day forecast — every East Tennessee city</h2>
@@ -2908,27 +4836,146 @@ document.querySelectorAll(".cftoggle").forEach(b => b.onclick = () => {{
   document.getElementById("cf" + b.dataset.k).classList.toggle("open");
 }});
 </script>
+<script>
+/* WBGT heat-stress map (only when the payload has frames) */
+(async () => {{
+  const el = document.getElementById("wbmap");
+  if (!el) return;
+  const DATA = await (await fetch(dataUrl(), {{ cache: "no-store" }})).json();
+  const wbSrc = () => (document.getElementById("wbScope").value === "us") ? (DATA.wbgtUs || {{}}) : (DATA.wbgt || {{}});
+  const frames = wbSrc().frames || [];
+  if (!((DATA.wbgt || {{}}).ok || (DATA.wbgtUs || {{}}).ok)) return;
+  if (!frames.length) {{
+    /* East TN ready but US still rendering: still show the ET map */
+    if (!(DATA.wbgt || {{}}).ok) return;
+  }}
+  {_mapbox_token_js()}
+  const wmap = L.map("wbmap", {{ zoomSnap: 0.5, maxZoom: 21 }}).setView([DATA.lat, DATA.lon], 6);
+  addMapControls(wmap, [DATA.lat, DATA.lon], 6);
+  const sel = document.getElementById("wbHour");
+  const wbColor = v => v >= 93 ? "#c828c8" : v >= 90 ? "#eb3c3c" : v >= 88 ? "#ff783c"
+                     : v >= 85 ? "#ffb242" : v >= 82 ? "#ffe066" : "#81c784";
+  let wLayer = null, wMarks = null;
+  function wbMarks(f) {{
+    if (wMarks) {{ wmap.removeLayer(wMarks); wMarks = null; }}
+    if (!f || !f.vals || !f.vals.length) return;
+    wMarks = L.layerGroup();
+    for (const p of f.vals) {{
+      wMarks.addLayer(L.circleMarker([p[0], p[1]], {{ radius: 5, color: "#1b2027", weight: 1.5,
+        fillColor: wbColor(p[2]), fillOpacity: .95 }}).bindTooltip(`WBGT ${{Math.round(p[2])}}\u00b0F`));
+    }}
+    wMarks.addTo(wmap);
+  }}
+  function wbShow() {{
+    const fr = wbSrc().frames || [];
+    if (!fr.length) return;
+    const f = fr.find(x => x.id === sel.value) || fr[fr.length - 1];
+    if (!f || !f.bounds) return;
+    if (wLayer) {{ wmap.removeLayer(wLayer); wLayer = null; }}
+    wLayer = L.imageOverlay(f.pngUrl, [[f.bounds[0], f.bounds[1]], [f.bounds[2], f.bounds[3]]],
+      {{ opacity: .8, interactive: false }});
+    if (document.getElementById("ly_wb").checked) {{ wLayer.addTo(wmap); wbMarks(f); }}
+    else if (wMarks) {{ wmap.removeLayer(wMarks); wMarks = null; }}
+  }}
+  function wbFillSel() {{
+    const fr = wbSrc().frames || [];
+    const prev = sel.value;
+    sel.innerHTML = fr.map(f => `<option value="${{f.id}}">${{f.label}}</option>`).join("");
+    if (prev && fr.some(x => x.id === prev)) sel.value = prev;
+  }}
+  wbFillSel();
+  sel.onchange = wbShow;
+  document.getElementById("wbScope").onchange = () => {{ wbFillSel(); wbShow(); }};
+  document.getElementById("ly_wb").onchange = wbShow;
+  wbShow();
+}})();
+</script>
 """
     return _page("Forecast", "forecast.html", body)
 
 
 # ---------------------------------------------------------------- build
 _DISK_BUDGETS = {          # max bytes per cache dir (age prunes handle the rest)
-    # Streamlit disables static serving when static/ passes 1 GB TOTAL, so
-    # these must sum well under that (~640 MB with slack). meso is included:
-    # the ET-zoom history frames are large, and 13 sectors x 33 fields x
-    # history + overlays grows unbounded without a budget.
-    "nexrad_sites": 120_000_000,
-    "mrms": 60_000_000,
-    "goes": 60_000_000,
-    "meso": 220_000_000,
-    "hrrr": 60_000_000,
-    "herbie": 40_000_000,    # GRIB download cache - re-downloadable, not served
-    "soundings": 60_000_000,
-    "aimodels": 60_000_000,
-    "model_maps": 60_000_000,
-    "nws_radar": 40_000_000,
+    # GitHub holds every published byte (gh-pages branch, no history growth) -
+    # local static/ is ONLY a serving cache for the local preview, so budgets
+    # are kept lean (user request 2026-09-14: "save the maps to github not my
+    # hard drive"). site_updater.prune_published_local() additionally deletes
+    # local frames older than their display window after every confirmed push.
+    "nexrad_sites": 40_000_000,
+    "mrms": 25_000_000,
+    "goes": 110_000_000,    # ALL ABI bands x last frames x ~600 KB (~100 MB);
+    # a 25 MB cap made the sweeper delete frames minutes after the site build
+    # snapshotted them -> packaging always found them gone -> satellite page
+    # served 0 frames on every band (2026-09-17)
+    "meso": 80_000_000,
+    "hrrr": 25_000_000,
+    "herbie": 15_000_000,    # GRIB download cache - re-downloadable, not served
+    "soundings": 20_000_000,
+    "aimodels": 40_000_000,   # MPAS+SHiELD official frames; fresh init every 6h
+    "sevmaps": 12_000_000,    # HRRR hail/rotation/severe-chance forecast overlays
+    "winter": 12_000_000,     # HRRR snow/ice forecast overlays + WPC graphics
+    "wbgt": 4_000_000,        # WBGT heat-stress overlays (small PNGs, self-pruning)
+    # model_maps MUST hold the FULL catalog (~440 combos x <=7 loop frames
+    # each, palette-quantized ~90 KB avg): a budget under that creates a
+    # treadmill - the rotation renders backlog maps, the budget deletes them
+    # as "oldest" to fit the newest cycle, and the models page can never
+    # fill in (RAP 38->2, GEFS 29->5 seen 2026-09-14). Loops raised the
+    # ceiling 240->600 MB (2026-09-15); bounded, never grows past it.
+    "model_maps": 600_000_000,
+    "nws_radar": 20_000_000,
+    "glm": 20_000_000,        # GOES GLM lightning density frames
+    "tropics": 3_000_000,     # tropical guidance intensity charts (small PNGs)
+    "climate": 8_000_000,     # CPC outlook GIF mirrors: a COMPLETE 8-map set
+    # is ~3.6 MB (seasonal_temp alone is 2 MB); a 3 MB cap made the sweeper
+    # delete half the set every cycle while the 1 h bundle cache kept the
+    # stale refs - four permanently broken images on climate.html
+    # (2026-09-15). 8 MB always fits the full set; mirrors refresh in place.
 }
+
+
+# mirror-style folders: a fixed set of images re-fetched only when the
+# upstream graphic changes (never time-rotating). The budget sweeper must
+# never delete from these - a deleted mirror breaks its page until CPC/NHC
+# next republishes, and "oldest mtime" is exactly the file that is current.
+_MIRROR_DIRS = {"climate", "tropics"}
+# subfolders with the same mirror semantics, inside rotating budget dirs
+_MIRROR_SUBDIRS = {"winter/wpc"}
+
+
+def _current_payload_files():
+    """Abs paths of every image the latest site-build snapshot references.
+
+    The sweeper, the site build and the packager all run concurrently: the
+    built data.json is the CURRENT served content until the next build
+    replaces it, so any file in it must stay on disk even when a budget is
+    exceeded (2026-09-17: a sweep seconds after a build deleted all 113
+    satellite frames the build had just snapshotted -> the satellite page
+    went dark until the next cycle). Keeping these only delays eviction of
+    soon-dead files: the next build drops their refs once fresher frames
+    exist, and then the budget applies as usual.
+    """
+    refs = set()
+    try:
+        with open(os.path.join("static", "site", "data.json"), encoding="utf-8") as f:
+            snap = json.load(f)
+    except Exception:                                  # noqa: BLE001
+        return refs
+
+    def _walk(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k in _FRAME_REF_KEYS and isinstance(v, str) and not v.startswith("http"):
+                    p = _resolve_static_ref(v)
+                    if p:
+                        refs.add(os.path.abspath(p))
+                else:
+                    _walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                _walk(v)
+
+    _walk(snap)
+    return refs
 
 
 def enforce_disk_budget():
@@ -2942,13 +4989,26 @@ def enforce_disk_budget():
     # renderer state - deleting these blinds the satellite page even when
     # frames are fresh (the budget once wiped them and zeroed every band)
     protected = {"registry.json", "descriptors.json", "listings.json", "cells.json"}
+    # frames the current served payload still points at are load-bearing
+    payload_files = _current_payload_files()
     for sub, budget in _DISK_BUDGETS.items():
         root = os.path.join("static", sub)
         if not os.path.isdir(root):
             continue
+        # mirror-style folders hold ONE fixed set of images that are
+        # re-downloaded only when the source changes (CPC outlooks, tropical
+        # intensity charts). Deleting any of them breaks the page until the
+        # source itself updates - size-capping these is self-defeating.
+        if sub in _MIRROR_DIRS:
+            continue
         entries = []
         total = 0
         for dirpath, _, files in os.walk(root):
+            # mirror subfolders (e.g. winter/wpc WPC graphics): fixed set,
+            # re-fetched hourly - deleting them between refreshes breaks the page
+            rel_dir = os.path.relpath(dirpath, root).replace("\\", "/")
+            if any(rel_dir == sd or rel_dir.startswith(sd + "/") for sd in _MIRROR_SUBDIRS):
+                continue
             for fn in files:
                 if fn in protected:
                     continue
@@ -2962,9 +5022,21 @@ def enforce_disk_budget():
         if total <= budget:
             continue
         entries.sort()                       # oldest first
-        for _, size, p in entries:
+        now_s = time.time()
+        for mtime, size, p in entries:
             if total <= budget:
                 break
+            # Freshness guard: never delete a frame younger than 15 min.
+            # The site build snapshots frames into static/site/data.json and
+            # the packager reads that file up to a publish interval later -
+            # deleting in that window ships dead image links (MRMS frames
+            # vanished minutes after download, 2026-09-16).
+            if now_s - mtime < 900:
+                continue
+            # Payload guard: this file is part of what the site is serving
+            # RIGHT NOW - a budget overrun is cheaper than a dark page.
+            if os.path.abspath(p) in payload_files:
+                continue
             try:
                 os.remove(p)
                 total -= size
@@ -2985,25 +5057,91 @@ def _log_disk(msg):
         pass
 
 
+def _resolve_static_ref(ref):
+    """Resolve a payload image ref to an existing file path, or None.
+
+    Handles the three shapes the payload uses: static/-relative
+    ("mrms/mrms_cref_...png"), repo-relative ("../static/...") and bare
+    filenames ("day1_psnow_gt_04.gif", which live in a static subfolder).
+    Exact-path matches only for foldered refs - no basename guessing there.
+    """
+    rel = (ref.replace("/app/static/", "static/")
+              .replace("../", "static/").replace("\\", "/").lstrip("/"))
+    if os.path.isfile(rel):
+        return rel
+    # foldered refs are normally static/-relative ("hrrr/x.png" lives in
+    # static/hrrr/) - try that before giving up (future-radar frames were
+    # all stripped as "dead" without this, 2026-09-18)
+    if not rel.startswith("static/") and os.path.isfile(f"static/{rel}"):
+        return f"static/{rel}"
+    if "/" in rel:
+        return None                     # foldered ref must exist at its path
+    static = "static"
+    if os.path.isdir(static):
+        for sub in os.listdir(static):
+            p = f"{static}/{sub}/{rel}"
+            if os.path.isfile(p):
+                return p
+    return None
+
+
+_FRAME_REF_KEYS = ("pngUrl", "url", "file")
+
+
+def _strip_dead_frames(obj):
+    """Recursively drop frame dicts whose local image file no longer exists.
+
+    The disk-budget sweeper runs concurrently with site builds, so a payload
+    can reference frames deleted moments earlier (MRMS radar, GLM lightning,
+    WPC winter gifs, stale-cycle MPAS/SHiELD - all seen 2026-09-16). Filtering
+    HERE at payload assembly covers every current and future section at once;
+    the public packager then only ever copies files that exist.
+    """
+    if isinstance(obj, dict):
+        return {k: _strip_dead_frames(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        out = []
+        for v in obj:
+            if isinstance(v, dict):
+                ref = next((v[k] for k in _FRAME_REF_KEYS if isinstance(v.get(k), str)), None)
+                if ref and not ref.startswith("http") and \
+                        any(ext in ref.lower() for ext in (".png", ".gif", ".jpg")):
+                    if _resolve_static_ref(ref) is None:
+                        continue        # dead frame - drop from the payload
+            out.append(_strip_dead_frames(v))
+        return out
+    return obj
+
+
 def generate_site():
     """Collect live data and write the whole site. Returns SITE_DIR or None."""
     try:
+        _seed_model_maps()      # keep the models-page catalog stocked (async)
         enforce_disk_budget()
         d = collect_data()
         d["models"] = _model_manifest()
         d["psu"] = _psu_manifest()
+        d = _strip_dead_frames(d)
         pages = {
             "index.html": page_index(d),
             "radar.html": page_radar(d),
             "satellite.html": page_satellite(d),
             "models.html": page_models(d),
             "tropical.html": page_tropical(d),
+            "tropmodels.html": page_tropmodels(d),
+            "climate.html": page_climate(d),
             "severe.html": page_severe(d),
+            "winter.html": page_winter(d),
+            "rivers.html": page_rivers(d),
+            "dashboard.html": page_dashboard(d),
+            "fire.html": page_fire(d),
             "meso.html": page_meso(d),
             "obs.html": page_obs(d),
             "charts.html": page_charts(d),
             "national.html": page_national(d),
             "forecast.html": page_forecast(d),
+            "education.html": page_education(d),
+            "status.html": page_status(d),
         }
         os.makedirs(SITE_DIR, exist_ok=True)
         tmp = os.path.join(SITE_DIR, "data.json.tmp")
@@ -3022,22 +5160,192 @@ def generate_site():
         return None
 
 
-_SEED = [("GFS", 24, "500_vort", "us"), ("GFS", 24, "850_tmp", "etn"),
-         ("NAM", 12, "500_vort", "etn"), ("RAP", 6, "sfc_mslp", "etn")]
+# Priority combos: the default 4-pane comparison + the most-used panels.
+# The rotation below covers EVERY model x product x region combo over time;
+# these are just rendered first each pass.
+_SEED = [("GFS", 27, "500_vort", "us"), ("GFS", 27, "500_vort", "etn"),
+         ("NAM", 13, "500_vort", "etn"), ("RRFS", 12, "500_vort", "etn"),
+         ("AIFS", 42, "500_vort", "etn"), ("RAP", 7, "sfc_mslp", "etn"),
+         # SREF + EPS-Weekly (added 2026-09-20): make sure both new models
+         # show maps on the models page from the very first rotation pass
+         ("SREF", 24, "sref_500_vort", "etn"), ("SREF", 24, "sref_500_vort", "us"),
+         ("SREF", 15, "sfc_mslp", "etn"), ("SREF", 6, "sref_csnow", "etn"),
+         ("EPS-Weekly", 168, "sfc_mslp", "us"), ("EPS-Weekly", 168, "sfc_mslp", "etn"),
+         ("EPS-Weekly", 240, "500_vort", "us"), ("EPS-Weekly", 240, "snow", "us"),
+         ("GFS", 27, "850_tmp", "etn"), ("GFS", 27, "700_rh", "etn"),
+         ("NBM", 9, "nbm_dew", "etn"), ("NBM", 9, "nbm_tstm", "etn"),
+         ("NBM", 9, "nbm_qpf", "etn"), ("NBM", 9, "nbm_pwat", "etn"),
+         ("NBM", 9, "nbm_snow06", "etn"), ("HREF", 9, "500_vort", "etn"),
+         ("REFS", 9, "500_vort", "etn"),   # new 2026-09-14 products first
+         ("AI-GraphCast", 42, "sfc_mslp", "us"), ("AI-GraphCast", 42, "500_vort", "us"),
+         ("AI-GraphCast", 42, "sfc_mslp", "etn"), ("AI-Pangu", 42, "sfc_mslp", "us"),
+         ("AI-Pangu", 42, "500_vort", "us"), ("AI-FourCastNet", 42, "sfc_mslp", "us"),
+         ("AI-FourCastNet", 42, "pwat", "us"), ("AI-Aurora", 42, "sfc_mslp", "us"),
+         ("AI-Aurora", 42, "500_vort", "us")]  # AI models: never let them starve
+# seed hours are loop hours (_loop_hours subsampling skips f24/f06 etc.),
+# so seeded frames land INSIDE every model's animation (2026-09-15)
+
+_SEED_LAST = [0.0]      # last seed attempt (monotonic-ish wall clock)
+_ROT_RUNNING = [False]  # a rotation pass is in progress - never stack more
+_ROT_POS = [0]          # rotation cursor across the FULL combo space
+_ROT_BATCH = 36         # combos per pass (missing/stale first)
+_ROT_GATE = 1800.0      # min seconds between passes (~72 combos/hour)
+
+
+def _all_model_combos():
+    """Every (model, fh, product, region) the models page can offer.
+
+    fh = ALL loop hours per model, snapped to its native hour_step
+    (user request 2026-09-15: "ADD LOOP TO ALL MODELS" - one frame per
+    combo was a still image; the page's steppers/animators need the full
+    time series). Subsampled to <=7 frames per combo to bound disk + the
+    GitHub Pages site cap (see _loop_hours). Regions: both etn and us.
+    """
+    combos = []
+    try:
+        from data.model_maps import PRODUCTS_BY_MODEL, MAP_MODELS
+    except Exception:                          # noqa: BLE001
+        return combos
+    for model, prods in PRODUCTS_BY_MODEL.items():
+        info = MAP_MODELS.get(model) or {}
+        max_h = int(info.get("max_hour") or 24)
+        step = int(info.get("hour_step") or 3)
+        hours = _loop_hours(max_h, step)
+        for prod in prods:
+            for region in ("etn", "us"):
+                for fh in hours:
+                    combos.append((model, fh, prod, region))
+    return combos
+
+
+def _loop_hours(max_h, step):
+    """Loop hours for a model: native steps subsampled to <=7 frames.
+
+    The page animates <=16 frames; 7 gives a smooth fast loop while keeping
+    the whole catalog (~440 combos) within disk + Pages budgets.
+    """
+    hours = list(range(step, max_h + 1, step)) or [step]
+    if len(hours) > 7:
+        idx = [round(i * (len(hours) - 1) / 6) for i in range(7)]
+        hours = sorted({hours[i] for i in idx})
+    return hours
 
 
 def _seed_model_maps():
-    """Render a few popular products once per process (best-effort)."""
+    """Render the ENTIRE models-page catalog via a rolling rotation.
+
+    The static explorer can only show pre-rendered PNGs, so the updater
+    walks the full ~400-combo space (every model x product x region),
+    rendering a batch each hour: priority _SEED combos first, then the
+    rotation cursor (missing/stale combos before fresh ones - os.path.getmtime
+    of the combo's newest frame). The whole catalog completes in ~10-20 h
+    depending on NOAA download speed, then refresh rolls around forever.
+    Best-effort: a failing model never breaks the site build.
+    """
+    import threading
+    import os.path as _op
+
+    def _work():
+        import time as _t
+        if _ROT_RUNNING[0]:
+            # A pass is still rendering. Stacking a second (third, ...)
+            # thread used to be normal: after the catalog grew past the
+            # 30-min gate, every build spawned another pass, ten ran at
+            # once and starved the whole build (3 min -> 65 min builds,
+            # 2026-09-19). One pass at a time, ever.
+            return
+        if _t.time() - _SEED_LAST[0] < _ROT_GATE:
+            return
+        _SEED_LAST[0] = _t.time()
+        _ROT_RUNNING[0] = True
+        try:
+            from data.model_maps import find_cycle, render_product_map, MAP_DIR
+            cycles = {}
+
+            def _cyc(model):
+                if model not in cycles:
+                    try:
+                        cycles[model] = find_cycle(model)
+                    except Exception:              # noqa: BLE001
+                        cycles[model] = None
+                return cycles[model]
+
+            batch = list(_SEED)
+            rot = _all_model_combos()
+            if rot:
+                # rendered-map count per model: thin models must fill first so
+                # every model visibly gains maps each pass (fair share)
+                counts = {}
+                # ONE directory scan per pass: _age used to re-list MAP_DIR
+                # (~1k PNGs) for every combo in the batch - 60+ listdirs of
+                # stat churn per pass, on top of the renders (2026-09-19)
+                import re as _re
+                _mre = _re.compile(r"^(.+)_(f\d{3})_(\d{10})_([a-z0-9]+)\.png$")
+                newest_by_key = {}
+                for fn in os.listdir(MAP_DIR):
+                    counts[fn.split("_", 1)[0]] = counts.get(fn.split("_", 1)[0], 0) + 1
+                    _m = _mre.match(fn)
+                    if not _m:
+                        continue
+                    try:
+                        _mt = _op.getmtime(_op.join(MAP_DIR, fn))
+                    except OSError:
+                        continue
+                    _key = (_m.group(1), _m.group(3), _m.group(4))
+                    if _mt > newest_by_key.get(_key, 0.0):
+                        newest_by_key[_key] = _mt
+
+                def _age(combo):
+                    model, fh, prod, region = combo
+                    cyc = _cyc(model)
+                    if cyc is None:
+                        return 0.0                 # unfindable -> try anyway
+                    return newest_by_key.get(
+                        (f"{model}_{prod}", f"{cyc:%Y%m%d%H}", region), 0.0)
+                # missing combos (age 0) first; within them, thinnest models
+                # first - otherwise the stable sort walks catalog order and a
+                # late-catalog model (HREF) waits many passes (2026-09-14)
+                rot.sort(key=lambda c: (_age(c), counts.get(c[0], 0)))
+                # take the FRONT of the sorted list: missing combos (age 0)
+                # must render before any cached map is refreshed. The old
+                # cursor (rot[start:start+batch]) ignored the sort order and
+                # re-rendered fresh maps for many passes while 200+ combos
+                # sat unrendered (HREF stuck at 4/28 - 2026-09-14).
+                batch += rot[:_ROT_BATCH]
+
+            ok = fail = 0
+            skipped = set()
+            failed_models = set()
+            for model, fh, prod, region in batch:
+                try:
+                    cyc = _cyc(model)
+                    if cyc is not None:
+                        render_product_map(model, cyc, fh, prod, region=region)
+                        ok += 1
+                    else:
+                        # cycle probe came back empty (NOAA lag/partial cycle):
+                        # silently eating batch slots looked like a download
+                        # outage on the page (NBM 2026-09-14) - count it
+                        skipped.add(model)
+                except Exception:                  # noqa: BLE001 - best-effort
+                    fail += 1
+                    failed_models.add(model)
+                    continue
+
+            # one visible line per pass - a model failing EVERY combo means
+            # its fetch path broke (dead NOAA dir, herbie source gone)
+            print(f"model-map rotation: {ok} rendered, {fail} failed"
+                  + (f" ({', '.join(sorted(failed_models))})" if failed_models else "")
+                  + (f" | no live cycle: {', '.join(sorted(skipped))}" if skipped else ""),
+                  flush=True)
+        except Exception:                          # noqa: BLE001
+            pass
+        finally:
+            _ROT_RUNNING[0] = False
+
     try:
-        from data.model_maps import find_cycle, render_product_map
-        for model, fh, prod, region in _SEED:
-            try:
-                cyc = find_cycle(model)
-                if cyc is not None:
-                    render_product_map(model, cyc, fh, prod, region=region)
-            except Exception:  # noqa: BLE001 - seeding is best-effort
-                continue
-    except Exception:  # noqa: BLE001
+        threading.Thread(target=_work, daemon=True, name="model-map-seed").start()
+    except Exception:                          # noqa: BLE001 - seeding must never break the build
         pass
 
 
