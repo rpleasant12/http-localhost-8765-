@@ -325,7 +325,7 @@ setTimeout(function () {
 
 <header class="hero"><h1>🌪️ Tropical Model Guidance</h1>
 <div class="sub">Track spaghetti + intensity forecasts from every global & regional model
-· NHC ATCF aid-decks · updated 2026-09-21 11:59 AM ET</div></header>
+· NHC ATCF aid-decks · updated <span id="tropStamp">2026-09-21 12:20 PM ET</span></div></header>
 
 <div class="card">
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
@@ -494,7 +494,26 @@ async function boot() {
   drawStorm(defIdx);
 }
 boot();
-function onDataRefresh(d) { /* picker keeps place; reload for new storms */ }
+/* soft auto-refresh: the summary line tracks every pull, and a storm
+   appearing/vanishing (count change) triggers ONE cache-busted reload since
+   the storm picker and map can't adapt to a new or removed system. */
+function onDataRefresh(d2) {
+  DATA = d2;
+  const st = document.getElementById("tropStamp");
+  if (st && d2.generated) st.textContent = d2.generated;
+  const T = d2.tropModels || {};
+  const storms = T.storms || [];
+  const nM = storms.reduce((a, s) => a + ((s.models || []).length), 0);
+  const nC = storms.reduce((a, s) => a + ((s.charts || []).length), 0);
+  const sm = document.getElementById("tmSummary");
+  if (sm) sm.textContent = storms.length + " storm(s) · " + nM + " guidance members · " + nC + " chart(s)";
+  const prevN = ((window.TMS && TMS.storms) || []).length;
+  if (storms.length !== prevN && !window._tmReloading) {
+    window._tmReloading = true;   /* once: the reloaded page matches its data */
+    const u = new URL(location.href); u.searchParams.set("t", Date.now());
+    location.replace(u);
+  }
+}
 </script>
 
 </div>
