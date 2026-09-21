@@ -234,7 +234,10 @@ document.getElementById("refreshBtn").onclick = () => {
    the refresh tap. Before the first data pull resolves the version is
    unknown, so the checkbox defaults ON and re-syncs the moment data lands. */
 function autoPrefKey() {
-  const v = (window.SITE_DATA && SITE_DATA.siteVersion) || "";
+  /* SITE_DATA is a script-level let - reachable by name in this scope but
+     never as window.SITE_DATA, so the bare (guarded) reference is required */
+  let v = "";
+  try { v = (typeof SITE_DATA !== "undefined" && SITE_DATA && SITE_DATA.siteVersion) || ""; } catch (_e) {}
   return v ? "tnwxAuto." + v : "";
 }
 function syncAutoPref() {
@@ -350,7 +353,7 @@ setTimeout(function () {
 <div class="wrap">
 
 <header class="hero"><h1>🌡️ Observations & Skew-T</h1>
-<div class="sub">Live METARs for East Tennessee and the whole US · city board · RAP 13 km soundings at 8 locations · updated <span id="obsStamp">2026-09-21 1:28 PM ET</span></div></header>
+<div class="sub">Live METARs for East Tennessee and the whole US · city board · RAP 13 km soundings at 8 locations · updated <span id="obsStamp">2026-09-21 1:34 PM ET</span></div></header>
 
 <div class="card">
   <div id="map" class="map-dark"></div>
