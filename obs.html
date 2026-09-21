@@ -319,7 +319,7 @@ setTimeout(function () {
 <div class="wrap">
 
 <header class="hero"><h1>🌡️ Observations & Skew-T</h1>
-<div class="sub">Live METARs for East Tennessee and the whole US · city board · RAP 13 km soundings at 8 locations · updated 2026-09-21 10:35 AM ET</div></header>
+<div class="sub">Live METARs for East Tennessee and the whole US · city board · RAP 13 km soundings at 8 locations · updated <span id="obsStamp">2026-09-21 10:49 AM ET</span></div></header>
 
 <div class="card">
   <div id="map" class="map-dark"></div>
@@ -333,9 +333,9 @@ setTimeout(function () {
 </div>
 
 <div class="card"><h2>🏙️ East Tennessee observations (every city)</h2>
-  <div style="overflow-x:auto"><table class="cells">
+  <div style="overflow-x:auto"><table class="cells" id="cityTbl">
     <tr><th>City</th><th>Temp</th><th>Dew point</th><th>Wind</th><th>Gust</th><th>Humidity</th><th>Station</th></tr>
-    <tr><td><b>Athens</b></td><td>73°F</td><td>72°F</td><td>N 0</td><td>-</td><td>94%</td><td class="src">KMMI · Mostly Cloudy</td></tr><tr><td><b>Chattanooga</b></td><td>75°F</td><td>70°F</td><td>ENE 6</td><td>-</td><td>83%</td><td class="src">KCHA · Mostly Cloudy</td></tr><tr><td><b>Cleveland</b></td><td>73°F</td><td>73°F</td><td>N 0</td><td>-</td><td>100%</td><td class="src">KRZR · Fog/Mist</td></tr><tr><td><b>Clinton</b></td><td>78°F</td><td>70°F</td><td>N 0</td><td>-</td><td>76%</td><td class="src">KOQT · Clear</td></tr><tr><td><b>Cookeville</b></td><td>81°F</td><td>75°F</td><td>S 6</td><td>-</td><td>84%</td><td class="src">KSRB · Clear</td></tr><tr><td><b>Crossville</b></td><td>77°F</td><td>68°F</td><td>SSW 3</td><td>-</td><td>74%</td><td class="src">KCSV · Mostly Clear</td></tr><tr><td><b>Dayton</b></td><td>73°F</td><td>73°F</td><td>N 0</td><td>-</td><td>100%</td><td class="src">KRZR · Fog/Mist</td></tr><tr><td><b>Greeneville</b></td><td>-°F</td><td>-°F</td><td>- -</td><td>-</td><td>-%</td><td class="src">- · </td></tr><tr><td><b>Knoxville</b></td><td>79°F</td><td>70°F</td><td>SSW 6</td><td>-</td><td>74%</td><td class="src">KTYS · Mostly Cloudy</td></tr><tr><td><b>LaFollette</b></td><td>73°F</td><td>73°F</td><td>N 0</td><td>-</td><td>100%</td><td class="src">KJAU · Mostly Clear</td></tr><tr><td><b>Maryville</b></td><td>79°F</td><td>70°F</td><td>SSW 6</td><td>-</td><td>74%</td><td class="src">KTYS · Mostly Cloudy</td></tr><tr><td><b>Morristown</b></td><td>79°F</td><td>72°F</td><td>N 5</td><td>-</td><td>79%</td><td class="src">KGKT · Partly Cloudy</td></tr><tr><td><b>Newport</b></td><td>-°F</td><td>-°F</td><td>- -</td><td>-</td><td>-%</td><td class="src">- · </td></tr><tr><td><b>Oak Ridge</b></td><td>78°F</td><td>70°F</td><td>N 0</td><td>-</td><td>76%</td><td class="src">KOQT · Clear</td></tr><tr><td><b>Sevierville</b></td><td>79°F</td><td>72°F</td><td>N 5</td><td>-</td><td>79%</td><td class="src">KGKT · Partly Cloudy</td></tr><tr><td><b>Tri-Cities (JC/KPT/Bristol)</b></td><td>77°F</td><td>70°F</td><td>N 0</td><td>-</td><td>78%</td><td class="src">KTRI · Partly Cloudy</td></tr>
+    <tr><td><b>Athens</b></td><td>75°F</td><td>73°F</td><td>N 0</td><td>-</td><td>94%</td><td class="src">KMMI · Mostly Cloudy</td></tr><tr><td><b>Chattanooga</b></td><td>77°F</td><td>70°F</td><td>E 5</td><td>-</td><td>78%</td><td class="src">KCHA · Mostly Cloudy</td></tr><tr><td><b>Cleveland</b></td><td>73°F</td><td>73°F</td><td>N 0</td><td>-</td><td>100%</td><td class="src">KRZR · Fog/Mist</td></tr><tr><td><b>Clinton</b></td><td>78°F</td><td>70°F</td><td>N 0</td><td>-</td><td>76%</td><td class="src">KOQT · Clear</td></tr><tr><td><b>Cookeville</b></td><td>82°F</td><td>73°F</td><td>SSW 8</td><td>-</td><td>74%</td><td class="src">KSRB · Clear</td></tr><tr><td><b>Crossville</b></td><td>79°F</td><td>70°F</td><td>SW 5</td><td>-</td><td>74%</td><td class="src">KCSV · Clear</td></tr><tr><td><b>Dayton</b></td><td>73°F</td><td>73°F</td><td>N 0</td><td>-</td><td>100%</td><td class="src">KRZR · Fog/Mist</td></tr><tr><td><b>Greeneville</b></td><td>77°F</td><td>68°F</td><td>N 0</td><td>-</td><td>74%</td><td class="src">KGCY · Clear</td></tr><tr><td><b>Knoxville</b></td><td>79°F</td><td>70°F</td><td>SW 6</td><td>-</td><td>74%</td><td class="src">KTYS · Partly Cloudy</td></tr><tr><td><b>LaFollette</b></td><td>77°F</td><td>72°F</td><td>N 0</td><td>-</td><td>83%</td><td class="src">KJAU · Mostly Clear</td></tr><tr><td><b>Maryville</b></td><td>79°F</td><td>70°F</td><td>SW 6</td><td>-</td><td>74%</td><td class="src">KTYS · Partly Cloudy</td></tr><tr><td><b>Morristown</b></td><td>81°F</td><td>70°F</td><td>N 0</td><td>-</td><td>70%</td><td class="src">KGKT · Partly Cloudy</td></tr><tr><td><b>Newport</b></td><td>77°F</td><td>68°F</td><td>N 0</td><td>-</td><td>74%</td><td class="src">KGCY · Clear</td></tr><tr><td><b>Oak Ridge</b></td><td>78°F</td><td>70°F</td><td>N 0</td><td>-</td><td>76%</td><td class="src">KOQT · Clear</td></tr><tr><td><b>Sevierville</b></td><td>81°F</td><td>70°F</td><td>N 0</td><td>-</td><td>70%</td><td class="src">KGKT · Partly Cloudy</td></tr><tr><td><b>Tri-Cities (JC/KPT/Bristol)</b></td><td>79°F</td><td>70°F</td><td>N 0</td><td>-</td><td>74%</td><td class="src">KTRI · Partly Cloudy</td></tr>
   </table></div>
 </div>
 
@@ -395,7 +395,30 @@ async function boot() {
   if (locSel.value && hSel.value) setSnd();
 }
 boot();
-function onDataRefresh(d2) { /* static charts; data refreshes footer */ }
+/* soft auto-refresh: rebuild the city board, map markers and stamp from
+   each 90 s data pull instead of leaving the build-time snapshot frozen
+   on screen ("observations not updating", 2026-09-21). The sounding picker
+   still resolves from the build snapshot; RAP hours change hourly, so a
+   manual refresh covers it. */
+function onDataRefresh(d2) {
+  DATA = d2;
+  const st = document.getElementById("obsStamp");
+  if (st && d2.generated) st.textContent = d2.generated;
+  const tbl = document.getElementById("cityTbl");
+  if (tbl) {
+    const cs = (d2.obs && d2.obs.cities) || [];
+    const esc = s => String(s == null ? "" : s).replace(/[&<>]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[ch]));
+    const cell = (v, suf) => v == null ? "-" : v + (suf || "");
+    tbl.innerHTML = `<tr><th>City</th><th>Temp</th><th>Dew point</th><th>Wind</th><th>Gust</th><th>Humidity</th><th>Station</th></tr>`
+      + (cs.length ? cs.map(c => `<tr><td><b>${esc(c.city)}</b></td>`
+          + `<td>${cell(c.tempF, "°F")}</td><td>${cell(c.dewF, "°F")}</td>`
+          + `<td>${c.windDir || "-"} ${cell(c.windMph)}</td><td>${cell(c.gustMph)}</td>`
+          + `<td>${cell(c.rh, "%")}</td>`
+          + `<td class="src">${esc(c.station || "")} · ${esc(c.desc || "")}</td></tr>`).join("")
+        : `<tr><td colspan="7" class="src">Observations unavailable.</td></tr>`);
+  }
+  try { drawObs(); } catch (_e) {}   /* markers + hover times re-render */
+}
 </script>
 
 </div>
