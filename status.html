@@ -198,7 +198,7 @@ setInterval(siteRefresh, 180000);
       + "padding:8px 12px;font-size:14px;font-family:inherit;";
     pb.textContent = "\u23f8 Weather updates are PAUSED - press the START shortcut "
       + "to resume. Data on this page is frozen"
-      + (p && p.since ? " (paused " + p.since + ")" : "") + ".";
+      + (p && p.since ? " (paused " + String(p.since).replace(/^paused\s*/, "") + ")" : "") + ".";
     document.body.appendChild(pb);
     document.body.style.paddingTop = "38px";
     if (autoCnt) autoCnt.textContent = "\u221e";   /* freeze the auto-reload countdown too */
@@ -344,7 +344,7 @@ GitHub Pages every ~10 minutes. A missing heartbeat means the Windows task
 </table></div>
 
 <script>
-const BUILT = 1790000339428;
+const BUILT = 1790001345448;
 function mins(ms) { const m = Math.round(ms / 60000); return m < 1 ? "<1 min" : m + " min"; }
 function fnum(n) { return n.toLocaleString("en-US"); }
 async function boot() {

@@ -198,7 +198,7 @@ setInterval(siteRefresh, 180000);
       + "padding:8px 12px;font-size:14px;font-family:inherit;";
     pb.textContent = "\u23f8 Weather updates are PAUSED - press the START shortcut "
       + "to resume. Data on this page is frozen"
-      + (p && p.since ? " (paused " + p.since + ")" : "") + ".";
+      + (p && p.since ? " (paused " + String(p.since).replace(/^paused\s*/, "") + ")" : "") + ".";
     document.body.appendChild(pb);
     document.body.style.paddingTop = "38px";
     if (autoCnt) autoCnt.textContent = "\u221e";   /* freeze the auto-reload countdown too */
@@ -319,7 +319,7 @@ setTimeout(function () {
 <div class="wrap">
 
 <header class="hero"><h1>📈 Forecast charts & MOS</h1>
-<div class="sub">48-hour NWS gridpoint charts for every East TN city · GFS MOS guidance · updated 2026-09-21 10:18 AM ET</div></header>
+<div class="sub">48-hour NWS gridpoint charts for every East TN city · GFS MOS guidance · updated 2026-09-21 10:35 AM ET</div></header>
 
 <div class="card"><h2>📊 Greeneville, TN - 48-hour forecast charts</h2>
   <img class="natimg" loading="lazy" src="forecast_charts/Greeneville_TN_temp.png" alt="Greeneville, TN temp chart"/><img class="natimg" loading="lazy" src="forecast_charts/Greeneville_TN_pop.png" alt="Greeneville, TN pop chart"/><img class="natimg" loading="lazy" src="forecast_charts/Greeneville_TN_wind.png" alt="Greeneville, TN wind chart"/>
