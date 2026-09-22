@@ -353,7 +353,7 @@ setTimeout(function () {
 <div class="wrap">
 
 <header class="hero"><h1>🌡️ Observations & Skew-T</h1>
-<div class="sub">Live METARs for East Tennessee and the whole US · city board · RAP 13 km soundings at 8 locations · updated <span id="obsStamp">2026-09-22 11:54 AM ET</span></div></header>
+<div class="sub">Live METARs for East Tennessee and the whole US · city board · RAP 13 km soundings at 8 locations · updated <span id="obsStamp">2026-09-22 12:09 PM ET</span></div></header>
 
 <div class="card">
   <div id="map" class="map-dark"></div>
@@ -374,14 +374,14 @@ setTimeout(function () {
 <div class="card"><h2>🎈 Skew-T / Log-P sounding (RAP 13 km · MetPy)</h2>
   <div class="ctl">
     <select id="sndLoc"></select>
-    <select id="sndH"><option value="18">+18 h</option></select>
+    <select id="sndH"></select>
   </div>
-  <img id="sndImg" class="natimg" loading="lazy" src="soundings/rap_6ac0c96590de.png" alt="Skew-T sounding"/>
+  <img id="sndImg" class="natimg" loading="lazy" src="" alt="Skew-T sounding"/>
   <div class="cap src" id="sndCap"></div>
 </div>
 
 <script>
-const SND = {"hours": {"Greeneville, TN": {"18": {"url": "soundings/rap_6ac0c96590de.png", "meta": {"cycle": "2026-09-22 8 AM ET", "fh": 18, "valid": "2026-09-23 2 AM ET"}}}, "Knoxville TN": {"18": {"url": "soundings/rap_aec42aebdd51.png", "meta": {"cycle": "2026-09-22 8 AM ET", "fh": 18, "valid": "2026-09-23 2 AM ET"}}}, "Tri-Cities TN": {"18": {"url": "soundings/rap_8a3652003b06.png", "meta": {"cycle": "2026-09-22 8 AM ET", "fh": 18, "valid": "2026-09-23 2 AM ET"}}}, "Chattanooga TN": {"18": {"url": "soundings/rap_9450a05822fe.png", "meta": {"cycle": "2026-09-22 8 AM ET", "fh": 18, "valid": "2026-09-23 2 AM ET"}}}, "Nashville TN": {"18": {"url": "soundings/rap_ac0b84be11e2.png", "meta": {"cycle": "2026-09-22 8 AM ET", "fh": 18, "valid": "2026-09-23 2 AM ET"}}}, "Crossville TN": {"18": {"url": "soundings/rap_36a782e001bd.png", "meta": {"cycle": "2026-09-22 8 AM ET", "fh": 18, "valid": "2026-09-23 2 AM ET"}}}, "Oak Ridge TN": {"18": {"url": "soundings/rap_aa1014922738.png", "meta": {"cycle": "2026-09-22 8 AM ET", "fh": 18, "valid": "2026-09-23 2 AM ET"}}}, "Atlanta GA": {"18": {"url": "soundings/rap_e0566a398ba2.png", "meta": {"cycle": "2026-09-22 8 AM ET", "fh": 18, "valid": "2026-09-23 2 AM ET"}}}}, "locations": {"Greeneville, TN": {"lat": 36.1627, "lon": -82.8332}, "Knoxville TN": {"lat": 35.9606, "lon": -83.9207}, "Tri-Cities TN": {"lat": 36.3134, "lon": -82.3573}, "Chattanooga TN": {"lat": 35.0456, "lon": -85.3097}, "Nashville TN": {"lat": 36.1628, "lon": -86.7816}, "Crossville TN": {"lat": 35.9479, "lon": -85.0269}, "Oak Ridge TN": {"lat": 35.9903, "lon": -84.2853}, "Atlanta GA": {"lat": 33.6407, "lon": -84.4277}}};
+const SND = {"hours": {}, "locations": {"Greeneville, TN": {"lat": 36.1627, "lon": -82.8332}, "Knoxville TN": {"lat": 35.9606, "lon": -83.9207}, "Tri-Cities TN": {"lat": 36.3134, "lon": -82.3573}, "Chattanooga TN": {"lat": 35.0456, "lon": -85.3097}, "Nashville TN": {"lat": 36.1628, "lon": -86.7816}, "Crossville TN": {"lat": 35.9479, "lon": -85.0269}, "Oak Ridge TN": {"lat": 35.9903, "lon": -84.2853}, "Atlanta GA": {"lat": 33.6407, "lon": -84.4277}}};
 /* city board: one renderer used by boot AND every soft refresh, with
    clickable column sorts and prev-observation trend arrows. Sort state
    survives refreshes; arrows come from prevTempF computed at build time. */
