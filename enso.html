@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>El Niño - Tennessee Weather Network</title>
+<meta property="og:title" content="El Niño - Tennessee Weather Network"/>
+<meta property="og:type" content="website"/>
+<meta property="og:description" content="Live radar, future cast, satellite, forecast models, severe weather and East Tennessee forecasts - free, no keys, always updating."/>
+<meta property="og:url" content="https://rpleasant12.github.io/http-localhost-8765-/"/>
+<meta property="og:image" content="https://rpleasant12.github.io/http-localhost-8765-/og.png"/>
+<meta property="og:site_name" content="Tennessee Weather Network"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="https://rpleasant12.github.io/http-localhost-8765-/og.png"/>
+<meta name="description" content="Live East Tennessee weather: radar, future cast, satellite, all forecast models, severe weather, and city forecasts. Updated continuously."/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<style>
+  :root { color-scheme: dark; --bg:#0e1117; --card:#161b26; --line:rgba(255,255,255,.08); --dim:#9aa4b2; --acc:#4da3ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:var(--bg); color:#e8edf4; }
+  a { color:var(--acc); text-decoration:none; }
+  .wrap { max-width:1100px; margin:0 auto; padding:14px; }
+  nav { position:sticky; top:0; z-index:50; background:rgba(14,17,23,.95); backdrop-filter:blur(6px);
+        border-bottom:1px solid var(--line); }
+  nav .wrap { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; padding:10px 14px; }
+  nav .brand { font-weight:800; font-size:18px; margin-right:auto; }
+  nav .brand span { color:var(--acc); }
+  nav a.pg { color:#cdd7e4; font-size:14px; padding:4px 8px; border-radius:6px; }
+  nav a.pg:hover, nav a.pg.on { background:#1d2432; color:#fff; }
+  header.hero { text-align:center; padding:20px 8px 8px; }
+  header.hero h1 { margin:0; font-size:clamp(22px,5vw,36px); }
+  header.hero .sub { color:var(--dim); margin-top:6px; font-size:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin:14px 0; }
+  h2 { font-size:17px; margin:0 0 10px; color:#cdd7e4; }
+  .grid { display:grid; gap:10px; }
+  .cards7 { grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); }
+  .day { background:#10151f; border:1px solid var(--line); border-radius:12px; padding:12px; text-align:center; }
+  .day .hi { font-size:24px; font-weight:800; }
+  .day .tx { color:var(--dim); font-size:12.5px; min-height:30px; }
+  .now { display:flex; flex-wrap:wrap; gap:16px; align-items:center; }
+  .now .big { font-size:clamp(42px,10vw,64px); font-weight:800; }
+  .now .meta { color:var(--dim); font-size:14px; line-height:1.7; }
+  .chip { display:inline-block; padding:8px 18px; border-radius:12px; font-weight:900; color:#102015; }
+  .alerts { display:grid; gap:8px; }
+  .alert { background:#10151f; border-radius:10px; padding:10px 12px; border-left:6px solid #888; }
+  .alert b { color:#fff; } .alert span { color:var(--dim); font-size:13px; display:block; }
+  .alert.ok { border-left-color:#2e7d32; color:#a5d6a7; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; }
+  .kpi { background:#10151f; border:1px solid var(--line); border-radius:12px; padding:10px; text-align:center; }
+  .kpi b { display:block; font-size:22px; } .kpi span { color:var(--dim); font-size:12px; }
+  .ltg-row { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; margin-top:10px; }
+  .wpcfig { flex:1 1 300px; max-width:49%; min-width:260px; margin:0; }
+  .wpcfig img { width:100%; height:auto; display:block; border-radius:10px; }
+  .wpcfig figcaption { font-size:12px; opacity:.75; margin-top:4px; }
+  .ltg-cell { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px 10px; min-width:130px; flex:0 0 auto; }
+  .ltg-cell b { display:block; font-size:15px; }
+  .ltg-cell .h { color:var(--dim); font-size:11px; }
+  .ltg-bars { display:flex; align-items:flex-end; gap:2px; height:34px; margin-top:6px; }
+  .ltg-bars i { flex:1 1 0; min-width:4px; background:#ffeb3b; border-radius:2px 2px 0 0; opacity:.9; }
+  .ltg-badge { font-size:11px; font-weight:800; padding:2px 8px; border-radius:8px; color:#102015; }
+  #map { height:clamp(340px,56vh,580px); border-radius:12px; z-index:0; }
+  .ctl { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:10px; }
+  .ctl button { background:#2b80ff; color:#fff; border:none; border-radius:8px; padding:9px 20px; font-size:16px; cursor:pointer; }
+  .ctl button:active { transform:scale(.97); }
+  .ctl select { background:#1b1f27; color:#eee; border:1px solid rgba(255,255,255,.2); border-radius:6px; padding:8px; font-size:14px; max-width:100%; }
+  .stack { position:relative; width:100%; aspect-ratio:4/3; background:#0a0d13; border-radius:10px; overflow:hidden; }
+  .stack .layer { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+  .frame { font-family:ui-monospace,monospace; color:#ffd54f; }
+  .ctl input[type=range] { flex:1; min-width:110px; accent-color:#2b80ff; height:26px; }
+  .frame { min-width:84px; text-align:center; font-weight:700; color:#ffd54f; font-size:16px; }
+  .src { color:var(--dim); font-size:12px; margin-top:8px; }
+  .legend { display:flex; flex-wrap:wrap; gap:8px 14px; font-size:12.5px; color:var(--dim); margin-top:8px; }
+  .legend i { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+  table.cells { width:100%; border-collapse:collapse; font-size:14px; }
+  table.cells th { text-align:left; color:var(--dim); font-weight:600; font-size:12px; padding:6px; }
+  table.cells th.srt { cursor:pointer; user-select:none; white-space:nowrap; }
+  table.cells th.srt:hover { color:var(--ink); }
+  table.cells th.srt .dir { font-size:10px; margin-left:2px; color:var(--accent); }
+  .trend { font-size:11px; font-weight:700; margin-left:3px; }
+  .trend.up { color:#66bb6a; } .trend.dn { color:#ef5350; } .trend.fl { color:var(--dim); font-weight:400; }
+  table.cells td { border-top:1px solid var(--line); padding:7px 6px; }
+  .dbz { font-weight:800; } .sev { color:#ff5252; } .mod { color:#ffb74d; } .lit { color:#aed581; }
+  .gal { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }
+  .gal img { width:100%; border-radius:10px; border:1px solid var(--line); }
+  .gal .cap { color:var(--dim); font-size:12.5px; margin-top:4px; }
+  .stepper { display:flex; align-items:center; gap:8px; margin-top:8px; }
+  .stepper button { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:14px; }
+  .cmp4 { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+  .cmp4 .pane { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px; }
+  .cmp4 .pane h3 { margin:0 0 6px; font-size:13.5px; color:#cdd7e4; display:flex; align-items:center; gap:8px; }
+  .cmp4 .pane h3 .cap { color:var(--dim); font-weight:400; }
+  .cmp4 .pane select { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:3px 6px; font-size:13px; }
+  .cmp4 img { width:100%; border-radius:8px; }
+  .cmp4 .miss { color:var(--dim); font-size:12.5px; padding:22px 6px; text-align:center; }
+  @media (max-width:820px){ .cmp4 { grid-template-columns:1fr; } }
+  .hourly { display:flex; gap:8px; overflow-x:auto; padding-bottom:6px; }
+  .hr { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px 10px; text-align:center; min-width:72px; }
+  .hr b { display:block; } .hr span { color:var(--dim); font-size:11.5px; }
+  .natimg { width:100%; max-width:860px; display:block; margin:0 auto; border-radius:10px; border:1px solid var(--line); background:#fff; }
+  .pre { white-space:pre-wrap; font-size:12.5px; color:#cdd7e4; background:#10151f; border:1px solid var(--line); border-radius:10px; padding:12px; max-height:260px; overflow:auto; }
+  footer { text-align:center; color:var(--dim); font-size:12.5px; padding:18px 8px 26px; line-height:1.8; }
+  .navctl { display:flex; align-items:center; gap:6px; }
+  .navctl button { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:4px 10px; cursor:pointer; font-size:14px; }
+  .autolbl { color:var(--dim); font-size:12px; display:flex; align-items:center; gap:4px; }
+  .map-dark .leaflet-tile-pane { filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(1.05); }
+  /* radar load-state badge (set by the player: ok / loading / empty) */
+  #map { position: relative; }
+  #map::after {
+    content: "";
+    position: absolute; top: 8px; left: 8px; z-index: 800;
+    background: rgba(10, 14, 20, .75); color: #9fe199; border: 1px solid rgba(255,255,255,.15);
+    border-radius: 6px; padding: 2px 9px; font-size: 11.5px; pointer-events: none;
+  }
+  #map[data-radar-state="loading"]::after { content: "radar loading…"; color: #ffd54f; }
+  #map[data-radar-state="empty"]::after { content: "radar unavailable - retrying"; color: #ff8a80; }
+  #map[data-radar-state="ok"]::after { content: "radar live"; color: #9fe199; }
+  /* hide Leaflet's default home marker (the player draws its own) */
+  .leaflet-marker-icon.home-marker { display: none; }
+  .leaflet-control-attribution { background:rgba(14,17,23,.8) !important; color:var(--dim) !important; }
+  .mapctlbtn { background:#1d2432; border:1px solid var(--line); border-radius:6px; color:#eee;
+    padding:5px 9px; font-size:15px; cursor:pointer; margin-bottom:6px; box-shadow:0 1px 4px rgba(0,0,0,.4); text-align:center; }
+  .mapcoord { background:rgba(14,17,23,.85); color:#cdd7e4; border:1px solid var(--line); border-radius:6px;
+    font-size:11.5px; padding:3px 8px; }
+  @media (max-width:640px){ .wrap{padding:10px;} .card{padding:12px;} nav .brand{font-size:16px;} }
+</style>
+</head><body>
+<nav><div class="wrap">
+  <a class="brand" href="index.html">🌧️ <span>Tennessee Weather Network</span></a>
+  <a class="pg" href="index.html">Home</a><a class="pg" href="radar.html">Radar</a><a class="pg" href="satellite.html">Satellite</a><a class="pg" href="models.html">Models</a><a class="pg" href="tropical.html">NHC</a><a class="pg" href="tropmodels.html">Trop Models</a><a class="pg" href="climate.html">Climate</a><a class="pg on" href="enso.html">El Niño</a><a class="pg" href="severe.html">Severe</a><a class="pg" href="winter.html">Winter Forecast</a><a class="pg" href="rivers.html">Rivers</a><a class="pg" href="fire.html">Fire</a><a class="pg" href="dashboard.html">Dashboard</a><a class="pg" href="traffic.html">Traffic</a><a class="pg" href="meso.html">Mesoanalysis</a><a class="pg" href="obs.html">Obs & Skew-T</a><a class="pg" href="charts.html">Charts & MOS</a><a class="pg" href="national.html">National</a><a class="pg" href="forecast.html">Forecast</a><a class="pg" href="education.html">Education</a>
+  <div class="navctl">
+    <select id="baseSel" title="Basemap" style="max-width:110px"></select>
+    <button id="refreshBtn" title="Refresh this page now">⟳ Refresh</button>
+    <label class="autolbl"><input type="checkbox" id="autoChk" checked/> auto <span id="autoCnt">90</span>s</label>
+    <a id="fbShare" title="Share this page on Facebook" target="_blank" rel="noopener"
+       style="text-decoration:none;background:#1877f2;color:#fff;padding:4px 10px;border-radius:8px;font-size:12.5px;font-weight:600;display:inline-block">📘 Share</a>
+  </div>
+</div></nav>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const SITE_DATA_URL = "data.json";
+/* GitHub Pages caches data.json up to 10 min (max-age=600); the timestamp
+   query makes the browser fetch a fresh copy from the Pages CDN instead of
+   reusing a stale cached one. Public data publishes ~every 10 min, so the
+   footer age normally reads 0-10 min - that is the honest cadence. */
+function dataUrl() {
+  try { return SITE_DATA_URL + "?t=" + Date.now(); } catch (_e) { return SITE_DATA_URL; }
+}
+/* live-update watchdog: re-fetch data.json every 3 min and show its age.
+   The footer age is computed from dataEpochMs (server epoch), NOT from the
+   human-readable 'generated' string (now "... 12:17 AM ET" - unparseable). */
+let SITE_DATA = null;
+function fmtAge(mins) {
+  if (mins < 1) return "just now";
+  if (mins < 60) return mins + " min ago";
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return h + " h " + (m ? m + " min " : "") + "ago";
+}
+function updTick() {
+  if (!SITE_DATA) return;
+  const el = document.getElementById("upd");
+  if (!el) return;
+  const ms = Date.now() - (SITE_DATA.dataEpochMs || 0);
+  if (!SITE_DATA.dataEpochMs || ms < 0) { el.textContent = "\u2705 Live data"; return; }
+  const mins = Math.floor(ms / 60000);
+  /* Public site: GitHub publishes ~every 10 min, so age up to ~12 min is the
+     normal cadence - warn only past that. Pages' own max-age=600 means the
+     fetch itself can lag a couple minutes behind the publish. */
+  if (mins <= 12) el.textContent = "\u2705 Live data \u00b7 refreshed " + fmtAge(mins);
+  else if (mins <= 30) el.textContent = "\u23f3 Data " + fmtAge(mins) + " old \u00b7 next publish soon";
+  else el.textContent = "\u26a0\ufe0f Data " + fmtAge(mins) + " old \u00b7 checking for updates";
+}
+async function siteRefresh() {
+  try {
+    SITE_DATA = await (await fetch(dataUrl(), {cache: "no-store"})).json();
+    if (typeof onDataRefresh === "function") onDataRefresh(SITE_DATA);
+    updTick();
+    try { syncAutoPref(); } catch (_e) {}   /* version now known: apply/wipe stale auto pref */
+    /* auto-heal: if the served copy is still 30+ min old on two consecutive
+       polls (6 min apart), force a cache-busted reload once - recovers from
+       a stuck CDN copy or a missed publish without looping. */
+    if (SITE_DATA.dataEpochMs && Date.now() - SITE_DATA.dataEpochMs > 30 * 60000) {
+      siteRefresh._stale = (siteRefresh._stale || 0) + 1;
+      if (siteRefresh._stale >= 2 && !sessionStorage.getItem("tnwxHealed")) {
+        sessionStorage.setItem("tnwxHealed", "1");
+        const u = new URL(location.href); u.searchParams.set("t", Date.now());
+        location.replace(u); return;
+      }
+    } else siteRefresh._stale = 0;
+  } catch (e) { /* offline: keep last data */ }
+}
+siteRefresh();
+setInterval(updTick, 30000);
+setInterval(siteRefresh, 180000);
+/* paused-banner: the STOP shortcut writes PAUSED.json, so any page that
+   still loads while updates are paused tells the truth instead of showing
+   a stale timestamp that looks like normal lag. START removes the marker. */
+(async function () {
+  try {
+    const pr = await fetch("PAUSED.json?t=" + Date.now(), { cache: "no-store" });
+    if (!pr.ok) return;   /* 404 = running normally */
+    const p = await pr.json();
+    const pb = document.createElement("div");
+    pb.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:99999;"
+      + "background:#b3261e;color:#fff;text-align:center;font-weight:700;"
+      + "padding:8px 12px;font-size:14px;font-family:inherit;";
+    pb.textContent = "\u23f8 Weather updates are PAUSED - press the START shortcut "
+      + "to resume. Data on this page is frozen"
+      + (p && p.since ? " (paused " + String(p.since).replace(/^paused\s*/, "") + ")" : "") + ".";
+    document.body.appendChild(pb);
+    document.body.style.paddingTop = "38px";
+    if (autoCnt) autoCnt.textContent = "\u221e";   /* freeze the auto-reload countdown too */
+  } catch (_e) { /* marker unreadable: treat as running */ }
+})();
+/* page auto-refresh: soft (map pages define onDataRefresh) or hard reload.
+   Hard reloads MUST cache-bust: GitHub Pages sends max-age=600, so a plain
+   location.reload() can serve the same stale HTML for up to 10 minutes. */
+function hardReload() {
+  try {
+    const u = new URL(location.href);
+    u.searchParams.set("t", Date.now());
+    location.replace(u);
+  } catch (_e) { location.reload(); }
+}
+let AUTO_LEFT = 90;
+const autoCnt = document.getElementById("autoCnt"), autoChk = document.getElementById("autoChk");
+document.getElementById("refreshBtn").onclick = () => {
+  const b = document.getElementById("refreshBtn");
+  if (b) { b.textContent = "…"; }
+  hardReload();
+};
+/* auto-refresh preference is remembered per siteVersion (a fingerprint of
+   the site code, served in data.json). A saved "off" therefore cannot
+   survive a site update: after new code pushes, the flag belongs to an old
+   version, is wiped, and auto-refresh resumes - an update always re-opens
+   the refresh tap. Before the first data pull resolves the version is
+   unknown, so the checkbox defaults ON and re-syncs the moment data lands. */
+function autoPrefKey() {
+  /* SITE_DATA is a script-level let - reachable by name in this scope but
+     never as window.SITE_DATA, so the bare (guarded) reference is required */
+  let v = "";
+  try { v = (typeof SITE_DATA !== "undefined" && SITE_DATA && SITE_DATA.siteVersion) || ""; } catch (_e) {}
+  return v ? "tnwxAuto." + v : "";
+}
+function syncAutoPref() {
+  const k = autoPrefKey();
+  if (!k) return;
+  try {
+    /* wipe the legacy flag and flags saved under other versions */
+    Object.keys(localStorage)
+      .filter(x => x === "tnwxAuto" || (x.indexOf("tnwxAuto.") === 0 && x !== k))
+      .forEach(x => localStorage.removeItem(x));
+    autoChk.checked = localStorage.getItem(k) !== "off";
+  } catch (_e) {}
+}
+syncAutoPref();
+autoChk.onchange = () => {
+  AUTO_LEFT = 90;
+  const k = autoPrefKey();
+  try { if (k) localStorage.setItem(k, autoChk.checked ? "on" : "off"); } catch (_e) {}
+};
+/* interacting with the page postpones the auto cycle: a hard reload in the
+   middle of a zoom/pinch/scrub reads as "the map won't zoom" (2026-09-18) */
+["pointerdown", "wheel", "touchstart"].forEach(function (ev) {
+  document.addEventListener(ev, function () { AUTO_LEFT = 90; }, { passive: true, capture: true });
+});
+setInterval(() => {
+  if (!autoChk.checked) { if (autoCnt) autoCnt.textContent = "\u221e"; return; }
+  AUTO_LEFT -= 1;
+  if (autoCnt) autoCnt.textContent = AUTO_LEFT;
+  if (AUTO_LEFT <= 0) {
+    AUTO_LEFT = 90;
+    if (typeof onDataRefresh === "function") siteRefresh(); else hardReload();
+  }
+}, 1000);
+
+const BASEMAPS = {
+  dark:  { label: "Dark", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", invert: true },
+  light: { label: "Light", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", invert: false },
+  sat:   { label: "Satellite", url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", invert: false },
+  topo:  { label: "Terrain", url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}", invert: false }
+};
+let _baseLayer = null, _baseKey = null;
+function setBase(key, map) {
+  if (key === "mapbox" && !BASEMAPS.mapbox && typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN)
+    BASEMAPS.mapbox = { label: "Mapbox", style: "mapbox://styles/mapbox/light-v11" };
+  const b = BASEMAPS[key] || BASEMAPS.dark;
+  if (_baseKey === key && _baseLayer) return;
+  if (_baseLayer) map.removeLayer(_baseLayer);
+  if (b.style) _baseLayer = L.mapboxGL({ accessToken: MAPBOX_TOKEN, style: b.style, attribution: "&copy; Mapbox" }).addTo(map);
+  else _baseLayer = L.tileLayer(b.url, { maxNativeZoom: 19, maxZoom: 21, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
+  map.getContainer().classList.toggle("map-dark", !!b.invert);
+  _baseKey = key;
+  try { localStorage.setItem("tnwxBase", key); } catch (_e) {}
+  const sel = document.getElementById("baseSel"); if (sel && sel.value !== key) sel.value = key;
+}
+function addMapControls(map, home, homeZoom) {
+  const btn = (txt, title, fn) => {
+    const c = L.control({ position: "topleft" });
+    c.onAdd = () => { const d = L.DomUtil.create("div", "mapctlbtn"); d.textContent = txt; d.title = title;
+      L.DomEvent.disableClickPropagation(d); d.onclick = fn; return d; };
+    c.addTo(map);
+  };
+  btn("⛶", "Fullscreen map", () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else map.getContainer().requestFullscreen();
+  });
+  btn("⌂", "Home view", () => map.setView(home, homeZoom));
+  btn("◎", "My location", () => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(p => {
+      map.setView([p.coords.latitude, p.coords.longitude], 10);
+      L.circleMarker([p.coords.latitude, p.coords.longitude], { radius: 7, color: "#fff", weight: 2, fillColor: "#4da3ff", fillOpacity: 1 })
+        .addTo(map).bindTooltip("You are here").openTooltip();
+    }, () => {}, { timeout: 8000 });
+  });
+  L.control.scale({ imperial: true, metric: false }).addTo(map);
+  document.addEventListener("fullscreenchange", () => setTimeout(() => map.invalidateSize(), 200));
+  const coord = L.control({ position: "bottomright" });
+  coord.onAdd = () => L.DomUtil.create("div", "mapcoord");
+  coord.addTo(map);
+  const el = document.querySelector(".mapcoord");
+  map.on("mousemove", e => { if (el) el.textContent = e.latlng.lat.toFixed(3) + ", " + e.latlng.lng.toFixed(3); });
+  map.on("mouseout", () => { if (el) el.textContent = ""; });
+  const sel = document.getElementById("baseSel");
+  if (sel) {
+    sel.innerHTML = Object.entries(BASEMAPS).map(([k, b]) => `<option value="${k}">${b.label}</option>`).join("");
+    let saved = null; try { saved = localStorage.getItem("tnwxBase"); } catch (_e) {}
+    setBase(saved && BASEMAPS[saved] ? saved : ((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark"), map);
+    sel.onchange = e => setBase(e.target.value, map);
+  } else setBase((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark", map);
+  if (typeof drawHomeMarker === "function") drawHomeMarker(map, home);
+}
+function drawHomeMarker(map, home) {
+  if (map._tnwxHome) return;
+  map._tnwxHome = L.circleMarker(home, { radius: 7, color: "#fff", weight: 2,
+    fillColor: "#ff5252", fillOpacity: 1 }).addTo(map).bindTooltip((typeof DATA_PLACE !== "undefined" && DATA_PLACE) || "Home");
+}
+
+
+setTimeout(function () {
+  if (typeof map === "undefined" || !map) return;
+  const sel = document.getElementById("baseSel");
+  if (typeof addMapControls === "function" && (typeof _baseLayer === "undefined" || !_baseLayer)) {
+    const la = (typeof DATA_LAT !== "undefined") ? DATA_LAT : 36.2;
+    const lo = (typeof DATA_LON !== "undefined") ? DATA_LON : -83.0;
+    addMapControls(map, [la, lo], 6);
+  } else if (typeof setBase === "function") {
+    if (!_baseLayer) setBase((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark", map);
+    if (sel) sel.onchange = function (e) { setBase(e.target.value, map); };
+  }
+}, 600);
+
+</script>
+<div class="wrap">
+
+<header class="hero"><h1>🌊 El Niño &amp; La Niña</h1>
+<div class="sub">ENSO status, forecast, and the story behind the Pacific's biggest swing
+· CPC + IRI · updated 2026-09-22 8:11 AM ET</div></header>
+
+<div class="card">
+  <h2>📡 Current status</h2>
+  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <span style="background:#ef5350;color:#0b0f14;font-weight:800;border-radius:20px;padding:6px 18px;font-size:16px">EL NINO</span>
+    <span style="background:#263238;color:#eceff1;border-radius:16px;padding:5px 14px;font-weight:600">El Niño Advisory</span>
+  </div>
+  <p style="margin:6px 0">ENSO Alert System Status: El Niño Advisory Synopsis: El Niño is strengthening, with a greater than 90% chance of a very strong event during the Northern Hemisphere fall and winter 2026-27. El Niño strengthened further over the past month, with sea surface temperature anomalies exceeding +3.0°C in the eastern equatorial Pacific [Fig. 1] . Except for the Niño-4 index, which decreased to +0.1°C in August, values in the other Niño indices increased, reaching +1.8°C in Niño-3.4, +2.5°C in Niño-3, and +3.4°C in Niño-1+2 [Fig. 2] . The equatorial subsurface temperature index (average from 180°-100°W) remained steady during August [Fig. 3] , reflecting a deeper-than-average thermocline [Fig. 4] . Subsurface temperatures continued to be significantly above average, with widespread anomalies in excess of +10.0°C at depth. Low-level westerly wind anomalies and upper-level easterly wind anomalies extended from the western to the east-central equatorial Pacific. Enhanced convection and rainfall persisted from the central to the eastern Pacific, while anomalies remained suppressed over Indonesia [Fig. 5] . The traditional and equatorial Southern Oscillation indices remained negative. Collectively, the coupled ocean-atmosphere system reflected a strengthening El Niño. The CPC Official ENSO outlook , which synthesizes multiple models from North America and abroad, indicates El Niño will continue to strengthen through the end of the year [Figs. 6</p><p style="margin:6px 0">-8] . During the October-December 2026 season, there is a 75% chance of a historic event that would exceed the strength of previous El Niño events dating back to 1950 (+2.5°C or more for a 3-month RONI value ). With an event of this magnitude, the chances of experiencing impacts consistent with El Niño are larger, though not guaranteed (see CPC outlooks for probabilities of seasonal anomalies). In summary, El Niño is strengthening, with a greater than 90% chance of a very strong event during the Northern Hemisphere fall and winter 2026-27. This discussion is a consolidated effort of the National Oceanic and Atmospheric Administration (NOAA), NOAA&#x27;s National Weather Service, and their funded institutions. Oceanic and atmospheric conditions are updated weekly on the Climate Prediction Center web site (</p>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px"><div style="background:#101826;border:1px solid #2b4a6b;border-radius:10px;padding:8px 12px;min-width:180px;flex:1"><div style="font-size:24px;font-weight:800;color:#4fc3f7">90%</div><div class="src" style="margin-top:2px">…ENSO Alert System Status: El Niño Advisory Synopsis: El Niño is strengthening, with a greater than 90% chance of a very strong event during the Northern Hemisphere fall and winter 2026-27.</div></div><div style="background:#101826;border:1px solid #2b4a6b;border-radius:10px;padding:8px 12px;min-width:180px;flex:1"><div style="font-size:24px;font-weight:800;color:#4fc3f7">75%</div><div class="src" style="margin-top:2px">…During the October-December 2026 season, there is a 75% chance of a historic event that would exceed the strength of previous El Niño events dating back to 1950 (+2.5°C or more for a 3-month RONI value ).</div></div><div style="background:#101826;border:1px solid #2b4a6b;border-radius:10px;padding:8px 12px;min-width:180px;flex:1"><div style="font-size:24px;font-weight:800;color:#4fc3f7">90%</div><div class="src" style="margin-top:2px">In summary, El Niño is strengthening, with a greater than 90% chance of a very strong event during the Northern Hemisphere fall and winter 2026-27.</div></div></div>
+  <div class="src" style="margin-top:8px">Percentages are CPC's official odds from the monthly ENSO Diagnostic Discussion - the same statement forecasters use. Strength scale: weak (+0.5 to +1.0) · moderate (+1.0 to +1.5) · strong (+1.5 to +2.0) · very strong (+2.0 and beyond).</div>
+</div>
+
+<div class="card">
+  <h2>🌡️ Nino 3.4 sea-surface temperature anomaly - last 24 months</h2>
+  <div id="sstChart"></div>
+  <div class="src">The dashed lines are the official thresholds: sustained anomalies beyond ±0.5°C define an ENSO event; ±1.0°C moderate, ±1.5°C strong, ±2.0°C very strong. Hover for exact values.</div>
+</div>
+
+<div class="card">
+  <h2>📈 Every El Niño &amp; La Niña since 1950</h2>
+  <div id="oniChart"></div>
+  <div class="src">Oceanic Nino Index - 3-month running mean Nino 3.4 anomaly. Red = El Niño seasons, blue = La Niña. The biggest events (1982-83, 1997-98, 2015-16) reshaped global weather; the labeled marks call out the strongest on record.</div>
+</div>
+
+<div class="card">
+  <h2>🔮 The forecast</h2>
+  <div class="src" style="margin-bottom:6px">IRI/CPC dynamic-model plume - what ~20 models think Nino 3.4 does next:</div>
+  <img src="enso/iri_plume.png" alt="IRI dynamic-model Nino 3.4 forecast plume" style="max-width:100%;border-radius:10px" loading="lazy"/><div class="src">Each line: one dynamical or statistical model's forecast of Nino 3.4 SST anomaly through the coming seasons - the spaghetti of forecasts the official CPC probability statement is built from.</div>
+  <div class="src" style="margin:10px 0 6px">Official CPC advisory graphics (current figures rotate with each monthly discussion):</div>
+  <div style="display:flex;gap:14px;flex-wrap:wrap"><img src="enso/sstanim.gif" alt="Sea-surface temperature anomalies (12-month loop)" style="max-width:100%;border-radius:10px" loading="lazy"/></div>
+  <figure style="margin:8px 0"><img src="enso/figure01.gif" alt="Advisory figure 1" style="max-width:100%;border-radius:10px" loading="lazy"/><figcaption class="src">Advisory figure 1 - NOAA CPC ENSO Diagnostic Discussion</figcaption></figure><figure style="margin:8px 0"><img src="enso/figure02.gif" alt="Advisory figure 2" style="max-width:100%;border-radius:10px" loading="lazy"/><figcaption class="src">Advisory figure 2 - NOAA CPC ENSO Diagnostic Discussion</figcaption></figure><figure style="margin:8px 0"><img src="enso/figure03.gif" alt="Advisory figure 3" style="max-width:100%;border-radius:10px" loading="lazy"/><figcaption class="src">Advisory figure 3 - NOAA CPC ENSO Diagnostic Discussion</figcaption></figure><figure style="margin:8px 0"><img src="enso/figure04.gif" alt="Advisory figure 4" style="max-width:100%;border-radius:10px" loading="lazy"/><figcaption class="src">Advisory figure 4 - NOAA CPC ENSO Diagnostic Discussion</figcaption></figure>
+  <div class="src">Read the plume like a spread chart: where the lines fan apart, the models disagree about how strong the event gets; where they bunch, the forecast is confident. The CPC statement above blends these models with forecaster judgment.</div>
+</div>
+
+<div class="card">
+  <h2>🧭 What El Niño actually is</h2>
+  <p style="margin:6px 0">Along the equator, the Pacific has two natural states. In the <b>neutral</b> state, steady
+  <b>trade winds</b> blow east-to-west, piling warm water into the western Pacific (the "warm pool") while cold,
+  nutrient-rich water upwells off South America. Thunderstorms fire over the warm pool, driving a huge east-west
+  circulation called the <b>Walker circulation</b>.</p>
+  <p style="margin:6px 0"><b>El Niño</b> is when the trade winds weaken or reverse: the warm pool sloshes back east,
+  the central and eastern equatorial Pacific warms several degrees above normal, and the storm factory moves with it.
+  The atmosphere and ocean reinforce each other in a feedback loop (<b>Bjerknes feedback</b>) that can push the event
+  to historic strength. <b>La Niña</b> is the mirror image - stronger trades, colder eastern Pacific.</p>
+  <p style="margin:6px 0">Forecasters measure it in the <b>Niño 3.4 region</b> (5°N-5°S, 170°W-120°W). The
+  <b>Oceanic Nino Index (ONI)</b> is that region's 3-month running SST anomaly versus the 1991-2020 average; five
+  consecutive seasons beyond +0.5°C is an El Niño event, beyond -0.5°C a La Niña. Events come every 2-7 years and
+  usually peak around December ("Niño" - the Christ child - named by Peruvian fishermen for that timing).</p>
+</div>
+
+<div class="card">
+  <h2>🏘️ What it means for Tennessee</h2>
+  <p style="margin:6px 0"><b>El Niño winters:</b> the Pacific jet stream strengthens and sags south, steering wet
+  storms across the southern U.S. The typical Tennessee read is a <b>cooler, wetter winter</b> - more Gulf-fed
+  rain systems, better snow/ice odds when cold air taps in.</p>
+  <p style="margin:6px 0"><b>El Niño hurricane seasons:</b> stronger upper-level winds shear Atlantic storms apart.
+  The Atlantic typically sees <b>fewer, weaker hurricanes</b> - while the East Pacific gets busier (its systems'
+  moisture can still flood the Southwest).</p>
+  <p style="margin:6px 0"><b>La Niña winters</b> flip the pattern: the northern jet dominates, giving Tennessee
+  <b>drier, warmer winters</b> - and the following spring often brings an <b>earlier, more active severe weather
+  season</b> in the Tennessee Valley, plus busier Atlantic hurricane seasons.</p>
+  <p class="src" style="margin-top:6px">These are typical tendencies, not guarantees - El Niño loads the dice, it
+  doesn't pick the roll. Pair this page with the Climate page's official CPC seasonal outlooks.</p>
+</div>
+
+<div class="card"><span class="src">Sources: NOAA CPC ENSO Diagnostic Discussion (monthly or as advisories change),
+CPC ONI &amp; monthly SST indices, IRI ENSO forecast plume. Graphics mirrored locally for speed; text refreshed
+on the site update cycle. El Niño threshold +0.5°C · La Niña threshold -0.5°C (CPC ONI, 1991-2020 base period).</span></div>
+
+<script>
+const EN = {"generated": "Tue 8:11 AM ET", "oni": [{"season": "DJF 1950", "anom": -1.32}, {"season": "JFM 1950", "anom": -1.2}, {"season": "FMA 1950", "anom": -1.12}, {"season": "MAM 1950", "anom": -1.08}, {"season": "AMJ 1950", "anom": -1.1}, {"season": "MJJ 1950", "anom": -0.9}, {"season": "JJA 1950", "anom": -0.62}, {"season": "JAS 1950", "anom": -0.57}, {"season": "ASO 1950", "anom": -0.56}, {"season": "SON 1950", "anom": -0.62}, {"season": "OND 1950", "anom": -0.66}, {"season": "NDJ 1950", "anom": -0.79}, {"season": "DJF 1951", "anom": -0.66}, {"season": "JFM 1951", "anom": -0.36}, {"season": "FMA 1951", "anom": -0.04}, {"season": "MAM 1951", "anom": 0.16}, {"season": "AMJ 1951", "anom": 0.27}, {"season": "MJJ 1951", "anom": 0.5}, {"season": "JJA 1951", "anom": 0.71}, {"season": "JAS 1951", "anom": 0.9}, {"season": "ASO 1951", "anom": 1.02}, {"season": "SON 1951", "anom": 1.03}, {"season": "OND 1951", "anom": 0.96}, {"season": "NDJ 1951", "anom": 0.71}, {"season": "DJF 1952", "anom": 0.52}, {"season": "JFM 1952", "anom": 0.27}, {"season": "FMA 1952", "anom": 0.33}, {"season": "MAM 1952", "anom": 0.18}, {"season": "AMJ 1952", "anom": -0.07}, {"season": "MJJ 1952", "anom": -0.44}, {"season": "JJA 1952", "anom": -0.45}, {"season": "JAS 1952", "anom": -0.2}, {"season": "ASO 1952", "anom": 0.03}, {"season": "SON 1952", "anom": 0.04}, {"season": "OND 1952", "anom": -0.11}, {"season": "NDJ 1952", "anom": 0.06}, {"season": "DJF 1953", "anom": 0.25}, {"season": "JFM 1953", "anom": 0.5}, {"season": "FMA 1953", "anom": 0.48}, {"season": "MAM 1953", "anom": 0.56}, {"season": "AMJ 1953", "anom": 0.77}, {"season": "MJJ 1953", "anom": 0.74}, {"season": "JJA 1953", "anom": 0.63}, {"season": "JAS 1953", "anom": 0.68}, {"season": "ASO 1953", "anom": 0.59}, {"season": "SON 1953", "anom": 0.78}, {"season": "OND 1953", "anom": 0.52}, {"season": "NDJ 1953", "anom": 0.56}, {"season": "DJF 1954", "anom": 0.41}, {"season": "JFM 1954", "anom": 0.35}, {"season": "FMA 1954", "anom": 0.01}, {"season": "MAM 1954", "anom": -0.27}, {"season": "AMJ 1954", "anom": -0.48}, {"season": "MJJ 1954", "anom": -0.48}, {"season": "JJA 1954", "anom": -0.67}, {"season": "JAS 1954", "anom": -0.83}, {"season": "ASO 1954", "anom": -0.73}, {"season": "SON 1954", "anom": -0.52}, {"season": "OND 1954", "anom": -0.4}, {"season": "NDJ 1954", "anom": -0.44}, {"season": "DJF 1955", "anom": -0.5}, {"season": "JFM 1955", "anom": -0.48}, {"season": "FMA 1955", "anom": -0.58}, {"season": "MAM 1955", "anom": -0.76}, {"season": "AMJ 1955", "anom": -0.78}, {"season": "MJJ 1955", "anom": -0.88}, {"season": "JJA 1955", "anom": -0.72}, {"season": "JAS 1955", "anom": -0.92}, {"season": "ASO 1955", "anom": -1.11}, {"season": "SON 1955", "anom": -1.44}, {"season": "OND 1955", "anom": -1.59}, {"season": "NDJ 1955", "anom": -1.51}, {"season": "DJF 1956", "anom": -1.17}, {"season": "JFM 1956", "anom": -0.81}, {"season": "FMA 1956", "anom": -0.57}, {"season": "MAM 1956", "anom": -0.51}, {"season": "AMJ 1956", "anom": -0.49}, {"season": "MJJ 1956", "anom": -0.47}, {"season": "JJA 1956", "anom": -0.55}, {"season": "JAS 1956", "anom": -0.52}, {"season": "ASO 1956", "anom": -0.43}, {"season": "SON 1956", "anom": -0.39}, {"season": "OND 1956", "anom": -0.37}, {"season": "NDJ 1956", "anom": -0.39}, {"season": "DJF 1957", "anom": -0.27}, {"season": "JFM 1957", "anom": -0.06}, {"season": "FMA 1957", "anom": 0.26}, {"season": "MAM 1957", "anom": 0.63}, {"season": "AMJ 1957", "anom": 0.72}, {"season": "MJJ 1957", "anom": 0.82}, {"season": "JJA 1957", "anom": 0.96}, {"season": "JAS 1957", "anom": 1.03}, {"season": "ASO 1957", "anom": 1.12}, {"season": "SON 1957", "anom": 1.15}, {"season": "OND 1957", "anom": 1.39}, {"season": "NDJ 1957", "anom": 1.62}, {"season": "DJF 1958", "anom": 1.69}, {"season": "JFM 1958", "anom": 1.59}, {"season": "FMA 1958", "anom": 1.17}, {"season": "MAM 1958", "anom": 0.84}, {"season": "AMJ 1958", "anom": 0.57}, {"season": "MJJ 1958", "anom": 0.49}, {"season": "JJA 1958", "anom": 0.43}, {"season": "JAS 1958", "anom": 0.32}, {"season": "ASO 1958", "anom": 0.28}, {"season": "SON 1958", "anom": 0.3}, {"season": "OND 1958", "anom": 0.36}, {"season": "NDJ 1958", "anom": 0.56}, {"season": "DJF 1959", "anom": 0.6}, {"season": "JFM 1959", "anom": 0.64}, {"season": "FMA 1959", "anom": 0.48}, {"season": "MAM 1959", "anom": 0.39}, {"season": "AMJ 1959", "anom": 0.24}, {"season": "MJJ 1959", "anom": 0.02}, {"season": "JJA 1959", "anom": -0.19}, {"season": "JAS 1959", "anom": -0.23}, {"season": "ASO 1959", "anom": -0.04}, {"season": "SON 1959", "anom": 0.11}, {"season": "OND 1959", "anom": 0.23}, {"season": "NDJ 1959", "anom": 0.14}, {"season": "DJF 1960", "anom": 0.02}, {"season": "JFM 1960", "anom": 0.03}, {"season": "FMA 1960", "anom": 0.06}, {"season": "MAM 1960", "anom": 0.17}, {"season": "AMJ 1960", "anom": 0.04}, {"season": "MJJ 1960", "anom": 0.0}, {"season": "JJA 1960", "anom": 0.01}, {"season": "JAS 1960", "anom": 0.15}, {"season": "ASO 1960", "anom": 0.19}, {"season": "SON 1960", "anom": 0.08}, {"season": "OND 1960", "anom": -0.07}, {"season": "NDJ 1960", "anom": -0.07}, {"season": "DJF 1961", "anom": 0.0}, {"season": "JFM 1961", "anom": 0.03}, {"season": "FMA 1961", "anom": 0.01}, {"season": "MAM 1961", "anom": 0.05}, {"season": "AMJ 1961", "anom": 0.22}, {"season": "MJJ 1961", "anom": 0.22}, {"season": "JJA 1961", "anom": 0.08}, {"season": "JAS 1961", "anom": -0.2}, {"season": "ASO 1961", "anom": -0.32}, {"season": "SON 1961", "anom": -0.22}, {"season": "OND 1961", "anom": -0.11}, {"season": "NDJ 1961", "anom": -0.05}, {"season": "DJF 1962", "anom": -0.16}, {"season": "JFM 1962", "anom": -0.17}, {"season": "FMA 1962", "anom": -0.15}, {"season": "MAM 1962", "anom": -0.2}, {"season": "AMJ 1962", "anom": -0.19}, {"season": "MJJ 1962", "anom": -0.13}, {"season": "JJA 1962", "anom": 0.0}, {"season": "JAS 1962", "anom": -0.1}, {"season": "ASO 1962", "anom": -0.16}, {"season": "SON 1962", "anom": -0.25}, {"season": "OND 1962", "anom": -0.25}, {"season": "NDJ 1962", "anom": -0.32}, {"season": "DJF 1963", "anom": -0.33}, {"season": "JFM 1963", "anom": -0.17}, {"season": "FMA 1963", "anom": 0.01}, {"season": "MAM 1963", "anom": 0.13}, {"season": "AMJ 1963", "anom": 0.12}, {"season": "MJJ 1963", "anom": 0.45}, {"season": "JJA 1963", "anom": 0.76}, {"season": "JAS 1963", "anom": 1.09}, {"season": "ASO 1963", "anom": 1.09}, {"season": "SON 1963", "anom": 1.13}, {"season": "OND 1963", "anom": 1.19}, {"season": "NDJ 1963", "anom": 1.13}, {"season": "DJF 1964", "anom": 0.95}, {"season": "JFM 1964", "anom": 0.52}, {"season": "FMA 1964", "anom": 0.06}, {"season": "MAM 1964", "anom": -0.35}, {"season": "AMJ 1964", "anom": -0.6}, {"season": "MJJ 1964", "anom": -0.66}, {"season": "JJA 1964", "anom": -0.67}, {"season": "JAS 1964", "anom": -0.7}, {"season": "ASO 1964", "anom": -0.72}, {"season": "SON 1964", "anom": -0.8}, {"season": "OND 1964", "anom": -0.79}, {"season": "NDJ 1964", "anom": -0.75}, {"season": "DJF 1965", "anom": -0.51}, {"season": "JFM 1965", "anom": -0.25}, {"season": "FMA 1965", "anom": -0.04}, {"season": "MAM 1965", "anom": 0.16}, {"season": "AMJ 1965", "anom": 0.47}, {"season": "MJJ 1965", "anom": 0.79}, {"season": "JJA 1965", "anom": 1.1}, {"season": "JAS 1965", "anom": 1.27}, {"season": "ASO 1965", "anom": 1.55}, {"season": "SON 1965", "anom": 1.7}, {"season": "OND 1965", "anom": 1.82}, {"season": "NDJ 1965", "anom": 1.6}, {"season": "DJF 1966", "anom": 1.24}, {"season": "JFM 1966", "anom": 0.95}, {"season": "FMA 1966", "anom": 0.76}, {"season": "MAM 1966", "anom": 0.43}, {"season": "AMJ 1966", "anom": 0.24}, {"season": "MJJ 1966", "anom": 0.18}, {"season": "JJA 1966", "anom": 0.25}, {"season": "JAS 1966", "anom": 0.13}, {"season": "ASO 1966", "anom": -0.09}, {"season": "SON 1966", "anom": -0.12}, {"season": "OND 1966", "anom": -0.23}, {"season": "NDJ 1966", "anom": -0.35}, {"season": "DJF 1967", "anom": -0.46}, {"season": "JFM 1967", "anom": -0.48}, {"season": "FMA 1967", "anom": -0.5}, {"season": "MAM 1967", "anom": -0.37}, {"season": "AMJ 1967", "anom": -0.15}, {"season": "MJJ 1967", "anom": 0.05}, {"season": "JJA 1967", "anom": -0.02}, {"season": "JAS 1967", "anom": -0.26}, {"season": "ASO 1967", "anom": -0.4}, {"season": "SON 1967", "anom": -0.4}, {"season": "OND 1967", "anom": -0.36}, {"season": "NDJ 1967", "anom": -0.42}, {"season": "DJF 1968", "anom": -0.62}, {"season": "JFM 1968", "anom": -0.73}, {"season": "FMA 1968", "anom": -0.63}, {"season": "MAM 1968", "anom": -0.48}, {"season": "AMJ 1968", "anom": -0.1}, {"season": "MJJ 1968", "anom": 0.17}, {"season": "JJA 1968", "anom": 0.44}, {"season": "JAS 1968", "anom": 0.38}, {"season": "ASO 1968", "anom": 0.34}, {"season": "SON 1968", "anom": 0.5}, {"season": "OND 1968", "anom": 0.66}, {"season": "NDJ 1968", "anom": 0.93}, {"season": "DJF 1969", "anom": 0.98}, {"season": "JFM 1969", "anom": 0.98}, {"season": "FMA 1969", "anom": 0.77}, {"season": "MAM 1969", "anom": 0.69}, {"season": "AMJ 1969", "anom": 0.62}, {"season": "MJJ 1969", "anom": 0.48}, {"season": "JJA 1969", "anom": 0.37}, {"season": "JAS 1969", "anom": 0.41}, {"season": "ASO 1969", "anom": 0.61}, {"season": "SON 1969", "anom": 0.71}, {"season": "OND 1969", "anom": 0.81}, {"season": "NDJ 1969", "anom": 0.71}, {"season": "DJF 1970", "anom": 0.46}, {"season": "JFM 1970", "anom": 0.23}, {"season": "FMA 1970", "anom": 0.23}, {"season": "MAM 1970", "anom": 0.28}, {"season": "AMJ 1970", "anom": 0.11}, {"season": "MJJ 1970", "anom": -0.26}, {"season": "JJA 1970", "anom": -0.55}, {"season": "JAS 1970", "anom": -0.72}, {"season": "ASO 1970", "anom": -0.69}, {"season": "SON 1970", "anom": -0.72}, {"season": "OND 1970", "anom": -0.78}, {"season": "NDJ 1970", "anom": -1.1}, {"season": "DJF 1971", "anom": -1.29}, {"season": "JFM 1971", "anom": -1.36}, {"season": "FMA 1971", "anom": -1.08}, {"season": "MAM 1971", "anom": -0.81}, {"season": "AMJ 1971", "anom": -0.72}, {"season": "MJJ 1971", "anom": -0.69}, {"season": "JJA 1971", "anom": -0.68}, {"season": "JAS 1971", "anom": -0.6}, {"season": "ASO 1971", "anom": -0.68}, {"season": "SON 1971", "anom": -0.78}, {"season": "OND 1971", "anom": -0.86}, {"season": "NDJ 1971", "anom": -0.78}, {"season": "DJF 1972", "anom": -0.57}, {"season": "JFM 1972", "anom": -0.27}, {"season": "FMA 1972", "anom": 0.04}, {"season": "MAM 1972", "anom": 0.25}, {"season": "AMJ 1972", "anom": 0.48}, {"season": "MJJ 1972", "anom": 0.7}, {"season": "JJA 1972", "anom": 1.0}, {"season": "JAS 1972", "anom": 1.26}, {"season": "ASO 1972", "anom": 1.49}, {"season": "SON 1972", "anom": 1.69}, {"season": "OND 1972", "anom": 1.84}, {"season": "NDJ 1972", "anom": 1.77}, {"season": "DJF 1973", "anom": 1.55}, {"season": "JFM 1973", "anom": 1.13}, {"season": "FMA 1973", "anom": 0.56}, {"season": "MAM 1973", "anom": -0.03}, {"season": "AMJ 1973", "anom": -0.51}, {"season": "MJJ 1973", "anom": -0.8}, {"season": "JJA 1973", "anom": -0.99}, {"season": "JAS 1973", "anom": -1.11}, {"season": "ASO 1973", "anom": -1.26}, {"season": "SON 1973", "anom": -1.58}, {"season": "OND 1973", "anom": -1.89}, {"season": "NDJ 1973", "anom": -2.04}, {"season": "DJF 1974", "anom": -1.87}, {"season": "JFM 1974", "anom": -1.59}, {"season": "FMA 1974", "anom": -1.24}, {"season": "MAM 1974", "anom": -0.99}, {"season": "AMJ 1974", "anom": -0.71}, {"season": "MJJ 1974", "anom": -0.64}, {"season": "JJA 1974", "anom": -0.46}, {"season": "JAS 1974", "anom": -0.4}, {"season": "ASO 1974", "anom": -0.47}, {"season": "SON 1974", "anom": -0.69}, {"season": "OND 1974", "anom": -0.88}, {"season": "NDJ 1974", "anom": -0.71}, {"season": "DJF 1975", "anom": -0.56}, {"season": "JFM 1975", "anom": -0.55}, {"season": "FMA 1975", "anom": -0.61}, {"season": "MAM 1975", "anom": -0.66}, {"season": "AMJ 1975", "anom": -0.8}, {"season": "MJJ 1975", "anom": -0.92}, {"season": "JJA 1975", "anom": -1.08}, {"season": "JAS 1975", "anom": -1.12}, {"season": "ASO 1975", "anom": -1.29}, {"season": "SON 1975", "anom": -1.32}, {"season": "OND 1975", "anom": -1.47}, {"season": "NDJ 1975", "anom": -1.58}, {"season": "DJF 1976", "anom": -1.49}, {"season": "JFM 1976", "anom": -1.11}, {"season": "FMA 1976", "anom": -0.65}, {"season": "MAM 1976", "anom": -0.45}, {"season": "AMJ 1976", "anom": -0.23}, {"season": "MJJ 1976", "anom": 0.0}, {"season": "JJA 1976", "anom": 0.23}, {"season": "JAS 1976", "anom": 0.4}, {"season": "ASO 1976", "anom": 0.6}, {"season": "SON 1976", "anom": 0.79}, {"season": "OND 1976", "anom": 0.81}, {"season": "NDJ 1976", "anom": 0.84}, {"season": "DJF 1977", "anom": 0.71}, {"season": "JFM 1977", "anom": 0.66}, {"season": "FMA 1977", "anom": 0.33}, {"season": "MAM 1977", "anom": 0.26}, {"season": "AMJ 1977", "anom": 0.26}, {"season": "MJJ 1977", "anom": 0.46}, {"season": "JJA 1977", "anom": 0.39}, {"season": "JAS 1977", "anom": 0.35}, {"season": "ASO 1977", "anom": 0.45}, {"season": "SON 1977", "anom": 0.68}, {"season": "OND 1977", "anom": 0.84}, {"season": "NDJ 1977", "anom": 0.82}, {"season": "DJF 1978", "anom": 0.71}, {"season": "JFM 1978", "anom": 0.52}, {"season": "FMA 1978", "anom": 0.17}, {"season": "MAM 1978", "anom": -0.06}, {"season": "AMJ 1978", "anom": -0.28}, {"season": "MJJ 1978", "anom": -0.24}, {"season": "JJA 1978", "anom": -0.37}, {"season": "JAS 1978", "anom": -0.37}, {"season": "ASO 1978", "anom": -0.44}, {"season": "SON 1978", "anom": -0.27}, {"season": "OND 1978", "anom": -0.07}, {"season": "NDJ 1978", "anom": 0.11}, {"season": "DJF 1979", "anom": 0.19}, {"season": "JFM 1979", "anom": 0.21}, {"season": "FMA 1979", "anom": 0.29}, {"season": "MAM 1979", "anom": 0.32}, {"season": "AMJ 1979", "anom": 0.29}, {"season": "MJJ 1979", "anom": 0.14}, {"season": "JJA 1979", "anom": 0.09}, {"season": "JAS 1979", "anom": 0.22}, {"season": "ASO 1979", "anom": 0.34}, {"season": "SON 1979", "anom": 0.47}, {"season": "OND 1979", "anom": 0.5}, {"season": "NDJ 1979", "anom": 0.64}, {"season": "DJF 1980", "anom": 0.62}, {"season": "JFM 1980", "anom": 0.47}, {"season": "FMA 1980", "anom": 0.35}, {"season": "MAM 1980", "anom": 0.34}, {"season": "AMJ 1980", "anom": 0.45}, {"season": "MJJ 1980", "anom": 0.4}, {"season": "JJA 1980", "anom": 0.18}, {"season": "JAS 1980", "anom": -0.06}, {"season": "ASO 1980", "anom": -0.17}, {"season": "SON 1980", "anom": -0.07}, {"season": "OND 1980", "anom": 0.08}, {"season": "NDJ 1980", "anom": -0.05}, {"season": "DJF 1981", "anom": -0.27}, {"season": "JFM 1981", "anom": -0.42}, {"season": "FMA 1981", "anom": -0.41}, {"season": "MAM 1981", "anom": -0.27}, {"season": "AMJ 1981", "anom": -0.28}, {"season": "MJJ 1981", "anom": -0.27}, {"season": "JJA 1981", "anom": -0.28}, {"season": "JAS 1981", "anom": -0.23}, {"season": "ASO 1981", "anom": -0.08}, {"season": "SON 1981", "anom": -0.16}, {"season": "OND 1981", "anom": -0.19}, {"season": "NDJ 1981", "anom": -0.14}, {"season": "DJF 1982", "anom": -0.05}, {"season": "JFM 1982", "anom": 0.02}, {"season": "FMA 1982", "anom": 0.07}, {"season": "MAM 1982", "anom": 0.34}, {"season": "AMJ 1982", "anom": 0.65}, {"season": "MJJ 1982", "anom": 0.73}, {"season": "JJA 1982", "anom": 0.78}, {"season": "JAS 1982", "anom": 0.99}, {"season": "ASO 1982", "anom": 1.45}, {"season": "SON 1982", "anom": 1.82}, {"season": "OND 1982", "anom": 2.03}, {"season": "NDJ 1982", "anom": 2.12}, {"season": "DJF 1983", "anom": 2.14}, {"season": "JFM 1983", "anom": 1.91}, {"season": "FMA 1983", "anom": 1.52}, {"season": "MAM 1983", "anom": 1.23}, {"season": "AMJ 1983", "anom": 0.95}, {"season": "MJJ 1983", "anom": 0.62}, {"season": "JJA 1983", "anom": 0.25}, {"season": "JAS 1983", "anom": -0.06}, {"season": "ASO 1983", "anom": -0.43}, {"season": "SON 1983", "anom": -0.76}, {"season": "OND 1983", "anom": -0.96}, {"season": "NDJ 1983", "anom": -0.89}, {"season": "DJF 1984", "anom": -0.63}, {"season": "JFM 1984", "anom": -0.51}, {"season": "FMA 1984", "anom": -0.38}, {"season": "MAM 1984", "anom": -0.47}, {"season": "AMJ 1984", "anom": -0.55}, {"season": "MJJ 1984", "anom": -0.52}, {"season": "JJA 1984", "anom": -0.39}, {"season": "JAS 1984", "anom": -0.22}, {"season": "ASO 1984", "anom": -0.32}, {"season": "SON 1984", "anom": -0.62}, {"season": "OND 1984", "anom": -0.95}, {"season": "NDJ 1984", "anom": -1.06}, {"season": "DJF 1985", "anom": -1.01}, {"season": "JFM 1985", "anom": -0.86}, {"season": "FMA 1985", "anom": -0.85}, {"season": "MAM 1985", "anom": -0.8}, {"season": "AMJ 1985", "anom": -0.79}, {"season": "MJJ 1985", "anom": -0.6}, {"season": "JJA 1985", "anom": -0.44}, {"season": "JAS 1985", "anom": -0.33}, {"season": "ASO 1985", "anom": -0.31}, {"season": "SON 1985", "anom": -0.3}, {"season": "OND 1985", "anom": -0.28}, {"season": "NDJ 1985", "anom": -0.36}, {"season": "DJF 1986", "anom": -0.4}, {"season": "JFM 1986", "anom": -0.38}, {"season": "FMA 1986", "anom": -0.25}, {"season": "MAM 1986", "anom": -0.17}, {"season": "AMJ 1986", "anom": -0.09}, {"season": "MJJ 1986", "anom": 0.02}, {"season": "JJA 1986", "anom": 0.24}, {"season": "JAS 1986", "anom": 0.46}, {"season": "ASO 1986", "anom": 0.64}, {"season": "SON 1986", "anom": 0.86}, {"season": "OND 1986", "anom": 1.06}, {"season": "NDJ 1986", "anom": 1.21}, {"season": "DJF 1987", "anom": 1.18}, {"season": "JFM 1987", "anom": 1.13}, {"season": "FMA 1987", "anom": 1.02}, {"season": "MAM 1987", "anom": 0.94}, {"season": "AMJ 1987", "anom": 0.95}, {"season": "MJJ 1987", "anom": 1.11}, {"season": "JJA 1987", "anom": 1.3}, {"season": "JAS 1987", "anom": 1.46}, {"season": "ASO 1987", "anom": 1.49}, {"season": "SON 1987", "anom": 1.41}, {"season": "OND 1987", "anom": 1.2}, {"season": "NDJ 1987", "anom": 1.0}, {"season": "DJF 1988", "anom": 0.63}, {"season": "JFM 1988", "anom": 0.37}, {"season": "FMA 1988", "anom": -0.03}, {"season": "MAM 1988", "anom": -0.45}, {"season": "AMJ 1988", "anom": -0.99}, {"season": "MJJ 1988", "anom": -1.3}, {"season": "JJA 1988", "anom": -1.3}, {"season": "JAS 1988", "anom": -1.14}, {"season": "ASO 1988", "anom": -1.27}, {"season": "SON 1988", "anom": -1.54}, {"season": "OND 1988", "anom": -1.81}, {"season": "NDJ 1988", "anom": -1.85}, {"season": "DJF 1989", "anom": -1.64}, {"season": "JFM 1989", "anom": -1.38}, {"season": "FMA 1989", "anom": -1.09}, {"season": "MAM 1989", "anom": -0.85}, {"season": "AMJ 1989", "anom": -0.61}, {"season": "MJJ 1989", "anom": -0.4}, {"season": "JJA 1989", "anom": -0.37}, {"season": "JAS 1989", "anom": -0.36}, {"season": "ASO 1989", "anom": -0.33}, {"season": "SON 1989", "anom": -0.25}, {"season": "OND 1989", "anom": -0.12}, {"season": "NDJ 1989", "anom": -0.04}, {"season": "DJF 1990", "anom": 0.18}, {"season": "JFM 1990", "anom": 0.19}, {"season": "FMA 1990", "anom": 0.3}, {"season": "MAM 1990", "anom": 0.27}, {"season": "AMJ 1990", "anom": 0.25}, {"season": "MJJ 1990", "anom": 0.25}, {"season": "JJA 1990", "anom": 0.26}, {"season": "JAS 1990", "anom": 0.32}, {"season": "ASO 1990", "anom": 0.31}, {"season": "SON 1990", "anom": 0.27}, {"season": "OND 1990", "anom": 0.31}, {"season": "NDJ 1990", "anom": 0.34}, {"season": "DJF 1991", "anom": 0.35}, {"season": "JFM 1991", "anom": 0.26}, {"season": "FMA 1991", "anom": 0.23}, {"season": "MAM 1991", "anom": 0.29}, {"season": "AMJ 1991", "anom": 0.49}, {"season": "MJJ 1991", "anom": 0.63}, {"season": "JJA 1991", "anom": 0.77}, {"season": "JAS 1991", "anom": 0.67}, {"season": "ASO 1991", "anom": 0.72}, {"season": "SON 1991", "anom": 0.83}, {"season": "OND 1991", "anom": 1.18}, {"season": "NDJ 1991", "anom": 1.43}, {"season": "DJF 1992", "anom": 1.54}, {"season": "JFM 1992", "anom": 1.5}, {"season": "FMA 1992", "anom": 1.4}, {"season": "MAM 1992", "anom": 1.3}, {"season": "AMJ 1992", "anom": 1.08}, {"season": "MJJ 1992", "anom": 0.72}, {"season": "JJA 1992", "anom": 0.35}, {"season": "JAS 1992", "anom": 0.08}, {"season": "ASO 1992", "anom": -0.15}, {"season": "SON 1992", "anom": -0.22}, {"season": "OND 1992", "anom": -0.24}, {"season": "NDJ 1992", "anom": -0.05}, {"season": "DJF 1993", "anom": 0.13}, {"season": "JFM 1993", "anom": 0.31}, {"season": "FMA 1993", "anom": 0.5}, {"season": "MAM 1993", "anom": 0.73}, {"season": "AMJ 1993", "anom": 0.76}, {"season": "MJJ 1993", "anom": 0.56}, {"season": "JJA 1993", "anom": 0.28}, {"season": "JAS 1993", "anom": 0.22}, {"season": "ASO 1993", "anom": 0.2}, {"season": "SON 1993", "anom": 0.2}, {"season": "OND 1993", "anom": 0.2}, {"season": "NDJ 1993", "anom": 0.19}, {"season": "DJF 1994", "anom": 0.07}, {"season": "JFM 1994", "anom": 0.0}, {"season": "FMA 1994", "anom": 0.04}, {"season": "MAM 1994", "anom": 0.17}, {"season": "AMJ 1994", "anom": 0.25}, {"season": "MJJ 1994", "anom": 0.23}, {"season": "JJA 1994", "anom": 0.3}, {"season": "JAS 1994", "anom": 0.3}, {"season": "ASO 1994", "anom": 0.47}, {"season": "SON 1994", "anom": 0.66}, {"season": "OND 1994", "anom": 0.93}, {"season": "NDJ 1994", "anom": 0.97}, {"season": "DJF 1995", "anom": 0.88}, {"season": "JFM 1995", "anom": 0.65}, {"season": "FMA 1995", "anom": 0.46}, {"season": "MAM 1995", "anom": 0.19}, {"season": "AMJ 1995", "anom": 0.03}, {"season": "MJJ 1995", "anom": -0.11}, {"season": "JJA 1995", "anom": -0.3}, {"season": "JAS 1995", "anom": -0.55}, {"season": "ASO 1995", "anom": -0.81}, {"season": "SON 1995", "anom": -0.97}, {"season": "OND 1995", "anom": -1.05}, {"season": "NDJ 1995", "anom": -1.01}, {"season": "DJF 1996", "anom": -0.88}, {"season": "JFM 1996", "anom": -0.7}, {"season": "FMA 1996", "anom": -0.52}, {"season": "MAM 1996", "anom": -0.36}, {"season": "AMJ 1996", "anom": -0.25}, {"season": "MJJ 1996", "anom": -0.24}, {"season": "JJA 1996", "anom": -0.22}, {"season": "JAS 1996", "anom": -0.27}, {"season": "ASO 1996", "anom": -0.3}, {"season": "SON 1996", "anom": -0.33}, {"season": "OND 1996", "anom": -0.39}, {"season": "NDJ 1996", "anom": -0.41}, {"season": "DJF 1997", "anom": -0.41}, {"season": "JFM 1997", "anom": -0.26}, {"season": "FMA 1997", "anom": -0.03}, {"season": "MAM 1997", "anom": 0.3}, {"season": "AMJ 1997", "anom": 0.71}, {"season": "MJJ 1997", "anom": 1.13}, {"season": "JJA 1997", "anom": 1.48}, {"season": "JAS 1997", "anom": 1.79}, {"season": "ASO 1997", "anom": 2.04}, {"season": "SON 1997", "anom": 2.24}, {"season": "OND 1997", "anom": 2.34}, {"season": "NDJ 1997", "anom": 2.37}, {"season": "DJF 1998", "anom": 2.22}, {"season": "JFM 1998", "anom": 1.91}, {"season": "FMA 1998", "anom": 1.4}, {"season": "MAM 1998", "anom": 1.03}, {"season": "AMJ 1998", "anom": 0.4}, {"season": "MJJ 1998", "anom": -0.08}, {"season": "JJA 1998", "anom": -0.63}, {"season": "JAS 1998", "anom": -0.83}, {"season": "ASO 1998", "anom": -1.02}, {"season": "SON 1998", "anom": -1.12}, {"season": "OND 1998", "anom": -1.31}, {"season": "NDJ 1998", "anom": -1.47}, {"season": "DJF 1999", "anom": -1.51}, {"season": "JFM 1999", "anom": -1.25}, {"season": "FMA 1999", "anom": -0.93}, {"season": "MAM 1999", "anom": -0.8}, {"season": "AMJ 1999", "anom": -0.79}, {"season": "MJJ 1999", "anom": -0.84}, {"season": "JJA 1999", "anom": -0.9}, {"season": "JAS 1999", "anom": -0.94}, {"season": "ASO 1999", "anom": -1.0}, {"season": "SON 1999", "anom": -1.13}, {"season": "OND 1999", "anom": -1.35}, {"season": "NDJ 1999", "anom": -1.53}, {"season": "DJF 2000", "anom": -1.47}, {"season": "JFM 2000", "anom": -1.26}, {"season": "FMA 2000", "anom": -0.98}, {"season": "MAM 2000", "anom": -0.81}, {"season": "AMJ 2000", "anom": -0.67}, {"season": "MJJ 2000", "anom": -0.62}, {"season": "JJA 2000", "anom": -0.48}, {"season": "JAS 2000", "anom": -0.4}, {"season": "ASO 2000", "anom": -0.42}, {"season": "SON 2000", "anom": -0.54}, {"season": "OND 2000", "anom": -0.76}, {"season": "NDJ 2000", "anom": -0.78}, {"season": "DJF 2001", "anom": -0.76}, {"season": "JFM 2001", "anom": -0.54}, {"season": "FMA 2001", "anom": -0.43}, {"season": "MAM 2001", "anom": -0.29}, {"season": "AMJ 2001", "anom": -0.19}, {"season": "MJJ 2001", "anom": -0.08}, {"season": "JJA 2001", "anom": -0.05}, {"season": "JAS 2001", "anom": -0.13}, {"season": "ASO 2001", "anom": -0.15}, {"season": "SON 2001", "anom": -0.26}, {"season": "OND 2001", "anom": -0.33}, {"season": "NDJ 2001", "anom": -0.32}, {"season": "DJF 2002", "anom": -0.15}, {"season": "JFM 2002", "anom": 0.07}, {"season": "FMA 2002", "anom": 0.11}, {"season": "MAM 2002", "anom": 0.15}, {"season": "AMJ 2002", "anom": 0.3}, {"season": "MJJ 2002", "anom": 0.45}, {"season": "JJA 2002", "anom": 0.57}, {"season": "JAS 2002", "anom": 0.63}, {"season": "ASO 2002", "anom": 0.78}, {"season": "SON 2002", "anom": 0.99}, {"season": "OND 2002", "anom": 1.19}, {"season": "NDJ 2002", "anom": 1.08}, {"season": "DJF 2003", "anom": 0.9}, {"season": "JFM 2003", "anom": 0.59}, {"season": "FMA 2003", "anom": 0.38}, {"season": "MAM 2003", "anom": -0.01}, {"season": "AMJ 2003", "anom": -0.18}, {"season": "MJJ 2003", "anom": -0.13}, {"season": "JJA 2003", "anom": 0.09}, {"season": "JAS 2003", "anom": 0.14}, {"season": "ASO 2003", "anom": 0.23}, {"season": "SON 2003", "anom": 0.23}, {"season": "OND 2003", "anom": 0.29}, {"season": "NDJ 2003", "anom": 0.29}, {"season": "DJF 2004", "anom": 0.34}, {"season": "JFM 2004", "anom": 0.27}, {"season": "FMA 2004", "anom": 0.19}, {"season": "MAM 2004", "anom": 0.1}, {"season": "AMJ 2004", "anom": 0.12}, {"season": "MJJ 2004", "anom": 0.22}, {"season": "JJA 2004", "anom": 0.39}, {"season": "JAS 2004", "anom": 0.54}, {"season": "ASO 2004", "anom": 0.58}, {"season": "SON 2004", "anom": 0.61}, {"season": "OND 2004", "anom": 0.64}, {"season": "NDJ 2004", "anom": 0.71}, {"season": "DJF 2005", "anom": 0.62}, {"season": "JFM 2005", "anom": 0.55}, {"season": "FMA 2005", "anom": 0.4}, {"season": "MAM 2005", "anom": 0.37}, {"season": "AMJ 2005", "anom": 0.27}, {"season": "MJJ 2005", "anom": 0.09}, {"season": "JJA 2005", "anom": -0.04}, {"season": "JAS 2005", "anom": -0.14}, {"season": "ASO 2005", "anom": -0.11}, {"season": "SON 2005", "anom": -0.27}, {"season": "OND 2005", "anom": -0.57}, {"season": "NDJ 2005", "anom": -0.82}, {"season": "DJF 2006", "anom": -0.86}, {"season": "JFM 2006", "anom": -0.8}, {"season": "FMA 2006", "anom": -0.63}, {"season": "MAM 2006", "anom": -0.45}, {"season": "AMJ 2006", "anom": -0.19}, {"season": "MJJ 2006", "anom": -0.05}, {"season": "JJA 2006", "anom": 0.12}, {"season": "JAS 2006", "anom": 0.33}, {"season": "ASO 2006", "anom": 0.54}, {"season": "SON 2006", "anom": 0.71}, {"season": "OND 2006", "anom": 0.88}, {"season": "NDJ 2006", "anom": 0.88}, {"season": "DJF 2007", "anom": 0.62}, {"season": "JFM 2007", "anom": 0.19}, {"season": "FMA 2007", "anom": -0.12}, {"season": "MAM 2007", "anom": -0.32}, {"season": "AMJ 2007", "anom": -0.34}, {"season": "MJJ 2007", "anom": -0.41}, {"season": "JJA 2007", "anom": -0.49}, {"season": "JAS 2007", "anom": -0.77}, {"season": "ASO 2007", "anom": -1.05}, {"season": "SON 2007", "anom": -1.38}, {"season": "OND 2007", "anom": -1.57}, {"season": "NDJ 2007", "anom": -1.72}, {"season": "DJF 2008", "anom": -1.76}, {"season": "JFM 2008", "anom": -1.61}, {"season": "FMA 2008", "anom": -1.37}, {"season": "MAM 2008", "anom": -1.05}, {"season": "AMJ 2008", "anom": -0.85}, {"season": "MJJ 2008", "anom": -0.56}, {"season": "JJA 2008", "anom": -0.33}, {"season": "JAS 2008", "anom": -0.2}, {"season": "ASO 2008", "anom": -0.25}, {"season": "SON 2008", "anom": -0.36}, {"season": "OND 2008", "anom": -0.57}, {"season": "NDJ 2008", "anom": -0.79}, {"season": "DJF 2009", "anom": -0.89}, {"season": "JFM 2009", "anom": -0.84}, {"season": "FMA 2009", "anom": -0.63}, {"season": "MAM 2009", "anom": -0.35}, {"season": "AMJ 2009", "anom": 0.03}, {"season": "MJJ 2009", "anom": 0.34}, {"season": "JJA 2009", "anom": 0.5}, {"season": "JAS 2009", "anom": 0.56}, {"season": "ASO 2009", "anom": 0.66}, {"season": "SON 2009", "anom": 0.92}, {"season": "OND 2009", "anom": 1.31}, {"season": "NDJ 2009", "anom": 1.5}, {"season": "DJF 2010", "anom": 1.47}, {"season": "JFM 2010", "anom": 1.21}, {"season": "FMA 2010", "anom": 0.88}, {"season": "MAM 2010", "anom": 0.38}, {"season": "AMJ 2010", "anom": -0.16}, {"season": "MJJ 2010", "anom": -0.66}, {"season": "JJA 2010", "anom": -0.98}, {"season": "JAS 2010", "anom": -1.24}, {"season": "ASO 2010", "anom": -1.43}, {"season": "SON 2010", "anom": -1.54}, {"season": "OND 2010", "anom": -1.57}, {"season": "NDJ 2010", "anom": -1.48}, {"season": "DJF 2011", "anom": -1.29}, {"season": "JFM 2011", "anom": -1.06}, {"season": "FMA 2011", "anom": -0.85}, {"season": "MAM 2011", "anom": -0.68}, {"season": "AMJ 2011", "anom": -0.5}, {"season": "MJJ 2011", "anom": -0.34}, {"season": "JJA 2011", "anom": -0.37}, {"season": "JAS 2011", "anom": -0.5}, {"season": "ASO 2011", "anom": -0.76}, {"season": "SON 2011", "anom": -0.94}, {"season": "OND 2011", "anom": -1.02}, {"season": "NDJ 2011", "anom": -0.92}, {"season": "DJF 2012", "anom": -0.71}, {"season": "JFM 2012", "anom": -0.56}, {"season": "FMA 2012", "anom": -0.44}, {"season": "MAM 2012", "anom": -0.35}, {"season": "AMJ 2012", "anom": -0.18}, {"season": "MJJ 2012", "anom": 0.03}, {"season": "JJA 2012", "anom": 0.28}, {"season": "JAS 2012", "anom": 0.39}, {"season": "ASO 2012", "anom": 0.37}, {"season": "SON 2012", "anom": 0.28}, {"season": "OND 2012", "anom": 0.13}, {"season": "NDJ 2012", "anom": -0.03}, {"season": "DJF 2013", "anom": -0.24}, {"season": "JFM 2013", "anom": -0.28}, {"season": "FMA 2013", "anom": -0.23}, {"season": "MAM 2013", "anom": -0.2}, {"season": "AMJ 2013", "anom": -0.3}, {"season": "MJJ 2013", "anom": -0.38}, {"season": "JJA 2013", "anom": -0.45}, {"season": "JAS 2013", "anom": -0.34}, {"season": "ASO 2013", "anom": -0.32}, {"season": "SON 2013", "anom": -0.14}, {"season": "OND 2013", "anom": -0.12}, {"season": "NDJ 2013", "anom": -0.11}, {"season": "DJF 2014", "anom": -0.24}, {"season": "JFM 2014", "anom": -0.21}, {"season": "FMA 2014", "anom": -0.02}, {"season": "MAM 2014", "anom": 0.25}, {"season": "AMJ 2014", "anom": 0.35}, {"season": "MJJ 2014", "anom": 0.22}, {"season": "JJA 2014", "anom": 0.07}, {"season": "JAS 2014", "anom": 0.07}, {"season": "ASO 2014", "anom": 0.24}, {"season": "SON 2014", "anom": 0.51}, {"season": "OND 2014", "anom": 0.7}, {"season": "NDJ 2014", "anom": 0.8}, {"season": "DJF 2015", "anom": 0.73}, {"season": "JFM 2015", "anom": 0.65}, {"season": "FMA 2015", "anom": 0.72}, {"season": "MAM 2015", "anom": 0.86}, {"season": "AMJ 2015", "anom": 1.04}, {"season": "MJJ 2015", "anom": 1.19}, {"season": "JJA 2015", "anom": 1.44}, {"season": "JAS 2015", "anom": 1.73}, {"season": "ASO 2015", "anom": 2.02}, {"season": "SON 2015", "anom": 2.28}, {"season": "OND 2015", "anom": 2.45}, {"season": "NDJ 2015", "anom": 2.59}, {"season": "DJF 2016", "anom": 2.5}, {"season": "JFM 2016", "anom": 2.21}, {"season": "FMA 2016", "anom": 1.69}, {"season": "MAM 2016", "anom": 1.11}, {"season": "AMJ 2016", "anom": 0.57}, {"season": "MJJ 2016", "anom": 0.09}, {"season": "JJA 2016", "anom": -0.19}, {"season": "JAS 2016", "anom": -0.34}, {"season": "ASO 2016", "anom": -0.42}, {"season": "SON 2016", "anom": -0.51}, {"season": "OND 2016", "anom": -0.49}, {"season": "NDJ 2016", "anom": -0.37}, {"season": "DJF 2017", "anom": -0.08}, {"season": "JFM 2017", "anom": 0.08}, {"season": "FMA 2017", "anom": 0.27}, {"season": "MAM 2017", "anom": 0.32}, {"season": "AMJ 2017", "anom": 0.35}, {"season": "MJJ 2017", "anom": 0.32}, {"season": "JJA 2017", "anom": 0.14}, {"season": "JAS 2017", "anom": -0.07}, {"season": "ASO 2017", "anom": -0.23}, {"season": "SON 2017", "anom": -0.44}, {"season": "OND 2017", "anom": -0.61}, {"season": "NDJ 2017", "anom": -0.76}, {"season": "DJF 2018", "anom": -0.71}, {"season": "JFM 2018", "anom": -0.67}, {"season": "FMA 2018", "anom": -0.55}, {"season": "MAM 2018", "anom": -0.35}, {"season": "AMJ 2018", "anom": -0.07}, {"season": "MJJ 2018", "anom": 0.13}, {"season": "JJA 2018", "anom": 0.2}, {"season": "JAS 2018", "anom": 0.3}, {"season": "ASO 2018", "anom": 0.52}, {"season": "SON 2018", "anom": 0.82}, {"season": "OND 2018", "anom": 1.04}, {"season": "NDJ 2018", "anom": 1.05}, {"season": "DJF 2019", "anom": 0.99}, {"season": "JFM 2019", "anom": 0.94}, {"season": "FMA 2019", "anom": 0.87}, {"season": "MAM 2019", "anom": 0.82}, {"season": "AMJ 2019", "anom": 0.71}, {"season": "MJJ 2019", "anom": 0.59}, {"season": "JJA 2019", "anom": 0.38}, {"season": "JAS 2019", "anom": 0.2}, {"season": "ASO 2019", "anom": 0.31}, {"season": "SON 2019", "anom": 0.51}, {"season": "OND 2019", "anom": 0.72}, {"season": "NDJ 2019", "anom": 0.75}, {"season": "DJF 2020", "anom": 0.71}, {"season": "JFM 2020", "anom": 0.66}, {"season": "FMA 2020", "anom": 0.57}, {"season": "MAM 2020", "anom": 0.33}, {"season": "AMJ 2020", "anom": 0.04}, {"season": "MJJ 2020", "anom": -0.18}, {"season": "JJA 2020", "anom": -0.29}, {"season": "JAS 2020", "anom": -0.43}, {"season": "ASO 2020", "anom": -0.77}, {"season": "SON 2020", "anom": -1.0}, {"season": "OND 2020", "anom": -1.11}, {"season": "NDJ 2020", "anom": -1.06}, {"season": "DJF 2021", "anom": -0.99}, {"season": "JFM 2021", "anom": -0.85}, {"season": "FMA 2021", "anom": -0.74}, {"season": "MAM 2021", "anom": -0.56}, {"season": "AMJ 2021", "anom": -0.4}, {"season": "MJJ 2021", "anom": -0.31}, {"season": "JJA 2021", "anom": -0.35}, {"season": "JAS 2021", "anom": -0.46}, {"season": "ASO 2021", "anom": -0.64}, {"season": "SON 2021", "anom": -0.77}, {"season": "OND 2021", "anom": -0.91}, {"season": "NDJ 2021", "anom": -0.83}, {"season": "DJF 2022", "anom": -0.76}, {"season": "JFM 2022", "anom": -0.68}, {"season": "FMA 2022", "anom": -0.77}, {"season": "MAM 2022", "anom": -0.86}, {"season": "AMJ 2022", "anom": -0.83}, {"season": "MJJ 2022", "anom": -0.73}, {"season": "JJA 2022", "anom": -0.7}, {"season": "JAS 2022", "anom": -0.78}, {"season": "ASO 2022", "anom": -0.87}, {"season": "SON 2022", "anom": -0.89}, {"season": "OND 2022", "anom": -0.82}, {"season": "NDJ 2022", "anom": -0.7}, {"season": "DJF 2023", "anom": -0.55}, {"season": "JFM 2023", "anom": -0.33}, {"season": "FMA 2023", "anom": -0.11}, {"season": "MAM 2023", "anom": 0.19}, {"season": "AMJ 2023", "anom": 0.46}, {"season": "MJJ 2023", "anom": 0.73}, {"season": "JJA 2023", "anom": 1.0}, {"season": "JAS 2023", "anom": 1.25}, {"season": "ASO 2023", "anom": 1.5}, {"season": "SON 2023", "anom": 1.74}, {"season": "OND 2023", "anom": 1.9}, {"season": "NDJ 2023", "anom": 1.99}, {"season": "DJF 2024", "anom": 1.84}, {"season": "JFM 2024", "anom": 1.53}, {"season": "FMA 2024", "anom": 1.18}, {"season": "MAM 2024", "anom": 0.77}, {"season": "AMJ 2024", "anom": 0.43}, {"season": "MJJ 2024", "anom": 0.18}, {"season": "JJA 2024", "anom": 0.06}, {"season": "JAS 2024", "anom": -0.04}, {"season": "ASO 2024", "anom": -0.12}, {"season": "SON 2024", "anom": -0.19}, {"season": "OND 2024", "anom": -0.29}, {"season": "NDJ 2024", "anom": -0.43}, {"season": "DJF 2025", "anom": -0.46}, {"season": "JFM 2025", "anom": -0.22}, {"season": "FMA 2025", "anom": -0.08}, {"season": "MAM 2025", "anom": 0.02}, {"season": "AMJ 2025", "anom": -0.04}, {"season": "MJJ 2025", "anom": -0.02}, {"season": "JJA 2025", "anom": -0.11}, {"season": "JAS 2025", "anom": -0.26}, {"season": "ASO 2025", "anom": -0.43}, {"season": "SON 2025", "anom": -0.57}, {"season": "OND 2025", "anom": -0.61}, {"season": "NDJ 2025", "anom": -0.6}, {"season": "DJF 2026", "anom": -0.39}, {"season": "JFM 2026", "anom": -0.21}, {"season": "FMA 2026", "anom": 0.11}, {"season": "MAM 2026", "anom": 0.46}, {"season": "AMJ 2026", "anom": 0.95}, {"season": "MJJ 2026", "anom": 1.39}, {"season": "JJA 2026", "anom": 1.8}], "phase": "El Nino", "phaseColor": "#ef5350", "alert": "El Ni\u00f1o Advisory", "enso": {"title": "ENSO Alert System Status: El Ni\u00f1o Advisory", "paragraphs": ["ENSO Alert System Status: El Ni\u00f1o Advisory Synopsis: El Ni\u00f1o is strengthening, with a greater than 90% chance of a very strong event during the Northern Hemisphere fall and winter 2026-27. El Ni\u00f1o strengthened further over the past month, with sea surface temperature anomalies exceeding +3.0\u00b0C in the eastern equatorial Pacific [Fig. 1] . Except for the Ni\u00f1o-4 index, which decreased to +0.1\u00b0C in August, values in the other Ni\u00f1o indices increased, reaching +1.8\u00b0C in Ni\u00f1o-3.4, +2.5\u00b0C in Ni\u00f1o-3, and +3.4\u00b0C in Ni\u00f1o-1+2 [Fig. 2] . The equatorial subsurface temperature index (average from 180\u00b0-100\u00b0W) remained steady during August [Fig. 3] , reflecting a deeper-than-average thermocline [Fig. 4] . Subsurface temperatures continued to be significantly above average, with widespread anomalies in excess of +10.0\u00b0C at depth. Low-level westerly wind anomalies and upper-level easterly wind anomalies extended from the western to the east-central equatorial Pacific. Enhanced convection and rainfall persisted from the central to the eastern Pacific, while anomalies remained suppressed over Indonesia [Fig. 5] . The traditional and equatorial Southern Oscillation indices remained negative. Collectively, the coupled ocean-atmosphere system reflected a strengthening El Ni\u00f1o. The CPC Official ENSO outlook , which synthesizes multiple models from North America and abroad, indicates El Ni\u00f1o will continue to strengthen through the end of the year [Figs. 6", "-8] . During the October-December 2026 season, there is a 75% chance of a historic event that would exceed the strength of previous El Ni\u00f1o events dating back to 1950 (+2.5\u00b0C or more for a 3-month RONI value ). With an event of this magnitude, the chances of experiencing impacts consistent with El Ni\u00f1o are larger, though not guaranteed (see CPC outlooks for probabilities of seasonal anomalies). In summary, El Ni\u00f1o is strengthening, with a greater than 90% chance of a very strong event during the Northern Hemisphere fall and winter 2026-27. This discussion is a consolidated effort of the National Oceanic and Atmospheric Administration (NOAA), NOAA's National Weather Service, and their funded institutions. Oceanic and atmospheric conditions are updated weekly on the Climate Prediction Center web site ("], "source": "CPC ENSO Diagnostic Discussion"}, "chips": [{"pct": 90, "text": "\u2026ENSO Alert System Status: El Ni\u00f1o Advisory Synopsis: El Ni\u00f1o is strengthening, with a greater than 90% chance of a very strong event during the Northern Hemisphere fall and winter 2026-27."}, {"pct": 75, "text": "\u2026During the October-December 2026 season, there is a 75% chance of a historic event that would exceed the strength of previous El Ni\u00f1o events dating back to 1950 (+2.5\u00b0C or more for a 3-month RONI value )."}, {"pct": 90, "text": "In summary, El Ni\u00f1o is strengthening, with a greater than 90% chance of a very strong event during the Northern Hemisphere fall and winter 2026-27."}], "sst": [{"label": "Sep 24", "n34": 26.61, "anom": -0.15, "n3": 24.85, "anom3": -0.16, "n4": 28.98, "anom4": 0.3}, {"label": "Oct 24", "n34": 26.49, "anom": -0.28, "n3": 25.04, "anom3": -0.05, "n4": 28.83, "anom4": 0.15}, {"label": "Nov 24", "n34": 26.68, "anom": -0.14, "n3": 25.17, "anom3": -0.03, "n4": 28.81, "anom4": 0.14}, {"label": "Dec 24", "n34": 26.03, "anom": -0.62, "n3": 24.91, "anom3": -0.35, "n4": 28.07, "anom4": -0.37}, {"label": "Jan 25", "n34": 25.86, "anom": -0.71, "n3": 25.49, "anom3": -0.18, "n4": 27.59, "anom4": -0.63}, {"label": "Feb 25", "n34": 26.38, "anom": -0.35, "n3": 26.49, "anom3": 0.11, "n4": 27.52, "anom4": -0.58}, {"label": "Mar 25", "n34": 27.34, "anom": 0.1, "n3": 27.67, "anom3": 0.51, "n4": 27.86, "anom4": -0.36}, {"label": "Apr 25", "n34": 27.65, "anom": -0.16, "n3": 27.54, "anom3": -0.03, "n4": 28.34, "anom4": -0.17}, {"label": "May 25", "n34": 27.84, "anom": -0.04, "n3": 27.03, "anom3": -0.18, "n4": 28.8, "anom4": 0.01}, {"label": "Jun 25", "n34": 27.75, "anom": 0.04, "n3": 26.63, "anom3": -0.01, "n4": 29.07, "anom4": 0.23}, {"label": "Jul 25", "n34": 27.24, "anom": -0.06, "n3": 25.92, "anom3": 0.04, "n4": 28.84, "anom4": 0.05}, {"label": "Aug 25", "n34": 26.58, "anom": -0.33, "n3": 24.97, "anom3": -0.24, "n4": 28.63, "anom4": -0.06}, {"label": "Sep 25", "n34": 26.32, "anom": -0.44, "n3": 24.6, "anom3": -0.41, "n4": 28.41, "anom4": -0.27}, {"label": "Oct 25", "n34": 26.29, "anom": -0.48, "n3": 24.74, "anom3": -0.35, "n4": 28.36, "anom4": -0.33}, {"label": "Nov 25", "n34": 26.14, "anom": -0.68, "n3": 24.6, "anom3": -0.6, "n4": 28.15, "anom4": -0.52}, {"label": "Dec 25", "n34": 26.03, "anom": -0.61, "n3": 24.56, "anom3": -0.7, "n4": 28.22, "anom4": -0.23}, {"label": "Jan 26", "n34": 26.02, "anom": -0.54, "n3": 25.17, "anom3": -0.5, "n4": 28.19, "anom4": -0.04}, {"label": "Feb 26", "n34": 26.54, "anom": -0.2, "n3": 26.37, "anom3": -0.01, "n4": 28.33, "anom4": 0.23}, {"label": "Mar 26", "n34": 27.26, "anom": 0.03, "n3": 27.4, "anom3": 0.24, "n4": 28.56, "anom4": 0.34}, {"label": "Apr 26", "n34": 28.28, "anom": 0.47, "n3": 28.12, "anom3": 0.55, "n4": 29.33, "anom4": 0.82}, {"label": "May 26", "n34": 28.82, "anom": 0.94, "n3": 28.36, "anom3": 1.14, "n4": 29.78, "anom4": 0.98}, {"label": "Jun 26", "n34": 29.26, "anom": 1.55, "n3": 28.4, "anom3": 1.75, "n4": 30.07, "anom4": 1.23}, {"label": "Jul 26", "n34": 29.33, "anom": 2.03, "n3": 28.21, "anom3": 2.33, "n4": 29.84, "anom4": 1.06}, {"label": "Aug 26", "n34": 29.42, "anom": 2.52, "n3": 28.35, "anom3": 3.13, "n4": 29.63, "anom4": 0.93}], "figures": [{"url": "enso/figure01.gif", "label": "Advisory figure 1"}, {"url": "enso/figure02.gif", "label": "Advisory figure 2"}, {"url": "enso/figure03.gif", "label": "Advisory figure 3"}, {"url": "enso/figure04.gif", "label": "Advisory figure 4"}], "anim": {"url": "enso/sstanim.gif", "label": "Sea-surface temperature anomalies (12-month loop)"}, "plume": {"url": "enso/iri_plume.png", "label": "IRI dynamic-model Nino 3.4 forecast plume"}, "source": "NOAA CPC ENSO diagnostics + IRI model plume"};
+async function boot() {
+  DATA = await (await fetch(dataUrl(), {cache: "no-store"})).json();
+  document.title = DATA.pageName + " - El Niño";
+  drawSST(); drawONI();
+}
+/* Nino 3.4 monthly anomalies - last 24 months, thresholds shaded in */
+function drawSST() {
+  const rows = EN.sst || []; if (!rows.length) return;
+  const W = 640, H = 240, pad = 34;
+  const xs = i => pad + i * (W - pad - 8) / (rows.length - 1);
+  const ys = v => pad + (2.8 - Math.max(-2.0, Math.min(2.8, v))) * (H - 2 * pad) / 5.6;
+  let g = "";
+  for (const th of [0.5, 1.0, 1.5, 2.0, -0.5, -1.0, -1.5])
+    g += `<line x1="${pad}" x2="${W - 8}" y1="${ys(th)}" y2="${ys(th)}" stroke="${Math.abs(th) >= 1.5 ? "#c6282866" : "#455a6488"}" stroke-dasharray="4 4"/>`;
+  g += `<line x1="${pad}" x2="${W - 8}" y1="${ys(0)}" y2="${ys(0)}" stroke="#546e7a"/>`;
+  const path = rows.map((r, i) => `${i ? "L" : "M"}${xs(i).toFixed(1)},${ys(r.anom).toFixed(1)}`).join("");
+  rows.forEach((r, i) => {
+    g += `<circle cx="${xs(i).toFixed(1)}" cy="${ys(r.anom).toFixed(1)}" r="2.6" fill="${r.anom >= 0.5 ? "#ef5350" : r.anom <= -0.5 ? "#42a5f5" : "#90a4ae"}"><title>${r.label}: Nino 3.4 ${r.n34.toFixed(2)}°C (${r.anom >= 0 ? "+" : ""}${r.anom.toFixed(2)}°C anomaly)</title></circle>`;
+    if (i % 3 === 0) g += `<text x="${xs(i)}" y="${H - 10}" font-size="9" fill="#78909c" text-anchor="middle">${r.label.split(" ")[0]}</text>`;
+  });
+  document.getElementById("sstChart").innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" style="width:100%;background:#0d1117;border-radius:10px">${g}` +
+    `<text x="${pad - 4}" y="${ys(2) + 3}" font-size="9" fill="#ef9a9a" text-anchor="end">+2</text>` +
+    `<text x="${pad - 4}" y="${ys(-1.5) + 3}" font-size="9" fill="#90caf9" text-anchor="end">-1.5</text>` +
+    `<path d="${path}" fill="none" stroke="#eceff1" stroke-width="1.6"/></svg>`;
+}
+/* full ONI record - one mark per season since 1950, colored by phase */
+function drawONI() {
+  const rows = EN.oni || []; if (rows.length < 10) return;
+  const W = 960, H = 260, pad = 34;
+  const xs = i => pad + i * (W - pad - 8) / (rows.length - 1);
+  const ys = v => pad + (3 - Math.max(-3, Math.min(3, v))) * (H - 2 * pad) / 6;
+  let g = "";
+  for (const th of [0.5, 1.5, 2.0, -0.5, -1.5])
+    g += `<line x1="${pad}" x2="${W - 8}" y1="${ys(th)}" y2="${ys(th)}" stroke="#455a6488" stroke-dasharray="4 4"/>`;
+  g += `<line x1="${pad}" x2="${W - 8}" y1="${ys(0)}" y2="${ys(0)}" stroke="#546e7a"/>`;
+  const path = rows.map((r, i) => `${i ? "L" : "M"}${xs(i).toFixed(1)},${ys(r.anom).toFixed(1)}`).join("");
+  const area = path + `L${xs(rows.length - 1)},${ys(0)}L${xs(0)},${ys(0)}Z`;
+  const clipAbove = (y) => `<clipPath id="cA"><rect x="0" y="0" width="${W}" height="${y}"/></clipPath>`;
+  // strongest seasons get hover data + the record marks
+  const top = rows.map((r, i) => ({...r, i})).sort((a, b) => b.anom - a.anom).slice(0, 3);
+  const bot = rows.map((r, i) => ({...r, i})).sort((a, b) => a.anom - b.anom).slice(0, 3);
+  let marks = "";
+  for (const r of [...top, ...bot])
+    marks += `<circle cx="${xs(r.i).toFixed(1)}" cy="${ys(r.anom).toFixed(1)}" r="3.4" fill="#fff"><title>${r.season}: ${r.anom >= 0 ? "+" : ""}${r.anom.toFixed(2)}°C</title></circle>` +
+      `<text x="${xs(r.i).toFixed(1)}" y="${ys(r.anom) + (r.anom > 0 ? -7 : 13)}" font-size="9" fill="#b0bec5" text-anchor="middle">${r.season.replace(" ", " '")}</text>`;
+  rows.forEach((r, i) => {
+    if (i % 24 !== 0) return;    // one year label per ~2 years of grid
+    g += `<text x="${xs(i)}" y="${H - 10}" font-size="9" fill="#78909c" text-anchor="middle">${r.season.split(" ")[1]}</text>`;
+  });
+  document.getElementById("oniChart").innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" style="width:100%;background:#0d1117;border-radius:10px">` +
+    `<defs>${clipAbove(ys(0.5))}<clipPath id="cB"><rect x="0" y="${ys(-0.5)}" width="${W}" height="${H - ys(-0.5)}"/></clipPath></defs>` +
+    `<path d="${area}" fill="#37474f55"/>` +
+    `<path d="${area}" fill="#ef535044" clip-path="url(#cA)"/>` +
+    `<path d="${area}" fill="#42a5f544" clip-path="url(#cB)"/>` +
+    `<path d="${path}" fill="none" stroke="#eceff1" stroke-width="1.2"/>${g}${marks}</svg>`;
+}
+boot();
+</script>
+
+</div>
+<footer>
+  <div id="upd" style="color:#7d8794">checking data age…</div>
+  Data: National Weather Service · NOAA · RainViewer · SPC — all free, no keys.<br/>
+  Auto-updated every few minutes by the Tennessee Weather Network weather center ·
+  <a href="https://www.facebook.com/tennesseeweathernetwork" target="_blank">Facebook page</a> ·
+  <a id="fbShareFt" href="#" target="_blank" rel="noopener">📘 Post this page to Facebook</a> ·
+  <a href="fb_page.html" target="_blank">📱 Facebook post page (stand-alone)</a>
+</footer>
+<script>
+/* Facebook share: use the canonical public URL when served from it,
+   otherwise share the page's public home (localhost shares are useless) */
+(function () {
+  var pub = "https://rpleasant12.github.io/http-localhost-8765-/";
+  window.TNWN_PUBLIC_URL = pub; /* reusable share target (certificate, etc.) */
+  var here = location.origin + location.pathname;
+  var target = (location.hostname === "localhost" || location.hostname === "127.0.0.1") && pub ? pub : here;
+  var u = "https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(target);
+  ["fbShare", "fbShareFt"].forEach(function (id) {
+    var a = document.getElementById(id); if (a) a.href = u;
+  });
+})();
+</script>
+</body></html>
