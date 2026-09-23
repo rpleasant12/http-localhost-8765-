@@ -366,7 +366,7 @@ setTimeout(function () {
       <option value="mrms">MRMS mosaic (official)</option>
       <option value="nws">NWS mosaic (official)</option>
       <option value="wbgt">🌡️ Heat stress - WBGT (next 24 h)</option>
-      <optgroup label="Individual radar sites" id="siteGroup"><option value="site:KABR">KABR — Aberdeen radar</option><option value="site:KABX">KABX — Albuquerque radar</option><option value="site:KAKQ">KAKQ — Norfolk radar</option><option value="site:KAMA">KAMA — Amarillo radar</option><option value="site:KAMX">KAMX — Miami radar</option><option value="site:KAPX">KAPX — NCL Michigan radar</option><option value="site:KARX">KARX — La Crosse radar</option><option value="site:KATX">KATX — Seattle radar</option><option value="site:KBBX">KBBX — Beale AFB radar</option><option value="site:KBGM">KBGM — Binghamton radar</option><option value="site:KBHX">KBHX — Eureka (Bunker Hill) radar</option><option value="site:KBIS">KBIS — Bismarck radar</option><option value="site:KBLX">KBLX — Billings radar</option><option value="site:KBMX">KBMX — Birmingham radar</option><option value="site:KBOX">KBOX — Boston radar</option><option value="site:KBRO">KBRO — Brownsville radar</option><option value="site:KBUF">KBUF — Buffalo radar</option><option value="site:KBYX">KBYX — Key West radar</option><option value="site:KCAE">KCAE — Columbia radar</option><option value="site:KCBW">KCBW — Caribou radar</option><option value="site:KCBX">KCBX — Boise radar</option><option value="site:KCCX">KCCX — State College radar</option><option value="site:KCLE">KCLE — Cleveland radar</option><option value="site:KCLX">KCLX — Charleston radar</option><option value="site:KCXX">KCXX — Burlington radar</option><option value="site:KCYS">KCYS — Cheyenne radar</option><option value="site:KDAX">KDAX — Sacramento radar</option><option value="site:KDDC">KDDC — Dodge City radar</option><option value="site:KDFX">KDFX — Laughlin AFB radar</option><option value="site:KDGX">KDGX — Jackson/Brandon radar</option><option value="site:KDIX">KDIX — Philadelphia radar</option><option value="site:KDLH">KDLH — Duluth radar</option><option value="site:KDMX">KDMX — Des Moines radar</option><option value="site:KDOX">KDOX — Dover AFB radar</option><option value="site:KDTX">KDTX — Detroit radar</option><option value="site:KDVN">KDVN — Quad Cities radar</option><option value="site:KDYX">KDYX — Dyess AFB radar</option><option value="site:KEAX">KEAX — Pleasant Hill radar</option><option value="site:KEMX">KEMX — Tucson radar</option><option value="site:KENX">KENX — Albany radar</option><option value="site:KEOX">KEOX — Ft Rucker radar</option><option value="site:KEPZ">KEPZ — El Paso radar</option><option value="site:KESX">KESX — Las Vegas radar</option><option value="site:KEVX">KEVX — Eglin Afb radar</option><option value="site:KEWX">KEWX — Austin/San Antonio radar</option><option value="site:KEYX">KEYX — Edwards AFB radar</option><option value="site:KFCX">KFCX — Roanoke radar</option><option value="site:KFDR">KFDR — Altus AFB radar</option><option value="site:KFDX">KFDX — Cannon AFB radar</option><option value="site:KFFC">KFFC — Atlanta radar</option><option value="site:KFSD">KFSD — Sioux Falls radar</option><option value="site:KFSX">KFSX — Flagstaff radar</option><option value="site:KFTG">KFTG — Denver radar</option><option value="site:KFWS">KFWS — Dallas/Ft Worth radar</option><option value="site:KGGW">KGGW — Glasgow radar</option><option value="site:KGSP">KGSP — Greer radar</option><option value="site:KHTX">KHTX — Northeast Alabama radar</option><option value="site:KJKL">KJKL — Jackson radar</option><option value="site:KMRX">KMRX — Knoxville radar</option><option value="site:KOHX">KOHX — Nashville radar</option></optgroup>
+      <optgroup label="Individual radar sites" id="siteGroup"></optgroup>
     </select>
     <select id="sitePick"></select>
     <select id="siteMode" style="display:none" title="Radar mode"></select>
@@ -392,8 +392,181 @@ setTimeout(function () {
   <div class="src">⚡ Lightning: GOES-19 Geostationary Lightning Mapper flash density (NOAA STAR, ~5-min cadence) — overlays every radar layer. Future radar: HRRR 3 km (0-18 h) + NAM 3 km nest (18-48 h). Individual sites: every NWS radar serves 5 modes — super-res reflectivity, velocity, hybrid scan, 1-hour + storm-total precip — full 460 km range, all animated. MRMS picker: height levels 0.5–15 km, dual-pol (ZDR/RhoHV), azimuthal shear, rotation tracks, hail, echo tops, precip. Everything renders in over the first few update cycles.</div>
 </div>
 
+<div class="card" id="hailLesson">
+<style>
+#hailLesson .hlTabs { display:flex; gap:8px; margin:10px 0 12px; flex-wrap:wrap; }
+#hailLesson .hlTabs button { background:#1d2432; color:#cdd7e4; border:1px solid var(--line);
+  border-radius:8px; padding:8px 14px; font-size:14px; cursor:pointer; }
+#hailLesson .hlTabs button.on { background:var(--acc); color:#fff; border-color:var(--acc); }
+#hailLesson .hlImgWrap { position:relative; display:inline-block; max-width:100%; line-height:0; }
+#hailLesson img { max-width:100%; height:auto; border-radius:10px; border:1px solid var(--line);
+  cursor:crosshair; touch-action:manipulation; }
+#hailLesson #hlMark { display:none; position:absolute; width:16px; height:16px; margin:-8px 0 0 -8px;
+  border:2px solid #ff5252; border-radius:50%; pointer-events:none;
+  box-shadow:0 0 0 1px #000; }
+#hailLesson .hlFb { margin-top:10px; padding:10px 12px; border-radius:8px; font-size:14px; line-height:1.45; display:none; }
+#hailLesson .hlFb.good { display:block; background:rgba(76,175,80,.15); border:1px solid #4caf50; }
+#hailLesson .hlFb.mid  { display:block; background:rgba(255,193,7,.12); border:1px solid #ffc107; }
+#hailLesson .hlFb.bad  { display:block; background:rgba(255,82,82,.12); border:1px solid #ff5252; }
+#hailLesson .hlKey { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:8px; margin-top:12px; }
+#hailLesson .hlKey div { background:#12161f; border:1px solid var(--line); border-radius:8px; padding:9px 11px; font-size:13px; line-height:1.45; }
+#hailLesson .hlKey b { font-size:13.5px; }
+#hailLesson .hlCap { color:var(--dim); font-size:12px; margin-top:10px; line-height:1.5; }
+#hailLesson ol { margin:8px 0 0 20px; padding:0; font-size:14px; line-height:1.6; }
+#hailLesson .hlPrompt { font-size:15px; margin:0 0 10px; color:#e8edf4; }
+#hailLesson .hlHint { color:var(--dim); font-size:12.5px; margin-top:8px; }
+#hailLesson .hlRecord { margin-top:10px; font-size:12.5px; color:var(--dim); }
+#hailLesson .hlQ { margin-top:12px; padding:12px; border:1px solid var(--line); border-radius:8px; }
+#hailLesson .hlQ .q { font-weight:700; margin-bottom:8px; }
+#hailLesson .hlQ button { display:block; width:100%; text-align:left; margin:6px 0; padding:9px 12px; background:#1b222e; color:#e8eef5; border:1px solid #333c46; border-radius:8px; cursor:pointer; font-size:14px; }
+#hailLesson .hlQ button:hover { background:#232c3a; }
+#hailLesson .hlQ button.right { border-color:#4caf50; background:rgba(76,175,80,.12); }
+#hailLesson .hlQ button.wrong { border-color:#ff5252; background:rgba(255,82,82,.12); }
+#hailLesson .hlQ .why { margin-top:8px; font-size:13.5px; color:#cdd7e4; display:none; }
+#hailLesson #hlQuizScore { font-weight:700; margin-top:10px; }
+</style>
+<h2>🧊 Hail signatures - read a real storm, hands-on</h2>
+<p class="src">Today's worst verified hail core, straight off the NEXRAD archive. Read the annotations, then find the core yourself before revealing.</p>
+<div class="hlTabs">
+  <button id="hlBguide" class="on" onclick="hlTab('guide')">📖 The annotated case</button>
+  <button id="hlBpractice" onclick="hlTab('practice')">🎯 Find the core (practice)</button>
+  <button id="hlBreveal" onclick="hlTab('reveal')">✅ Reveal + reading order</button>
+</div>
+<div id="hlTabguide">
+  <div class="hlImgWrap"><img src="hail_ed/hail_cut.png" alt="Annotated composite-reflectivity cut of this week's biggest hail core" loading="lazy"/></div>
+  <div class="hlKey">
+    <div><b style="color:#fff">⚪ White ring - hail core</b><br/>65+ dBZ: the storm's hail factory, where the updraft is strong enough to keep stones aloft growing.</div>
+    <div><b style="color:#00e5ff">✛ Cyan cross - verified report</b><br/>Ground truth: where 4.0-inch stones actually fell (2026-09-21 at 00:00 UTC).</div>
+    <div><b style="color:#ffdc00">🌸 Yellow arc - inflow notch</b><br/>The storm's intake: warm air feeding in, carved where the echo bends inward on the storm's flank.</div>
+    <div><b style="color:#a0dcff">🔵 Blue ring - forward flank</b><br/>The broad rain core downwind. Rain, not hail - a common trap when reading a storm.</div>
+  </div>
+  <div class="hlCap">Case: 3 S Chivington, CO - 4.0-inch hail reported 2026-09-21 at 00:00 UTC (NWS Employee, via IEM archive). Radar frame 2026-09-21 0010Z - CONUS composite reflectivity, cropped ~450 km around the storm, NWS dBZ color ramp. The lesson re-cases itself to the biggest hail report of the past 7 days whenever a new one lands.</div>
+</div>
+<div id="hlTabpractice" style="display:none">
+  <p class="hlPrompt">👆 Tap the map where <b>you</b> think the hail core is - the strongest echo (65+ dBZ).</p>
+  <div class="hlImgWrap">
+    <img id="hlImgPlain" src="hail_ed/hail_cut_plain.png" alt="Unannotated reflectivity cut - find the hail core yourself" loading="lazy"/>
+    <span id="hlMark"></span>
+  </div>
+  <div id="hlFb" class="hlFb"></div>
+  <div id="hlRecord" class="hlRecord"></div>
+  <p class="hlHint">Tip: hail lives in the coldest colors - the tight magenta/white cluster, not the wide red rain shield. Your pick is scored against the verified core position.</p>
+</div>
+<div id="hlTabreveal" style="display:none">
+  <div class="hlImgWrap"><img src="hail_ed/hail_cut.png" alt="Annotated cut - revealed" loading="lazy"/></div>
+  <p style="margin:12px 0 0;font-weight:700">The 4-step reading order:</p>
+  <ol>
+    <li><b>Find the hardest echo</b> - the tight magenta/white cluster. That's the hail core, the updraft's engine.</li>
+    <li><b>Check the shape</b> - a core knuckled onto the storm's flank as an appendage means the updraft is tilted into the inflow, a classic severe signature.</li>
+    <li><b>Find the inflow notch</b> - the carved-in indentation on the storm's intake side. Tight echo gradient there means strong rising motion.</li>
+    <li><b>Compare the forward flank</b> - the broad rain shield downwind. If you called THAT the core, you read rain as hail; the real core sits back toward the notch.</li>
+  </ol>
+  <p class="hlCap" id="hlWhere">Practice first, then this shows how far your pick landed from the verified core.</p>
+  <div id="hlQuiz"></div>
+  <div id="hlQuizScore"></div>
+  <div class="hlCap">Case: 3 S Chivington, CO - 4.0-inch hail reported 2026-09-21 at 00:00 UTC (NWS Employee, via IEM archive). Radar frame 2026-09-21 0010Z - CONUS composite reflectivity, cropped ~450 km around the storm, NWS dBZ color ramp. The lesson re-cases itself to the biggest hail report of the past 7 days whenever a new one lands.</div>
+</div>
 <script>
+(function(){
+  const HC = {"report": {"lat": 38.39, "lon": -102.53, "mag": 4.0, "city": "3 S Chivington", "st": "CO", "wfo": "PUB", "source": "NWS Employee", "valid": "2026-09-21T00:00:00Z", "frame": "2026-09-21 0010Z"}, "crop": {"latTop": 41.22338204592902, "latBot": 35.586638830897705, "lonL": -106.66353677621284, "lonR": -98.49452269170578}, "core": {"lat": 37.84133611691023, "lon": -103.03286384976526}, "png": "hail_cut.png", "built": "2026-09-23T17:56:27Z", "url": "hail_ed/hail_cut.png", "urlPlain": "hail_ed/hail_cut_plain.png"};
+  function hlTab(name){
+    for (const t of ["guide","practice","reveal"]){
+      const tab = document.getElementById("hlTab"+t), btn = document.getElementById("hlB"+t);
+      if (tab) tab.style.display = (t===name) ? "" : "none";
+      if (btn) btn.classList.toggle("on", t===name);
+    }
+    if (name==="reveal" && window.__hlTap){
+      const el = document.getElementById("hlWhere");
+      if (el) el.textContent = window.__hlTap;
+    }
+  }
+  window.hlTab = hlTab;
+  const img = document.getElementById("hlImgPlain"), mk = document.getElementById("hlMark"), fb = document.getElementById("hlFb");
 
+  // drill record - kept across visits in localStorage, like the education page's quiz scores
+  const KEY = "tnwx_hail_drill_v1";
+  function loadRec(){ try { return JSON.parse(localStorage.getItem(KEY)) || { hits:0, tries:0, bestKm:null }; } catch(e){ return { hits:0, tries:0, bestKm:null }; } }
+  function saveRec(r){ try { localStorage.setItem(KEY, JSON.stringify(r)); } catch(e){} }
+  function paintRec(){
+    const el = document.getElementById("hlRecord"); if (!el) return;
+    const r = loadRec();
+    el.textContent = r.tries
+      ? "Drill record: " + r.hits + " core" + (r.hits===1?"":"s") + " found in " + r.tries + " drill" + (r.tries===1?"":"s") + (r.bestKm!=null ? " - best " + r.bestKm.toFixed(1) + " km off the verified core" : "")
+      : "Drill record: no taps yet - every guess is scored and remembered.";
+  }
+  paintRec();
+
+  if (img){
+    img.addEventListener("click", function(e){
+      const r = img.getBoundingClientRect();
+      const fx = (e.clientX - r.left)/r.width, fy = (e.clientY - r.top)/r.height;
+      const lat = HC.crop.latTop + fy*(HC.crop.latBot - HC.crop.latTop);
+      const lon = HC.crop.lonL  + fx*(HC.crop.lonR  - HC.crop.lonL);
+      const ky = 111.32, kx = 111.32*Math.cos(HC.core.lat*Math.PI/180);
+      const dKm = Math.hypot((lat-HC.core.lat)*ky, (lon-HC.core.lon)*kx);
+      mk.style.display = "block"; mk.style.left = (fx*100)+"%"; mk.style.top = (fy*100)+"%";
+      let msg, cls;
+      if (dKm < 8)       { msg = "<b>🎯 Bullseye - that is the hail core.</b> Your pick was "+dKm.toFixed(0)+" km from the storm's hardest echo. 65+ dBZ this tight and this cold-colored is the hail factory: big stones grow where the updraft is strongest."; cls="good"; }
+      else if (dKm < 20) { msg = "<b>✅ Close - inside the strong echo.</b> Your pick was "+dKm.toFixed(0)+" km off the core. The core is the tightest, hardest-colored cluster inside the storm, usually on its inflow side."; cls="good"; }
+      else if (dKm < 40) { msg = "<b>🌧️ That is the forward flank.</b> Your pick was "+dKm.toFixed(0)+" km from the core. Big smooth echo like that is the rain core. The hail factory sits on the storm's inflow (notch) side, where the echo shapes into an appendage."; cls="mid"; }
+      else               { msg = "<b>❄️ Off the storm.</b> Your pick was "+dKm.toFixed(0)+" km away. Scan for the coldest colors - the magenta/white ring - and remember: reds are heavy rain, magenta-and-above is where hail lives."; cls="bad"; }
+      fb.className = "hlFb "+cls; fb.innerHTML = msg;
+      window.__hlTap = "Your practice pick was "+dKm.toFixed(0)+" km from the verified core ("+HC.core.lat.toFixed(2)+", "+HC.core.lon.toFixed(2)+").";
+      const rec = loadRec(); rec.tries++;
+      if (dKm < 20) { rec.hits++; if (rec.bestKm == null || dKm < rec.bestKm) rec.bestKm = dKm; }
+      saveRec(rec); paintRec();
+    });
+  }
+
+  const QUIZ = [
+    { q: "Where does hail actually grow inside a supercell?",
+      opts: ["Inside the heaviest rain of the forward flank",
+             "In the vault above the inflow notch - strong updraft, little rain falling through",
+             "Along the leading gust front, where new cells keep firing"],
+      c: 1,
+      why: "The updraft is strongest in the vault, so stones hang aloft through more growth layers instead of being dumped early. That is why the radar core hugs the inflow side - and why the biggest stones fall near the notch, not in the downpour." },
+    { q: "The cut shows 65-70 dBZ stacked deep with an inflow notch on the flank. What is the smart read?",
+      opts: ["Rain-cooled outflow is undercutting the updraft - the storm should weaken soon",
+             "A deep, tight echo column beside a clean inflow notch - the classic significant-hail signature",
+             "Radar beam blockage - the real storm is farther north"],
+      c: 1,
+      why: "Deep high-dBZ columns plus a crisp inflow notch = a strong, steady updraft feeding the hail factory. That pairing is exactly what NWS warning forecasters look for before issuing a large-hail warning." }
+  ];
+  const qz = document.getElementById("hlQuiz");
+  if (qz) {
+    let correct = 0, answered = 0;
+    QUIZ.forEach(function(item, qi){
+      const box = document.createElement("div");
+      box.className = "hlQ";
+      box.innerHTML = '<div class="q">' + (qi+1) + ". " + item.q + "</div>" +
+        item.opts.map(function(o, oi){ return '<button data-o="' + oi + '">' + o + "</button>"; }).join("") +
+        '<div class="why"></div>';
+      box.querySelectorAll("button").forEach(function(b){
+        b.onclick = function(){
+          if (box.dataset.done) return;
+          box.dataset.done = "1"; answered++;
+          const ok = (+b.dataset.o === item.c);
+          if (ok) correct++;
+          box.querySelectorAll("button").forEach(function(bb, bi){
+            bb.disabled = true;
+            if (bi === item.c) bb.classList.add("right");
+            else if (bb === b) bb.classList.add("wrong");
+          });
+          const w = box.querySelector(".why");
+          w.style.display = "block";
+          w.innerHTML = (ok ? "✅ <b>Correct.</b> " : "❌ <b>Not quite.</b> ") + item.why;
+          const sc = document.getElementById("hlQuizScore");
+          if (sc) sc.textContent = "Quiz: " + correct + " of " + answered + " correct" +
+            (answered === QUIZ.length ? (correct === QUIZ.length ? " - you read storms like a forecaster." : " - reread the annotations; every pattern is there.") : "");
+        };
+      });
+      qz.appendChild(box);
+    });
+  }
+})();
+</script>
+</div>
+<script>
 const MAPBOX_TOKEN = null;
 let LAYERS = {"past": {"label": "Real-time (RainViewer)", "mode": "tiles", "framesKey": "past", "path": "/256/{z}/{x}/{y}/2/1_1", "fallbacks": ["nws"]}, "nowcast": {"label": "Nowcast (+10-30 min)", "mode": "tiles", "framesKey": "nowcast", "path": "/256/{z}/{x}/{y}/2/1_1", "fallbacks": ["past", "nws"]}, "future": {"label": "Future radar (HRRR + NAM, 48 h)", "mode": "png", "framesKey": "future"}, "mrms": {"label": "MRMS mosaic (official)", "mode": "png", "framesKey": "mrms"}, "nws": {"label": "NWS mosaic (official)", "mode": "png", "framesKey": "nws"}, "wbgt": {"label": "Heat stress - WBGT (next 24 h)", "mode": "png", "framesKey": null}};
 const OPACITY = () => { const o = document.getElementById("opacity"); return o ? o.value / 100 : 0.8; };
