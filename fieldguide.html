@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Storm Chaser&#x27;s Field Guide - Tennessee Weather Network</title>
+<meta property="og:title" content="Storm Chaser&#x27;s Field Guide - Tennessee Weather Network"/>
+<meta property="og:type" content="website"/>
+<meta property="og:description" content="Live radar, future cast, satellite, forecast models, severe weather and East Tennessee forecasts - free, no keys, always updating."/>
+<meta property="og:url" content="https://rpleasant12.github.io/http-localhost-8765-/"/>
+<meta property="og:image" content="https://rpleasant12.github.io/http-localhost-8765-/og.png"/>
+<meta property="og:site_name" content="Tennessee Weather Network"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="https://rpleasant12.github.io/http-localhost-8765-/og.png"/>
+<meta name="description" content="Live East Tennessee weather: radar, future cast, satellite, all forecast models, severe weather, and city forecasts. Updated continuously."/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<style>
+  :root { color-scheme: dark; --bg:#0e1117; --card:#161b26; --line:rgba(255,255,255,.08); --dim:#9aa4b2; --acc:#4da3ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:var(--bg); color:#e8edf4; }
+  a { color:var(--acc); text-decoration:none; }
+  .wrap { max-width:1100px; margin:0 auto; padding:14px; }
+  nav { position:sticky; top:0; z-index:50; background:rgba(14,17,23,.95); backdrop-filter:blur(6px);
+        border-bottom:1px solid var(--line); }
+  nav .wrap { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; padding:10px 14px; }
+  nav .brand { font-weight:800; font-size:18px; margin-right:auto; }
+  nav .brand span { color:var(--acc); }
+  nav a.pg { color:#cdd7e4; font-size:14px; padding:4px 8px; border-radius:6px; }
+  nav a.pg:hover, nav a.pg.on { background:#1d2432; color:#fff; }
+  header.hero { text-align:center; padding:20px 8px 8px; }
+  header.hero h1 { margin:0; font-size:clamp(22px,5vw,36px); }
+  header.hero .sub { color:var(--dim); margin-top:6px; font-size:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin:14px 0; }
+  h2 { font-size:17px; margin:0 0 10px; color:#cdd7e4; }
+  .grid { display:grid; gap:10px; }
+  .cards7 { grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); }
+  .day { background:#10151f; border:1px solid var(--line); border-radius:12px; padding:12px; text-align:center; }
+  .day .hi { font-size:24px; font-weight:800; }
+  .day .tx { color:var(--dim); font-size:12.5px; min-height:30px; }
+  .now { display:flex; flex-wrap:wrap; gap:16px; align-items:center; }
+  .now .big { font-size:clamp(42px,10vw,64px); font-weight:800; }
+  .now .meta { color:var(--dim); font-size:14px; line-height:1.7; }
+  .chip { display:inline-block; padding:8px 18px; border-radius:12px; font-weight:900; color:#102015; }
+  .alerts { display:grid; gap:8px; }
+  .alert { background:#10151f; border-radius:10px; padding:10px 12px; border-left:6px solid #888; }
+  .alert b { color:#fff; } .alert span { color:var(--dim); font-size:13px; display:block; }
+  .alert.ok { border-left-color:#2e7d32; color:#a5d6a7; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; }
+  .kpi { background:#10151f; border:1px solid var(--line); border-radius:12px; padding:10px; text-align:center; }
+  .kpi b { display:block; font-size:22px; } .kpi span { color:var(--dim); font-size:12px; }
+  .ltg-row { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; margin-top:10px; }
+  .wpcfig { flex:1 1 300px; max-width:49%; min-width:260px; margin:0; }
+  .wpcfig img { width:100%; height:auto; display:block; border-radius:10px; }
+  .wpcfig figcaption { font-size:12px; opacity:.75; margin-top:4px; }
+  .ltg-cell { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px 10px; min-width:130px; flex:0 0 auto; }
+  .ltg-cell b { display:block; font-size:15px; }
+  .ltg-cell .h { color:var(--dim); font-size:11px; }
+  .ltg-bars { display:flex; align-items:flex-end; gap:2px; height:34px; margin-top:6px; }
+  .ltg-bars i { flex:1 1 0; min-width:4px; background:#ffeb3b; border-radius:2px 2px 0 0; opacity:.9; }
+  .ltg-badge { font-size:11px; font-weight:800; padding:2px 8px; border-radius:8px; color:#102015; }
+  #map { height:clamp(340px,56vh,580px); border-radius:12px; z-index:0; }
+  .ctl { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:10px; }
+  .ctl button { background:#2b80ff; color:#fff; border:none; border-radius:8px; padding:9px 20px; font-size:16px; cursor:pointer; }
+  .ctl button:active { transform:scale(.97); }
+  .ctl select { background:#1b1f27; color:#eee; border:1px solid rgba(255,255,255,.2); border-radius:6px; padding:8px; font-size:14px; max-width:100%; }
+  .stack { position:relative; width:100%; aspect-ratio:4/3; background:#0a0d13; border-radius:10px; overflow:hidden; }
+  .stack .layer { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+  .frame { font-family:ui-monospace,monospace; color:#ffd54f; }
+  .ctl input[type=range] { flex:1; min-width:110px; accent-color:#2b80ff; height:26px; }
+  .frame { min-width:84px; text-align:center; font-weight:700; color:#ffd54f; font-size:16px; }
+  .src { color:var(--dim); font-size:12px; margin-top:8px; }
+  .legend { display:flex; flex-wrap:wrap; gap:8px 14px; font-size:12.5px; color:var(--dim); margin-top:8px; }
+  .legend i { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+  table.cells { width:100%; border-collapse:collapse; font-size:14px; }
+  table.cells th { text-align:left; color:var(--dim); font-weight:600; font-size:12px; padding:6px; }
+  table.cells th.srt { cursor:pointer; user-select:none; white-space:nowrap; }
+  table.cells th.srt:hover { color:var(--ink); }
+  table.cells th.srt .dir { font-size:10px; margin-left:2px; color:var(--accent); }
+  .trend { font-size:11px; font-weight:700; margin-left:3px; }
+  .trend.up { color:#66bb6a; } .trend.dn { color:#ef5350; } .trend.fl { color:var(--dim); font-weight:400; }
+  table.cells td { border-top:1px solid var(--line); padding:7px 6px; }
+  .dbz { font-weight:800; } .sev { color:#ff5252; } .mod { color:#ffb74d; } .lit { color:#aed581; }
+  .gal { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }
+  .gal img { width:100%; border-radius:10px; border:1px solid var(--line); }
+  .gal .cap { color:var(--dim); font-size:12.5px; margin-top:4px; }
+  .stepper { display:flex; align-items:center; gap:8px; margin-top:8px; }
+  .stepper button { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:14px; }
+  .cmp4 { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+  .cmp4 .pane { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px; }
+  .cmp4 .pane h3 { margin:0 0 6px; font-size:13.5px; color:#cdd7e4; display:flex; align-items:center; gap:8px; }
+  .cmp4 .pane h3 .cap { color:var(--dim); font-weight:400; }
+  .cmp4 .pane select { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:3px 6px; font-size:13px; }
+  .cmp4 img { width:100%; border-radius:8px; }
+  .cmp4 .miss { color:var(--dim); font-size:12.5px; padding:22px 6px; text-align:center; }
+  @media (max-width:820px){ .cmp4 { grid-template-columns:1fr; } }
+  .hourly { display:flex; gap:8px; overflow-x:auto; padding-bottom:6px; }
+  .hr { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px 10px; text-align:center; min-width:72px; }
+  .hr b { display:block; } .hr span { color:var(--dim); font-size:11.5px; }
+  .natimg { width:100%; max-width:860px; display:block; margin:0 auto; border-radius:10px; border:1px solid var(--line); background:#fff; }
+  .pre { white-space:pre-wrap; font-size:12.5px; color:#cdd7e4; background:#10151f; border:1px solid var(--line); border-radius:10px; padding:12px; max-height:260px; overflow:auto; }
+  footer { text-align:center; color:var(--dim); font-size:12.5px; padding:18px 8px 26px; line-height:1.8; }
+  .navctl { display:flex; align-items:center; gap:6px; }
+  .navctl button { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:4px 10px; cursor:pointer; font-size:14px; }
+  .autolbl { color:var(--dim); font-size:12px; display:flex; align-items:center; gap:4px; }
+  .map-dark .leaflet-tile-pane { filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(1.05); }
+  /* radar load-state badge (set by the player: ok / loading / empty) */
+  #map { position: relative; }
+  #map::after {
+    content: "";
+    position: absolute; top: 8px; left: 8px; z-index: 800;
+    background: rgba(10, 14, 20, .75); color: #9fe199; border: 1px solid rgba(255,255,255,.15);
+    border-radius: 6px; padding: 2px 9px; font-size: 11.5px; pointer-events: none;
+  }
+  #map[data-radar-state="loading"]::after { content: "radar loading…"; color: #ffd54f; }
+  #map[data-radar-state="empty"]::after { content: "radar unavailable - retrying"; color: #ff8a80; }
+  #map[data-radar-state="ok"]::after { content: "radar live"; color: #9fe199; }
+  /* hide Leaflet's default home marker (the player draws its own) */
+  .leaflet-marker-icon.home-marker { display: none; }
+  .leaflet-control-attribution { background:rgba(14,17,23,.8) !important; color:var(--dim) !important; }
+  .mapctlbtn { background:#1d2432; border:1px solid var(--line); border-radius:6px; color:#eee;
+    padding:5px 9px; font-size:15px; cursor:pointer; margin-bottom:6px; box-shadow:0 1px 4px rgba(0,0,0,.4); text-align:center; }
+  .mapcoord { background:rgba(14,17,23,.85); color:#cdd7e4; border:1px solid var(--line); border-radius:6px;
+    font-size:11.5px; padding:3px 8px; }
+  @media (max-width:640px){ .wrap{padding:10px;} .card{padding:12px;} nav .brand{font-size:16px;} }
+</style>
+</head><body>
+<nav><div class="wrap">
+  <a class="brand" href="index.html">🌧️ <span>Tennessee Weather Network</span></a>
+  <a class="pg" href="index.html">Home</a><a class="pg" href="radar.html">Radar</a><a class="pg" href="satellite.html">Satellite</a><a class="pg" href="models.html">Models</a><a class="pg" href="tropical.html">NHC</a><a class="pg" href="tropmodels.html">Trop Models</a><a class="pg" href="climate.html">Climate</a><a class="pg" href="enso.html">El Niño</a><a class="pg" href="severe.html">Severe</a><a class="pg" href="winter.html">Winter Forecast</a><a class="pg" href="rivers.html">Rivers</a><a class="pg" href="fire.html">Fire</a><a class="pg" href="dashboard.html">Dashboard</a><a class="pg" href="traffic.html">Traffic</a><a class="pg" href="meso.html">Mesoanalysis</a><a class="pg" href="obs.html">Obs & Skew-T</a><a class="pg" href="charts.html">Charts & MOS</a><a class="pg" href="national.html">National</a><a class="pg" href="forecast.html">Forecast</a><a class="pg" href="education.html">Education</a><a class="pg on" href="fieldguide.html">Field Guide</a>
+  <div class="navctl">
+    <select id="baseSel" title="Basemap" style="max-width:110px"></select>
+    <button id="refreshBtn" title="Refresh this page now">⟳ Refresh</button>
+    <label class="autolbl"><input type="checkbox" id="autoChk" checked/> auto <span id="autoCnt">90</span>s</label>
+    <a id="fbShare" title="Share this page on Facebook" target="_blank" rel="noopener"
+       style="text-decoration:none;background:#1877f2;color:#fff;padding:4px 10px;border-radius:8px;font-size:12.5px;font-weight:600;display:inline-block">📘 Share</a>
+  </div>
+</div></nav>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const SITE_DATA_URL = "data.json";
+/* GitHub Pages caches data.json up to 10 min (max-age=600); the timestamp
+   query makes the browser fetch a fresh copy from the Pages CDN instead of
+   reusing a stale cached one. Public data publishes ~every 10 min, so the
+   footer age normally reads 0-10 min - that is the honest cadence. */
+function dataUrl() {
+  try { return SITE_DATA_URL + "?t=" + Date.now(); } catch (_e) { return SITE_DATA_URL; }
+}
+/* live-update watchdog: re-fetch data.json every 3 min and show its age.
+   The footer age is computed from dataEpochMs (server epoch), NOT from the
+   human-readable 'generated' string (now "... 12:17 AM ET" - unparseable). */
+let SITE_DATA = null;
+function fmtAge(mins) {
+  if (mins < 1) return "just now";
+  if (mins < 60) return mins + " min ago";
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return h + " h " + (m ? m + " min " : "") + "ago";
+}
+function updTick() {
+  if (!SITE_DATA) return;
+  const el = document.getElementById("upd");
+  if (!el) return;
+  const ms = Date.now() - (SITE_DATA.dataEpochMs || 0);
+  if (!SITE_DATA.dataEpochMs || ms < 0) { el.textContent = "\u2705 Live data"; return; }
+  const mins = Math.floor(ms / 60000);
+  /* Public site: GitHub publishes ~every 10 min, so age up to ~12 min is the
+     normal cadence - warn only past that. Pages' own max-age=600 means the
+     fetch itself can lag a couple minutes behind the publish. */
+  if (mins <= 12) el.textContent = "\u2705 Live data \u00b7 refreshed " + fmtAge(mins);
+  else if (mins <= 30) el.textContent = "\u23f3 Data " + fmtAge(mins) + " old \u00b7 next publish soon";
+  else el.textContent = "\u26a0\ufe0f Data " + fmtAge(mins) + " old \u00b7 checking for updates";
+}
+async function siteRefresh() {
+  try {
+    SITE_DATA = await (await fetch(dataUrl(), {cache: "no-store"})).json();
+    if (typeof onDataRefresh === "function") onDataRefresh(SITE_DATA);
+    updTick();
+    try { syncAutoPref(); } catch (_e) {}   /* version now known: apply/wipe stale auto pref */
+    /* auto-heal: if the served copy is still 30+ min old on two consecutive
+       polls (6 min apart), force a cache-busted reload once - recovers from
+       a stuck CDN copy or a missed publish without looping. */
+    if (SITE_DATA.dataEpochMs && Date.now() - SITE_DATA.dataEpochMs > 30 * 60000) {
+      siteRefresh._stale = (siteRefresh._stale || 0) + 1;
+      if (siteRefresh._stale >= 2 && !sessionStorage.getItem("tnwxHealed")) {
+        sessionStorage.setItem("tnwxHealed", "1");
+        const u = new URL(location.href); u.searchParams.set("t", Date.now());
+        location.replace(u); return;
+      }
+    } else siteRefresh._stale = 0;
+  } catch (e) { /* offline: keep last data */ }
+}
+siteRefresh();
+setInterval(updTick, 30000);
+setInterval(siteRefresh, 180000);
+/* paused-banner: the STOP shortcut writes PAUSED.json, so any page that
+   still loads while updates are paused tells the truth instead of showing
+   a stale timestamp that looks like normal lag. START removes the marker. */
+(async function () {
+  try {
+    const pr = await fetch("PAUSED.json?t=" + Date.now(), { cache: "no-store" });
+    if (!pr.ok) return;   /* 404 = running normally */
+    const p = await pr.json();
+    const pb = document.createElement("div");
+    pb.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:99999;"
+      + "background:#b3261e;color:#fff;text-align:center;font-weight:700;"
+      + "padding:8px 12px;font-size:14px;font-family:inherit;";
+    pb.textContent = "\u23f8 Weather updates are PAUSED - press the START shortcut "
+      + "to resume. Data on this page is frozen"
+      + (p && p.since ? " (paused " + String(p.since).replace(/^paused\s*/, "") + ")" : "") + ".";
+    document.body.appendChild(pb);
+    document.body.style.paddingTop = "38px";
+    if (autoCnt) autoCnt.textContent = "\u221e";   /* freeze the auto-reload countdown too */
+  } catch (_e) { /* marker unreadable: treat as running */ }
+})();
+/* page auto-refresh: soft (map pages define onDataRefresh) or hard reload.
+   Hard reloads MUST cache-bust: GitHub Pages sends max-age=600, so a plain
+   location.reload() can serve the same stale HTML for up to 10 minutes. */
+function hardReload() {
+  try {
+    const u = new URL(location.href);
+    u.searchParams.set("t", Date.now());
+    location.replace(u);
+  } catch (_e) { location.reload(); }
+}
+let AUTO_LEFT = 90;
+const autoCnt = document.getElementById("autoCnt"), autoChk = document.getElementById("autoChk");
+document.getElementById("refreshBtn").onclick = () => {
+  const b = document.getElementById("refreshBtn");
+  if (b) { b.textContent = "…"; }
+  hardReload();
+};
+/* auto-refresh preference is remembered per siteVersion (a fingerprint of
+   the site code, served in data.json). A saved "off" therefore cannot
+   survive a site update: after new code pushes, the flag belongs to an old
+   version, is wiped, and auto-refresh resumes - an update always re-opens
+   the refresh tap. Before the first data pull resolves the version is
+   unknown, so the checkbox defaults ON and re-syncs the moment data lands. */
+function autoPrefKey() {
+  /* SITE_DATA is a script-level let - reachable by name in this scope but
+     never as window.SITE_DATA, so the bare (guarded) reference is required */
+  let v = "";
+  try { v = (typeof SITE_DATA !== "undefined" && SITE_DATA && SITE_DATA.siteVersion) || ""; } catch (_e) {}
+  return v ? "tnwxAuto." + v : "";
+}
+function syncAutoPref() {
+  const k = autoPrefKey();
+  if (!k) return;
+  try {
+    /* wipe the legacy flag and flags saved under other versions */
+    Object.keys(localStorage)
+      .filter(x => x === "tnwxAuto" || (x.indexOf("tnwxAuto.") === 0 && x !== k))
+      .forEach(x => localStorage.removeItem(x));
+    autoChk.checked = localStorage.getItem(k) !== "off";
+  } catch (_e) {}
+}
+syncAutoPref();
+autoChk.onchange = () => {
+  AUTO_LEFT = 90;
+  const k = autoPrefKey();
+  try { if (k) localStorage.setItem(k, autoChk.checked ? "on" : "off"); } catch (_e) {}
+};
+/* interacting with the page postpones the auto cycle: a hard reload in the
+   middle of a zoom/pinch/scrub reads as "the map won't zoom" (2026-09-18) */
+["pointerdown", "wheel", "touchstart"].forEach(function (ev) {
+  document.addEventListener(ev, function () { AUTO_LEFT = 90; }, { passive: true, capture: true });
+});
+setInterval(() => {
+  if (!autoChk.checked) { if (autoCnt) autoCnt.textContent = "\u221e"; return; }
+  AUTO_LEFT -= 1;
+  if (autoCnt) autoCnt.textContent = AUTO_LEFT;
+  if (AUTO_LEFT <= 0) {
+    AUTO_LEFT = 90;
+    if (typeof onDataRefresh === "function") siteRefresh(); else hardReload();
+  }
+}, 1000);
+
+const BASEMAPS = {
+  dark:  { label: "Dark", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", invert: true },
+  light: { label: "Light", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", invert: false },
+  sat:   { label: "Satellite", url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", invert: false },
+  topo:  { label: "Terrain", url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}", invert: false }
+};
+let _baseLayer = null, _baseKey = null;
+function setBase(key, map) {
+  if (key === "mapbox" && !BASEMAPS.mapbox && typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN)
+    BASEMAPS.mapbox = { label: "Mapbox", style: "mapbox://styles/mapbox/light-v11" };
+  const b = BASEMAPS[key] || BASEMAPS.dark;
+  if (_baseKey === key && _baseLayer) return;
+  if (_baseLayer) map.removeLayer(_baseLayer);
+  if (b.style) _baseLayer = L.mapboxGL({ accessToken: MAPBOX_TOKEN, style: b.style, attribution: "&copy; Mapbox" }).addTo(map);
+  else _baseLayer = L.tileLayer(b.url, { maxNativeZoom: 19, maxZoom: 21, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
+  map.getContainer().classList.toggle("map-dark", !!b.invert);
+  _baseKey = key;
+  try { localStorage.setItem("tnwxBase", key); } catch (_e) {}
+  const sel = document.getElementById("baseSel"); if (sel && sel.value !== key) sel.value = key;
+}
+function addMapControls(map, home, homeZoom) {
+  const btn = (txt, title, fn) => {
+    const c = L.control({ position: "topleft" });
+    c.onAdd = () => { const d = L.DomUtil.create("div", "mapctlbtn"); d.textContent = txt; d.title = title;
+      L.DomEvent.disableClickPropagation(d); d.onclick = fn; return d; };
+    c.addTo(map);
+  };
+  btn("⛶", "Fullscreen map", () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else map.getContainer().requestFullscreen();
+  });
+  btn("⌂", "Home view", () => map.setView(home, homeZoom));
+  btn("◎", "My location", () => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(p => {
+      map.setView([p.coords.latitude, p.coords.longitude], 10);
+      L.circleMarker([p.coords.latitude, p.coords.longitude], { radius: 7, color: "#fff", weight: 2, fillColor: "#4da3ff", fillOpacity: 1 })
+        .addTo(map).bindTooltip("You are here").openTooltip();
+    }, () => {}, { timeout: 8000 });
+  });
+  L.control.scale({ imperial: true, metric: false }).addTo(map);
+  document.addEventListener("fullscreenchange", () => setTimeout(() => map.invalidateSize(), 200));
+  const coord = L.control({ position: "bottomright" });
+  coord.onAdd = () => L.DomUtil.create("div", "mapcoord");
+  coord.addTo(map);
+  const el = document.querySelector(".mapcoord");
+  map.on("mousemove", e => { if (el) el.textContent = e.latlng.lat.toFixed(3) + ", " + e.latlng.lng.toFixed(3); });
+  map.on("mouseout", () => { if (el) el.textContent = ""; });
+  const sel = document.getElementById("baseSel");
+  if (sel) {
+    sel.innerHTML = Object.entries(BASEMAPS).map(([k, b]) => `<option value="${k}">${b.label}</option>`).join("");
+    let saved = null; try { saved = localStorage.getItem("tnwxBase"); } catch (_e) {}
+    setBase(saved && BASEMAPS[saved] ? saved : ((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark"), map);
+    sel.onchange = e => setBase(e.target.value, map);
+  } else setBase((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark", map);
+  if (typeof drawHomeMarker === "function") drawHomeMarker(map, home);
+}
+function drawHomeMarker(map, home) {
+  if (map._tnwxHome) return;
+  map._tnwxHome = L.circleMarker(home, { radius: 7, color: "#fff", weight: 2,
+    fillColor: "#ff5252", fillOpacity: 1 }).addTo(map).bindTooltip((typeof DATA_PLACE !== "undefined" && DATA_PLACE) || "Home");
+}
+
+
+setTimeout(function () {
+  if (typeof map === "undefined" || !map) return;
+  const sel = document.getElementById("baseSel");
+  if (typeof addMapControls === "function" && (typeof _baseLayer === "undefined" || !_baseLayer)) {
+    const la = (typeof DATA_LAT !== "undefined") ? DATA_LAT : 36.2;
+    const lo = (typeof DATA_LON !== "undefined") ? DATA_LON : -83.0;
+    addMapControls(map, [la, lo], 6);
+  } else if (typeof setBase === "function") {
+    if (!_baseLayer) setBase((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark", map);
+    if (sel) sel.onchange = function (e) { setBase(e.target.value, map); };
+  }
+}, 600);
+
+</script>
+<div class="wrap">
+
+<div class="card"><h2>🌪️ Storm Chaser's Field Guide — reading the composites &amp; SPC colors together</h2>
+  <p>This guide teaches one skill: walking onto the <a href="models.html">Models page</a>, reading the severe-parameter walls — <b>SCP</b>, <b>STP</b>, <b>EHI</b> (and SHIP for hail) — and knowing <i>instantly</i> what the colors are telling you, because every wall, the Severe page outlooks and the Mesoanalysis composites all speak the same six-color SPC language.</p>
+  <div class="alert" style="border-left-color:#ff8c00"><b>Live right now (2026Z HRRR):</b> Crossville SCP 1.3 · Chattanooga SCP 1.2 · Dayton SCP 1.0 — the <a href="models.html">Models page</a> ranks every East TN town hourly.</div>
+</div>
+
+<div class="card"><h2>🎨 The SPC color language — one ladder, everywhere</h2>
+  <p>SPC's categorical outlook colors double as the fill ramp on the severe walls. Memorize the ladder once and every map on this site reads the same way — a yellow blob means <i>slight-risk-grade</i> environment whether it's an outlook polygon, an SCP wall, or a mesoanalysis composite:</p>
+  <div style="line-height:2.1"><span style="display:inline-flex;align-items:center;gap:6px;margin:2px 10px 2px 0"><span style="width:14px;height:14px;background:#c1e9c1;display:inline-block;border:1px solid #555;border-radius:3px"></span><b>TSTM</b> <span class="src">— unorganized — storms, if any, stay ordinary</span></span></div>
+  <div style="line-height:2.1"><span style="display:inline-flex;align-items:center;gap:6px;margin:2px 10px 2px 0"><span style="width:14px;height:14px;background:#66cdaa;display:inline-block;border:1px solid #555;border-radius:3px"></span><b>MRGL</b> <span class="src">— marginal — isolated severe possible</span></span></div>
+  <div style="line-height:2.1"><span style="display:inline-flex;align-items:center;gap:6px;margin:2px 10px 2px 0"><span style="width:14px;height:14px;background:#ffff00;display:inline-block;border:1px solid #555;border-radius:3px"></span><b>SLGT</b> <span class="src">— slight — scattered severe storms</span></span></div>
+  <div style="line-height:2.1"><span style="display:inline-flex;align-items:center;gap:6px;margin:2px 10px 2px 0"><span style="width:14px;height:14px;background:#ff8c00;display:inline-block;border:1px solid #555;border-radius:3px"></span><b>ENH</b> <span class="src">— enhanced — numerous severe storms</span></span></div>
+  <div style="line-height:2.1"><span style="display:inline-flex;align-items:center;gap:6px;margin:2px 10px 2px 0"><span style="width:14px;height:14px;background:#ff0000;display:inline-block;border:1px solid #555;border-radius:3px"></span><b>MDT</b> <span class="src">— moderate — widespread severe likely</span></span></div>
+  <div style="line-height:2.1"><span style="display:inline-flex;align-items:center;gap:6px;margin:2px 10px 2px 0"><span style="width:14px;height:14px;background:#ff00ff;display:inline-block;border:1px solid #555;border-radius:3px"></span><b>HIGH</b> <span class="src">— rare — long-track strong tornado / MCS outbreak</span></span></div>
+  <p class="src">On the walls the ramp is continuous (values blend between bands); the hex values above are the exact anchors shared with the Severe page and the mesoanalysis composites. A wall that is entirely green is simply saying "no organized-severe environment yet" — that is information, not a bug.</p>
+</div>
+
+<div class="card"><h2>🌪️ SCP — Supercell Composite: <i>can a rotating storm organize here?</i></h2>
+  <div class="kpi"><span>Formula</span><b style="font-family:monospace;font-size:13px">min(MUCAPE/1000, 1.5) × min(ESRH/50, 1.5) × min(EBWD/20, 1.5)</b></div>
+  <p>SCP multiplies the three supercell ingredients — instability, storm-relative helicity (spin), and deep-layer shear — so <b>all three must be present</b> for the value to climb. A wall goes yellow-orange only where fuel and spin overlap.</p>
+  <div class="alert" style="border-left-color:#66cdaa"><b>SCP &lt; 1</b><span>ordinary cells at best — chase for lightning photos, not structure</span></div>
+  <div class="alert" style="border-left-color:#ffff00"><b>SCP 1–4</b><span>marginal supercells possible — watch storm mode closely</span></div>
+  <div class="alert" style="border-left-color:#ff0000"><b>SCP ≥ 4</b><span>significant supercells likely — the classic target area</span></div>
+  <p class="src">Read it on <a href="models.html?pv=us&amp;pvProd=scp">the Supercell Composite wall</a>. The strongest axis is where you stage <i>before</i> storms fire; the cap at 1.5 per term keeps one extreme ingredient (huge CAPE, dead air) from faking a signal.</p>
+</div>
+
+<div class="card"><h2>🎯 STP — Significant Tornado Parameter: <i>which end is tornadic?</i></h2>
+  <div class="kpi"><span>Formula</span><b style="font-family:monospace;font-size:13px">SCP's terms at tornado weights × LCL term — low cloud bases raise it</b></div>
+  <p>STP is SCP with tornado tuning: it weighs helicity and shear harder and adds a <b>cloud-base term</b> — low LCLs (humid surface air, small T/Td spread) are the tornadic ingredient. Where SCP says "supercells", STP says <i>which part of that area supports tornadoes</i>.</p>
+  <div class="alert" style="border-left-color:#ffff00"><b>STP ≥ 1</b><span>tornado-favorable — tornado is a credible scenario in that corridor</span></div>
+  <div class="alert" style="border-left-color:#ff0000"><b>STP ≥ 2</b><span>significant-tornado environments — strong, long-track tornadoes possible</span></div>
+  <p class="src">Read it on <a href="models.html?pv=us&amp;pvProd=stp">the Significant Tornado Parameter wall</a>, animated hour by hour. In the field: when a QLCS or supercell cluster moves along an STP axis, the embedded rotation threat is highest where the axis and the storm path intersect.</p>
+</div>
+
+<div class="card"><h2>⚡ EHI — Energy Helicity Index: <i>the early spin-and-fuel check</i></h2>
+  <div class="kpi"><span>Formula</span><b style="font-family:monospace;font-size:13px">MUCAPE × ESRH / 160,000</b></div>
+  <p>EHI is deliberately simple — just instability × spin. It ignores shear direction and cloud bases, which makes it fast and honest: when EHI climbs toward 1 while the shearing is still organizing, supercells are becoming possible even before SCP agrees. It is often the <b>first</b> of the three to light up as a warm front or dryline sets up.</p>
+  <div class="alert" style="border-left-color:#ffff00"><b>EHI ≥ 1</b><span>supercell-favorable — cross-check SCP and STP for the full picture</span></div>
+  <p class="src">Read it on <a href="models.html?pv=us&amp;pvProd=ehi">the EHI wall</a>. Hail hunters: pair it with <a href="models.html?pv=us&amp;pvProd=ship">the SHIP wall</a> — SHIP ≥ 1 marks significant-hail environments the same way.</p>
+</div>
+
+<div class="card"><h2>🧭 The chase-day drill — one workflow, five maps</h2>
+  <p><b>1. Frame the day.</b> Open the <a href="severe.html">Severe page</a> — the SPC outlook colors set expectations. ENH+ anywhere in your range means today is a driving day.</p>
+  <p><b>2. Check the ingredients.</b> On the <a href="models.html">collage</a>, load <a href="models.html?pv=us&amp;pvProd=mucape">MUCAPE</a> and <a href="models.html?pv=us&amp;pvProd=shear06">0–6 km shear</a> at the same hour: fuel ≥ ~2000 J/kg under ≥ ~30 kt shear is the raw supercell pairing.</p>
+  <p><b>3. Find the organization zone.</b> Switch to <a href="models.html?pv=us&amp;pvProd=scp">SCP</a> — the yellow-orange axis is your staging area. Play the wall loop to see when it matures.</p>
+  <p><b>4. Find the tornado end.</b> Switch to <a href="models.html?pv=us&amp;pvProd=stp">STP</a> — where it crosses 1 inside the SCP axis is your tornado corridor. Advance the hours: corridors migrate with the low-level jet.</p>
+  <p><b>5. Verify live.</b> Watch the <a href="radar.html">radar</a> and the <a href="meso.html">mesoanalysis</a> as storms fire — the meso composites show what the storm is <i>actually</i> ingesting. The Models page town-ranking card tells you which communities sit in the parameter air.</p>
+  <div class="alert"><b>When the models disagree</b><span>different models painting SCP differently = timing/setup uncertainty. The wall's outlier badge flags the odd one out; lean toward the majority and hold a bigger safety margin.</span></div>
+</div>
+
+<div class="card"><h2>📋 Cheat sheet</h2>
+  <table style="width:100%;border-collapse:collapse;font-size:13.5px">
+    <tr style="text-align:left;border-bottom:2px solid #444"><th style="padding:6px">Wall</th><th>≥ 1 means</th><th>≥ 2 / 4 means</th><th>Field question it answers</th></tr>
+    <tr style="border-bottom:1px solid #333"><td style="padding:6px"><b>SCP</b></td><td>supercells possible</td><td>≥ 4: significant supercells</td><td>Where do rotating storms organize?</td></tr>
+    <tr style="border-bottom:1px solid #333"><td style="padding:6px"><b>STP</b></td><td>tornado-favorable</td><td>≥ 2: significant tornado</td><td>Which end is tornadic?</td></tr>
+    <tr style="border-bottom:1px solid #333"><td style="padding:6px"><b>EHI</b></td><td>supercell-favorable</td><td>use with STP</td><td>Is spin-and-fuel stacking yet?</td></tr>
+    <tr><td style="padding:6px"><b>SHIP</b></td><td>significant hail possible</td><td>very large hail</td><td>How big might the stones get?</td></tr>
+  </table>
+  <p class="src">All four walls share the SPC palette above — value bands climb green → teal → yellow → orange → red → magenta exactly like an outlook.</p>
+</div>
+
+<div class="card"><h2>⚠️ Safety — the part that actually matters</h2>
+  <div class="alert" style="border-left-color:#ff0000"><b>The forecast gets you close. The radar, an escape route, and discipline keep you alive.</b>
+  <span>Never core-punch a hook or hail core — approach from the south/southeast, keep an escape route planned, and know the road network before convection fires.</span></div>
+  <div class="alert"><b>Chase with an out.</b><span>Always know where you would drive if the storm turns. Night chasing halves your options — treat nocturnal STP axes with extra respect.</span></div>
+  <div class="alert"><b>Warnings win.</b><span>Model walls are guidance, not guarantees — when the NWS issues a warning for your location, act on it first and argue with the models later.</span></div>
+  <p class="src">This guide is educational. It is not official forecasting guidance — the <a href="severe.html">Severe page's NWS/SPC products</a> and local warnings are the authoritative source.</p>
+</div>
+
+</div>
+<footer>
+  <div id="upd" style="color:#7d8794">checking data age…</div>
+  Data: National Weather Service · NOAA · RainViewer · SPC — all free, no keys.<br/>
+  Auto-updated every few minutes by the Tennessee Weather Network weather center ·
+  <a href="https://www.facebook.com/tennesseeweathernetwork" target="_blank">Facebook page</a> ·
+  <a id="fbShareFt" href="#" target="_blank" rel="noopener">📘 Post this page to Facebook</a> ·
+  <a href="fb_page.html" target="_blank">📱 Facebook post page (stand-alone)</a>
+</footer>
+<script>
+/* Facebook share: use the canonical public URL when served from it,
+   otherwise share the page's public home (localhost shares are useless) */
+(function () {
+  var pub = "https://rpleasant12.github.io/http-localhost-8765-/";
+  window.TNWN_PUBLIC_URL = pub; /* reusable share target (certificate, etc.) */
+  var here = location.origin + location.pathname;
+  var target = (location.hostname === "localhost" || location.hostname === "127.0.0.1") && pub ? pub : here;
+  var u = "https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(target);
+  ["fbShare", "fbShareFt"].forEach(function (id) {
+    var a = document.getElementById(id); if (a) a.href = u;
+  });
+})();
+</script>
+</body></html>
