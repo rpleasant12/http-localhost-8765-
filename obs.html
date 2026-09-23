@@ -353,7 +353,7 @@ setTimeout(function () {
 <div class="wrap">
 
 <header class="hero"><h1>🌡️ Observations & Skew-T</h1>
-<div class="sub">Live METARs for East Tennessee and the whole US · city board · RAP 13 km soundings at 8 locations · updated <span id="obsStamp">2026-09-23 12:21 AM ET</span></div></header>
+<div class="sub">Live METARs for East Tennessee and the whole US · city board · RAP 13 km soundings at 8 locations · updated <span id="obsStamp">2026-09-23 12:34 AM ET</span></div></header>
 
 <div class="card">
   <div id="map" class="map-dark"></div>
@@ -392,6 +392,7 @@ const CITY_COLS = [
   {key:"windMph", label:"Wind", num:true},
   {key:"gustMph", label:"Gust", num:true},
   {key:"rh", label:"Humidity", num:true},
+  {key:"ageMin", label:"Obs", num:true},
 ];
 let citySort = {k:"city", dir:1};
 function cityVal(c, k) {
@@ -399,6 +400,16 @@ function cityVal(c, k) {
   if (k === "windMph") return v == null ? Infinity : v;   /* calm -> bottom */
   return v == null ? (citySort.k === k ? (citySort.dir > 0 ? Infinity : -Infinity) : null) : v;
 }
+function ageHtml(c) {
+  /* '9 min ago' style stamp - the METAR clock every station runs on its
+     own cadence, shown so a fresh number never looks stuck */
+  if (c.ageMin == null) return c.time ? esc2(c.time) : "-";
+  const a = c.ageMin;
+  const txt = a < 1 ? "just now" : a < 60 ? `${a} min ago` : `${Math.round(a / 60)} h ago`;
+  const col = a <= 35 ? "#7cb47c" : a <= 75 ? "#d8b34a" : "#c46a6a";
+  return `<span style="color:${col}" title="observed ${esc2(c.time || "")} Eastern">${txt}</span>`;
+}
+function esc2(s) { return String(s == null ? "" : s).replace(/[&<>]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[ch])); }
 function trendHtml(c) {
   if (c.tempF == null || c.prevTempF == null) return "";
   const d = c.tempF - c.prevTempF;
@@ -428,6 +439,7 @@ function renderCityTable(dd) {
         + `<td>${cell(c.tempF, "°F")}${trendHtml(c)}</td><td>${cell(c.dewF, "°F")}</td>`
         + `<td>${c.windDir || "-"} ${cell(c.windMph)}</td><td>${cell(c.gustMph)}</td>`
         + `<td>${cell(c.rh, "%")}</td>`
+        + `<td>${ageHtml(c)}</td>`
         + `<td class="src">${esc(c.station || "")} · ${esc(c.desc || "")}</td></tr>`).join("")
       : `<tr><td colspan="7" class="src">Observations unavailable.</td></tr>`);
   tbl.querySelectorAll("th.srt").forEach(th => th.onclick = () => {
@@ -440,7 +452,9 @@ function tempFill(t) {
   return t == null ? "#777" : (t >= 85 ? "#ff9f43" : t >= 65 ? "#ffd54f" : t >= 45 ? "#aed581" : "#4da3ff");
 }
 function obsTip(s) {
-  return `<b>${s.id}</b>${s.name && s.name !== s.id ? " " + s.name : ""}<br/>${s.tempF == null ? "-" : s.tempF + "°F"} · dew ${s.dewF == null ? "-" : s.dewF + "°F"}<br/>${s.windDir || ""} ${s.windMph == null ? "" : s.windMph + " mph"} ${s.desc || ""} ${s.time || ""}`;
+  const age = s.ageMin == null ? (s.time || "")
+    : ` ${s.ageMin < 1 ? "(just now)" : `(${s.ageMin} min ago)`}`;
+  return `<b>${s.id}</b>${s.name && s.name !== s.id ? " " + s.name : ""}<br/>${s.tempF == null ? "-" : s.tempF + "°F"} · dew ${s.dewF == null ? "-" : s.dewF + "°F"}<br/>${s.windDir || ""} ${s.windMph == null ? "" : s.windMph + " mph"} ${s.desc || ""} ${s.time || ""}${age}`;
 }
 async function boot() {
   DATA = await (await fetch(dataUrl(), {cache: "no-store"})).json();
