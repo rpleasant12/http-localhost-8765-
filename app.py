@@ -153,6 +153,44 @@ def cached_nhc():
     return nhc_storms()
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def cached_tn_tropical_threats():
+    """Active tropical cyclones threatening Tennessee: [(name, kind)].
+
+    Shared logic (data.tropical_threat) with the public site + FB share
+    page so every surface warns identically. kind: 'watch' (a tropical
+    watch/warning polygon covers part of TN) or 'track' (forecast track
+    into/toward the state).
+    """
+    try:
+        from data.tropical_threat import collect_threats
+        ww = cached_us_warnings()
+        return collect_threats(cached_nhc() or [], ww or [])
+    except Exception:  # noqa: BLE001 - banner must never break the app
+        return []
+
+
+def render_tn_tropical_banner():
+    """Prominent banner when a tropical cyclone threatens Tennessee."""
+    threats = cached_tn_tropical_threats()
+    if not threats:
+        return
+    watch = [n for n, k in threats if k == "watch"]
+    track = [n for n, k in threats if k != "watch"]
+    if watch:
+        st.error(
+            "\U0001f6a8 **Tropical threat to Tennessee:** watch/warning area "
+            f"includes Tennessee ({', '.join(watch)}). "
+            "Monitor the Tropical tab and local alerts closely.",
+            icon="\U0001f32c\ufe0f")
+    if track:
+        st.warning(
+            "\U0001f300 **Tropical threat to Tennessee:** forecast track "
+            f"toward the state ({', '.join(track)}). "
+            "Follow the cone and updates on the Tropical tab.",
+            icon="\U0001f4a8")
+
+
 @st.cache_data(ttl=900, show_spinner=False)
 def cached_wpc_qpf(day):
     return wpc_qpf(day)
@@ -405,6 +443,7 @@ if st.session_state.pop("outside_us", False):
 
 st.title("\U0001f326\ufe0f Tennessee Weather Network")
 st.caption(f"{NAME} \u00b7 [Facebook page]({config.PAGE_URL})")
+render_tn_tropical_banner()
 
 
 # ---------------------------------------------------------------- helpers (before use)
@@ -1765,7 +1804,7 @@ with tabs[6]:
         st.caption("No station observations available right now.")
 
     # ---------------- East Tennessee city board: observations + forecast ----
-    st.subheader("East Tennessee cities - observations & forecast")
+    st.subheader("East TN / SW VA / W NC cities - observations & forecast")
     st.caption(
         "Latest NWS station report for each city (nearest METAR/AWOS/ASOS), "
         "plus the NWS point forecast for the next periods. Refreshes every 10 min."

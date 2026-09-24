@@ -74,6 +74,16 @@ def collect_weather():
     forecast = get_forecast(lat, lon) or []
     alerts = get_active_alerts(lat, lon) or []
 
+    # tropical cyclones threatening Tennessee - shared logic with the
+    # public site + Streamlit app so every surface warns identically
+    tn_threats = []
+    try:
+        from data.national import nhc_storms, us_warnings
+        from data.tropical_threat import collect_threats
+        tn_threats = collect_threats(nhc_storms() or [], us_warnings() or [])
+    except Exception:  # noqa: BLE001
+        tn_threats = []
+
     temp_c = (cur.get("temperature") or {}).get("value")
     dew_c = (cur.get("dewpoint") or {}).get("value")
     current = {
@@ -120,6 +130,7 @@ def collect_weather():
             "expires": (a.get("expires") or "")[:16].replace("T", " ") + "Z" if a.get("expires") else "",
         } for a in alerts],
         "spc": spc_day1_at_home(),
+        "tnThreats": tn_threats,
         "generated": dt.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"),
     }
 
@@ -331,6 +342,7 @@ def render_html(d):
               padding:12px 30px;border-radius:12px;text-decoration:none">📘 Share this page on Facebook</a>
   </header>
 
+  TN_TROP_BANNER
   <div class="card">
     <div class="now">
       <div class="big">CUR_TEMP</div>
@@ -646,6 +658,23 @@ def _fill(template, d):
     else:
         alert_block = '<div class="card"><h2>⚠️ Active alerts</h2><div class="alert ok">No active alerts for this area.</div></div>'
 
+    # Tennessee tropical threat banner (shared threat logic)
+    threats = d.get("tnThreats") or []
+    tw_watch = [n for n, k in threats if k == "watch"]
+    tw_track = [n for n, k in threats if k != "watch"]
+    if tw_watch:
+        trop_banner = (
+            '<div class="alert" style="border-left:6px solid #b22228;background:#2a1214;font-size:16px">'
+            f'<b>🚨 Tropical threat to Tennessee: watch/warning area includes the state ({html.escape(", ".join(tw_watch))})</b>'
+            '<span>Monitor the NHC page and local alerts closely.</span></div>')
+    elif tw_track:
+        trop_banner = (
+            '<div class="alert" style="border-left:6px solid #e0a458;background:#241c10;font-size:16px">'
+            f'<b>🌀 Tropical threat to Tennessee: forecast track toward the state ({html.escape(", ".join(tw_track))})</b>'
+            '<span>Follow the cone and updates on the NHC page.</span></div>')
+    else:
+        trop_banner = ""
+
     days_block = "".join(
         f'<div class="day"><div class="dname">{html.escape(day["name"])}</div>'
         f'<div class="dicon">{day["icon"]}</div><div class="dhi">{day["hi"]}°F</div>'
@@ -668,6 +697,7 @@ def _fill(template, d):
         "OG_SITE": (getattr(config, "PUBLIC_SITE_URL", "") or "").rstrip("/"),
         "OG_STAMP": (d.get("generated") or "").replace("-", "").replace(":", "").replace(" ", ""),
         "OG_DESC": html.escape(og_desc, quote=True),
+        "TN_TROP_BANNER": trop_banner,
         "PLACE": html.escape(d["place"]),
         "GEN_TIME": d["generated"],
         "CUR_TEMP": cur_temp,

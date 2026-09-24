@@ -1468,55 +1468,9 @@ def _storm_graphic_url(advisory_url):
 
 
 def _tn_threat(entry, ww):
-    """'watch' | 'track' | None for one storm vs Tennessee.
-
-    watch: a tropical cyclone watch/warning polygon from the NWS feed
-           overlaps the Tennessee bounding box.
-    track: any official NHC forecast position falls inside TN, or the
-           storm is heading toward the state (first forecast point within
-           8 degrees and the continuation bearing toward TN within 40 deg).
-    """
-    w, s_, e, n = _TN_BBOX
-    # 1) tropical WW polygons overlapping the state
-    for a in ww:
-        ev = a.get("event") or ""
-        if not any(k in ev for k in ("Hurricane", "Tropical Storm", "Storm Surge")):
-            continue
-        rings = (a.get("geometry") or {}).get("coordinates") or []
-        ring = rings[0] if (a.get("geometry") or {}).get("type") == "Polygon" \
-            else (rings[0][0] if rings else [])
-        for lon, lat in ring or []:
-            if w <= lon <= e and s_ <= lat <= n:
-                return "watch"
-    # 2) forecast track points toward/into TN
-    slat, slon = entry.get("lat"), entry.get("lon")
-    pts = []
-    for p in entry.get("points") or []:
-        c = p.get("coordinates") if p else None
-        if c and len(c) >= 2:
-            pts.append((c[0], c[1]))          # (lon, lat)
-    if slat is None or not pts:
-        return None
-    flon, flat = pts[0]
-    if any(w <= lo <= e and s_ <= la <= n for lo, la in pts):
-        return "track"
-    import math as _m
-    # heading toward TN: first forecast point within 8 deg and the
-    # storm->point bearing continues toward the TN center within 40 deg
-    def _brg(la1, lo1, la2, lo2):
-        p1, p2 = _m.radians(la1), _m.radians(la2)
-        dl = _m.radians(lo2 - lo1)
-        x = _m.sin(dl) * _m.cos(p2)
-        y = _m.cos(p1) * _m.sin(p2) - _m.sin(p1) * _m.cos(p2) * _m.cos(dl)
-        return _m.degrees(_m.atan2(x, y)) % 360
-    tlat, tlon = _TN_CENTER
-    if _m.hypot(flat - tlat, flon - tlon) <= 8.0:
-        b1 = _brg(slat, slon, flat, flon)
-        b2 = _brg(flat, flon, tlat, tlon)
-        diff = abs(b1 - b2)
-        if min(diff, 360 - diff) <= 40:
-            return "track"
-    return None
+    """Shared TN-threat check (data.tropical_threat) - site delegate."""
+    from data.tropical_threat import tn_threat
+    return tn_threat(entry, ww)
 
 
 def _storm_share_page(out_dir, code, entry):
