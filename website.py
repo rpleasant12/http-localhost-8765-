@@ -863,6 +863,18 @@ def _storm_archive_list():
 def page_storms(d):
     """Storm history gallery: every archived advisory per storm."""
     arch = d.get("stormArchive") or []
+    # animation payload: storms with >= 2 advisories get a day-by-day
+    # player (frames ordered oldest -> newest so evolution reads forward)
+    anim_data = {}
+    for b in arch:
+        adv = b.get("advisories") or []
+        if len(adv) >= 2:
+            anim_data[b["id"]] = [
+                {"u": a["cone"], "t": str(a.get("lastUpdate") or ""),
+                 "k": a.get("intensity"), "p": a.get("pressure")}
+                for a in reversed(adv)]
+    _btn = ('style="background:#1d2432;color:#eee;border:1px solid var(--line);'
+            'border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px"')
     cards = ""
     for b in arch:
         cls_lbl = {"HU": "Hurricane", "MH": "Major Hurricane",
@@ -893,7 +905,26 @@ def page_storms(d):
             f'<div class="card"><h2>\U0001f32f {html.escape(b["name"])} '
             f'<span style="color:#7d8794;font-size:14px;font-weight:400">'
             f'{html.escape(cls_lbl)} \u00b7 {b["count"]} archived advisor'
-            f'{"y" if b["count"] == 1 else "ies"}</span></h2>'
+            f'{"y" if b["count"] == 1 else "ies"}</span></h2>')
+        sid = b["id"]
+        if sid in anim_data:
+            fr = anim_data[sid]
+            cards += (
+                f'<div style="margin:2px 0 12px">'
+                f'<img id="anim_{sid}" src="{fr[0]["u"]}" loading="lazy" '
+                f'alt="{html.escape(b["name"])} cone evolution" '
+                'style="max-width:360px;width:100%;border-radius:10px;'
+                'border:1px solid #333c46"/>'
+                '<div style="display:flex;gap:8px;align-items:center;'
+                'margin-top:6px;flex-wrap:wrap">'
+                f'<button {_btn} onclick="sAnim.prev(\'{sid}\')">\u23ee</button>'
+                f'<button {_btn} id="animplay_{sid}" '
+                f'onclick="sAnim.toggle(\'{sid}\')">\u25b6 Play</button>'
+                f'<button {_btn} onclick="sAnim.next(\'{sid}\')">\u23ed</button>'
+                f'<span id="animlab_{sid}" class="src"></span>'
+                f'<span class="src">advisory-by-advisory cone evolution</span>'
+                f'</div></div>')
+        cards += (
             f'<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(230px,1fr))">'
             f'{rows}</div></div>')
     if not cards:
@@ -903,7 +934,46 @@ def page_storms(d):
 <header class="hero"><h1>\U0001f4bc <span style="color:var(--acc)">Storm history</span></h1>
 <div class="sub">Every archived NHC advisory cone + summary card, newest first \u00b7 updated {html.escape(d["generated"])}</div></header>
 {cards}
-"""
+<script>
+window.STORM_FRAMES = {json.dumps(anim_data)};
+window.sAnim = {{
+  st: {{}}, timer: {{}},
+  show: function (sid, i) {{
+    const fr = STORM_FRAMES[sid]; if (!fr || !fr.length) return;
+    const s = this.st[sid] || (this.st[sid] = {{ i: 0 }});
+    s.i = ((i % fr.length) + fr.length) % fr.length;
+    const f = fr[s.i];
+    const img = document.getElementById("anim_" + sid);
+    if (img) img.src = f.u;
+    const lab = document.getElementById("animlab_" + sid);
+    if (lab) lab.textContent = (s.i + 1) + "/" + fr.length + " \u00b7 " + f.t
+      + " \u00b7 " + (f.k == null ? "?" : f.k) + " kt \u00b7 " + (f.p == null ? "?" : f.p) + " mb";
+  }},
+  stop: function (sid) {{
+    if (this.timer[sid]) {{ clearInterval(this.timer[sid]); this.timer[sid] = null; }}
+    const btn = document.getElementById("animplay_" + sid);
+    if (btn) btn.textContent = "\u25b6 Play";
+  }},
+  step: function (sid, dd) {{
+    this.stop(sid);
+    const s = this.st[sid];
+    this.show(sid, (s ? s.i : 0) + dd);
+  }},
+  next: function (sid) {{ this.step(sid, 1); }},
+  prev: function (sid) {{ this.step(sid, -1); }},
+  toggle: function (sid) {{
+    if (this.timer[sid]) {{ this.stop(sid); return; }}
+    const s = this.st[sid] || (this.st[sid] = {{ i: 0 }});
+    const btn = document.getElementById("animplay_" + sid);
+    if (btn) btn.textContent = "\u23f8 Pause";
+    this.timer[sid] = setInterval(() => {{
+      const fr = STORM_FRAMES[sid], st = this.st[sid];
+      this.show(sid, st.i + 1);
+    }}, 1100);
+  }}
+}};
+Object.keys(window.STORM_FRAMES).forEach(sid => sAnim.show(sid, 0));
+</script>"""
     return _page("Storms", "storms.html", body)
 
 
