@@ -902,10 +902,12 @@ def page_storms(d):
                 f'{a.get("intensity") or "?"} kt \u00b7 {a.get("pressure") or "?"} mb</div>'
                 f'</div>')
         cards += (
-            f'<div class="card"><h2>\U0001f32f {html.escape(b["name"])} '
+            f'<div class="card"><h2>\U0001f32f '
+            f'<a href="storm_{b["id"]}.html">{html.escape(b["name"])}</a> '
             f'<span style="color:#7d8794;font-size:14px;font-weight:400">'
             f'{html.escape(cls_lbl)} \u00b7 {b["count"]} archived advisor'
-            f'{"y" if b["count"] == 1 else "ies"}</span></h2>')
+            f'{"y" if b["count"] == 1 else "ies"} \u00b7 '
+            f'<a href="storm_{b["id"]}.html">detail \u2192</a></span></h2>')
         sid = b["id"]
         if sid in anim_data:
             fr = anim_data[sid]
@@ -9089,6 +9091,17 @@ def generate_site():
         d["models"] = _model_manifest()
         d["psu"] = _psu_manifest()
         d = _strip_dead_frames(d)
+        # per-storm detail pages (storm_<id>.html) + advisory share pages
+        extra_pages = {}
+        try:
+            import storm_detail
+            storm_detail.advisory_share_pages(d)
+            for _b in (d.get("stormArchive") or []):
+                _p = storm_detail.page_storm_detail(d, _b["id"])
+                if _p:
+                    extra_pages[f"storm_{_b['id']}.html"] = _p
+        except Exception:
+            pass
         pages = {
             "index.html": page_index(d),
             "radar.html": page_radar(d),
@@ -9119,6 +9132,7 @@ def generate_site():
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(d, f)
         os.replace(tmp, os.path.join(SITE_DIR, "data.json"))
+        pages.update(extra_pages)
         for name, content in pages.items():
             ptmp = os.path.join(SITE_DIR, name + ".tmp")
             with open(ptmp, "w", encoding="utf-8") as f:

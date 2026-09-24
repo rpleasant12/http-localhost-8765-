@@ -185,6 +185,20 @@ def package():
                 shutil.copy2(os.path.join(share_dir, fn),
                              os.path.join(staging, "share", fn))
 
+    # per-advisory share landing pages inside the storm archive tree
+    # (static/archive/<sid>/<stamp>.html) - not referenced by data.json,
+    # so they need an explicit bulk copy like the share/ dir above
+    arch_dir = os.path.join("static", "archive")
+    if os.path.isdir(arch_dir):
+        for root, _dirs, files in os.walk(arch_dir):
+            rel = os.path.relpath(root, "static")
+            for fn in sorted(files):
+                if fn.endswith(".html"):
+                    dst_dir = os.path.join(staging, rel)
+                    os.makedirs(dst_dir, exist_ok=True)
+                    shutil.copy2(os.path.join(root, fn),
+                                 os.path.join(dst_dir, fn))
+
     # copy every referenced graphic into docs/<dir>/
     n = 0
     for rel in sorted(copy_log):
