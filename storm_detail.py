@@ -46,6 +46,232 @@ def _spark_svg(points, w=560, h=130, color="#4da3ff"):
             f'stroke-width="2"/>{dots}{labels}{lo_l}{hi_l}</svg>')
 
 
+def season_summary_png(d, year=None):
+    """Year-in-review graphic (static/share/season_<year>.png).
+
+    One panel per archived storm in the season: an Atlantic/Caribbean map
+    (simple equirectangular projection, 15W-100W / 5N-45N) with the storm's
+    archived track colored by category and a peak-intensity dot, plus a
+    per-storm stat block. Rebuilt only when a track gains points; written
+    to a temp file then atomically swapped. Returns the static/ path or
+    None. Never raises.
+    """
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        year = year or _utc_year()
+        storms = []
+        for b in (d.get("stormArchive") or []):
+            pts = [(a.get("lon"), a.get("lat"), a.get("intensity"),
+                    a.get("class")) for a in (b.get("advisories") or [])]
+            pts = [(lo, la, k, c) for lo, la, k, c in pts
+                   if isinstance(lo, (int, float))
+                   and isinstance(la, (int, float))]
+            if len(pts) >= 2:
+                peak = max((k for _lo, _la, k, _c in pts
+                            if isinstance(k, (int, float))), default=0)
+                storms.append({"b": b, "pts": pts, "peak": peak})
+        if not storms:
+            return None
+        out = os.path.join("static", "share", f"season_{year}.png")
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        npts = sum(len(s["pts"]) for s in storms)
+        try:
+            if os.path.exists(out + ".n") and \
+                    open(out + ".n").read().strip() == str(npts) \
+                    and os.path.exists(out) and \
+                    os.path.exists(out.replace(".png", ".html")):
+                return out.replace("\\", "/")
+        except OSError:
+            pass
+
+        W, H = 1200, 700
+        img = Image.new("RGB", (W, H), (16, 19, 24))
+        d2 = ImageDraw.Draw(img)
+
+        def _font(sz, bold=False):
+            for p in ("C:/Windows/Fonts/segoeuib.ttf" if bold else
+                      "C:/Windows/Fonts/segoeui.ttf",
+                      "C:/Windows/Fonts/arialbd.ttf" if bold else
+                      "C:/Windows/Fonts/arial.ttf"):
+                try:
+                    return ImageFont.truetype(p, sz)
+                except OSError:
+                    continue
+            return ImageFont.load_default()
+
+        # map panel (equirectangular, auto-fit to the season's storm points
+        # so Atlantic AND East Pacific storms both land on the map)
+        MX, MY, MW, MH = 30, 90, 620, 560
+        all_pts = [(lo, la) for s in storms for lo, la, _k, _c in s["pts"]]
+        lo_min = min(lo for lo, _la in all_pts) - 6
+        lo_max = max(lo for lo, _la in all_pts) + 6
+        la_min = min(la for _lo, la in all_pts) - 5
+        la_max = max(la for _lo, la in all_pts) + 5
+        lo_min, lo_max = max(lo_min, -140.0), min(lo_max, -10.0)
+        la_min, la_max = max(la_min, 0.0), min(la_max, 52.0)
+        LO0, LO1, LA0, LA1 = lo_min, lo_max, la_min, la_max
+
+        def _xy(lo, la):
+            x = MX + (lo - LO0) / (LO1 - LO0) * MW
+            y = MY + MH - (la - LA0) / (LA1 - LA0) * MH
+            return x, y
+
+        d2.rectangle((MX, MY, MX + MW, MY + MH), fill=(20, 30, 42))
+        for glo in range(int(LO0), int(LO1) + 1, 10):
+            x, _y = _xy(glo, LA0)
+            d2.line((x, MY, x, MY + MH), fill=(38, 48, 62), width=1)
+        for gla in range(int(LA0), int(LA1) + 1, 10):
+            _x, y = _xy(LO0, gla)
+            d2.line((MX, y, MX + MW, y), fill=(38, 48, 62), width=1)
+        # very coarse coastline polylines covering the Atlantic + East
+        # Pacific basins the archive can span (hand-simplified)
+        _coast(MX, MY, MW, MH, LO0, LO1, LA0, LA1, _xy, d2)
+
+        def _kt(v):
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return None
+
+        CAT = {"TD": (140, 170, 220), "SD": (140, 170, 220),
+               "TS": (90, 200, 140), "SS": (90, 200, 140),
+               "HU": (255, 190, 80), "MH": (255, 90, 90),
+               "PTC": (150, 150, 160)}
+        for s in storms:
+            # numeric kt per point (NHC stores strings) - drives the peak dot
+            pts_k = [(lo, la, _kt(k), c) for lo, la, k, c in s["pts"]]
+            s["kt"] = [k for _lo, _la, k, _c in pts_k]
+            col = CAT.get(s["b"].get("class") or "", (220, 220, 230))
+            xy = [_xy(lo, la) for lo, la, _k, _c in pts_k]
+            d2.line(xy, fill=col, width=4)
+            # small dots along the track + big peak-intensity dot
+            for lo, la, k, _c in pts_k:
+                x, y = _xy(lo, la)
+                d2.ellipse((x - 2.5, y - 2.5, x + 2.5, y + 2.5), fill=col)
+            pk = max(pts_k, key=lambda t: t[2] or 0)
+            x, y = _xy(pk[0], pk[1])
+            _pkv = pk[2] or 0
+            r = 7 + min(10, int(_pkv) // 15)
+
+        # legend + stat block
+        x = MX + MW + 50
+        y = MY - 20
+        d2.text((x, 34), "TENNESSEE WEATHER NETWORK", font=_font(22, True),
+                fill=(255, 170, 60))
+        d2.text((x, y), f"{year} Atlantic season", font=_font(32, True),
+                fill=(240, 244, 250))
+        y += 56
+        d2.text((x, y), f"{len(storms)} archived storm"
+                f"{'s' if len(storms) != 1 else ''}",
+                font=_font(20), fill=(160, 170, 182))
+        y += 42
+        CLS = {"TD": "Tropical Depression", "SD": "Subtropical Dep.",
+               "TS": "Tropical Storm", "SS": "Subtropical Storm",
+               "HU": "Hurricane", "MH": "Major Hurricane",
+               "PTC": "Post-tropical"}
+        for s in sorted(storms, key=lambda s: -(max(s["kt"]) if s["kt"] else 0)):
+            b = s["b"]
+            col = CAT.get(b.get("class") or "", (220, 220, 230))
+            d2.ellipse((x, y + 4, x + 14, y + 18), fill=col)
+            peak_kt = max(s["kt"]) if s["kt"] else None
+            d2.text((x + 24, y), f"{b.get('name') or '?'}", font=_font(20, True),
+                    fill=(225, 232, 240))
+            d2.text((x + 24, y + 26),
+                    f"{CLS.get(b.get('class') or '', '')} \u00b7 peak "
+                    f"{int(peak_kt) if peak_kt else '?'} kt "
+                    f"\u00b7 {b.get('count') or '?'} advisories",
+                    font=_font(15), fill=(150, 160, 172))
+            y += 66
+        y = max(y, MY + MH - 40)
+        d2.text((24, H - 34),
+                f"Tracks from archived NHC advisory positions \u00b7 "
+                f"facebook.com/tennesseeweathernetwork",
+                font=_font(15), fill=(122, 132, 144))
+        d2.rectangle((0, 0, W, 6), fill=(255, 170, 60))
+        tmp = out + ".tmp"
+        img.save(tmp, "PNG", optimize=True)
+        os.replace(tmp, out)
+        with open(out + ".n", "w") as fh:
+            fh.write(str(npts))
+        # public OG landing page for the season graphic (one-click FB share)
+        try:
+            pub = config.PUBLIC_SITE_URL.rstrip("/")
+            page_url = f"{pub}/share/season_{year}.html"
+            img_url = f"{pub}/share/season_{year}.png"
+            title = f"{year} hurricane season in review"
+            desc = (f"{len(storms)} archived storms - tracks and peak "
+                    "intensity from official NHC advisories. "
+                    "Tennessee Weather Network storm archive.")
+            sharer = ("https://www.facebook.com/sharer/sharer.php?u="
+                      + urllib.parse.quote(page_url, safe=""))
+            page = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta property="og:type" content="article">
+<meta property="og:title" content="{html.escape(title)}">
+<meta property="og:description" content="{html.escape(desc)}">
+<meta property="og:image" content="{img_url}">
+<meta property="og:url" content="{page_url}">
+<title>{html.escape(title)}</title>
+<style>body{{margin:0;background:#12151a;color:#e8eef5;font:16px/1.5 system-ui,sans-serif;text-align:center}}
+img{{max-width:min(94vw,1100px);border-radius:12px;margin:18px auto 6px;display:block}}
+a.btn{{display:inline-block;margin:14px 6px 30px;padding:13px 26px;border-radius:10px;
+background:#1877f2;color:#fff;font-weight:700;text-decoration:none;font-size:18px}}
+a.alt{{background:#2a313b;color:#cdd7e4;font-weight:500;font-size:15px}}
+</style></head><body>
+<img src="{img_url}" alt="{html.escape(title)}">
+<a class="btn" href="{sharer}" target="_blank" rel="noopener">Share on Facebook</a>
+<a class="btn alt" href="{img_url}" target="_blank" rel="noopener">Open full image</a>
+</body></html>"""
+            pg = out.replace(".png", ".html")
+            if (not os.path.exists(pg)
+                    or open(pg, encoding="utf-8").read() != page):
+                ptmp = pg + ".tmp"
+                with open(ptmp, "w", encoding="utf-8") as fh:
+                    fh.write(page)
+                os.replace(ptmp, pg)
+        except OSError:
+            pass
+        return out.replace("\\", "/")
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _utc_year():
+    import datetime as _dt
+    return _dt.datetime.now(_dt.timezone.utc).year
+
+
+def _coast(mx, my, mw, mh, lo0, lo1, la0, la1, xy, dr):
+    """Very coarse North-America/Caribbean coastline polylines so the map
+    reads as the Atlantic basin (hand-simplified, good enough at this size)."""
+    COASTS = [
+        # US East Coast + Gulf (west -> east)
+        [(-97, 26), (-95, 29), (-90, 29), (-84, 30), (-82, 25), (-80, 25),
+         (-81, 31), (-76, 35), (-74, 40), (-70, 42), (-67, 45)],
+        # Central America -> Yucatan
+        [(-100, 20), (-94, 16), (-88, 16), (-87, 21), (-90, 22), (-94, 18)],
+        # Greater Antilles
+        [(-85, 22), (-80, 23), (-77, 20), (-74, 20), (-71, 19)],
+        # Lesser Antilles arc
+        [(-61, 10), (-61, 15), (-63, 17), (-66, 18)],
+        # South America north coast
+        [(-72, 12), (-66, 10), (-61, 9), (-55, 6), (-50, 0)],
+        # Bahamas
+        [(-78, 27), (-75, 26), (-73, 24)],
+        # Mexico west coast + Central America (East Pacific storms)
+        [(-110, 24), (-112, 22), (-115, 20), (-110, 16), (-105, 12),
+         (-100, 8), (-96, 6)],
+        [(-97, 16), (-94, 12), (-92, 8)],
+        # Hawaii reference (far west edge)
+        [(-156, 20), (-155, 19)],
+    ]
+    for line in COASTS:
+        pts = [xy(lo, la) for lo, la in line
+               if lo0 <= lo <= lo1 and la0 <= la <= la1]
+        if len(pts) >= 2:
+            dr.line(pts, fill=(120, 132, 148), width=2)
+
+
 def advisory_share_pages(d):
     """Write public OG landing pages for every archived advisory.
 

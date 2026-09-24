@@ -932,9 +932,25 @@ def page_storms(d):
     if not cards:
         cards = ('<div class="card"><span class="src">No archived advisories '
                  'yet - storms appear here automatically as NHC issues them.</span></div>')
+    _ss = d.get("seasonSummary")
+    ss_html = ""
+    if _ss:
+        ss_png = _ss.replace("static/", "", 1)
+        ss_html = (
+            f'<div class="card"><h2>\U0001f5d3\ufe0f Season in review</h2>'
+            f'<a href="{_ss}" target="_blank" rel="noopener">'
+            f'<img src="{ss_png}" loading="lazy" alt="Season summary" '
+            'style="max-width:720px;width:100%;border-radius:10px;'
+            'border:1px solid #333c46"/></a>'
+            f'<div style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap">'
+            f'<a href="{_ss}" target="_blank" rel="noopener" '
+            'style="color:#1877f2;font-weight:600">\U0001f4e3 Share the season graphic</a>'
+            f'<span class="src">Tracks + peak intensity for every archived storm \u00b7 '
+            f'rebuilt as advisories land</span></div></div>')
     body = f"""
 <header class="hero"><h1>\U0001f4bc <span style="color:var(--acc)">Storm history</span></h1>
 <div class="sub">Every archived NHC advisory cone + summary card, newest first \u00b7 updated {html.escape(d["generated"])}</div></header>
+{ss_html}
 {cards}
 <script>
 window.STORM_FRAMES = {json.dumps(anim_data)};
@@ -3209,6 +3225,8 @@ def _archive_bundle(sid, name, cls):
             "intensity": meta.get("intensity"),
             "pressure": meta.get("pressure"),
             "tnThreat": meta.get("tnThreat"),
+            "lat": meta.get("lat"), "lon": meta.get("lon"),
+            "class": meta.get("classification"),
             "cone": "static/archive/" + sid + f"/{st}_cone.png",
             "summary": ("static/archive/" + sid + f"/{st}_summary.png"
                         if "summary.png" in parts else None),
@@ -9096,6 +9114,9 @@ def generate_site():
         try:
             import storm_detail
             storm_detail.advisory_share_pages(d)
+            _ss = storm_detail.season_summary_png(d)
+            if _ss:
+                d["seasonSummary"] = _ss
             for _b in (d.get("stormArchive") or []):
                 _p = storm_detail.page_storm_detail(d, _b["id"])
                 if _p:
