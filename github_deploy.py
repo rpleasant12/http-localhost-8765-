@@ -27,7 +27,9 @@ DOCS_DIR = "docs"
 
 # asset dirs the pages may reference; anything found is copied wholesale
 ASSET_DIRS = ["model_maps", "hrrr", "nam", "mrms", "nws", "goes",
-              "star", "psu_hrrr", "satellite", "meso"]
+              "star", "psu_hrrr", "satellite", "meso", "nowcast", "aimodels",
+              "sevmaps", "winter", "wbgt", "tropics", "climate", "fire",
+              "space", "hail_ed"]
 COPY_EXT = (".png", ".gif", ".jpg", ".jpeg", ".webp")
 
 # ../hrrr/x.png  ../../hrrr/x.png  /app/static/hrrr/x.png  static/hrrr/x.png
@@ -62,14 +64,52 @@ def rewrite(text, copy_log):
     return _REF.sub(sub, text)
 
 
+_FRAME_KEYS = ("pngUrl", "url")
+_IMG_EXTS = (".png", ".gif", ".jpg", ".jpeg")
+
+
+def _frame_file(ref):
+    """static/-relative path for a payload frame ref, mirroring rewrite()."""
+    rel = ref.replace("\\", "/")
+    for pfx in ("/app/static/", "../", "static/"):
+        if rel.startswith(pfx):
+            rel = rel[len(pfx):]
+            break
+    else:
+        # bare dir/file.ext (post-rewrite form): resolve under static/ too,
+        # otherwise a pre-rewritten list is treated as all-missing
+        if "/" in rel and rel.lower().endswith(_IMG_EXTS):
+            return os.path.join("static", rel)
+        return None                     # bare filename: no static anchor
+    return os.path.join("static", rel)
+
+
 def _walk_json(o, copy_log):
     if isinstance(o, dict):
         return {k: _walk_json(v, copy_log) for k, v in o.items()}
     if isinstance(o, list):
-        out = [_walk_json(v, copy_log) for v in o]
-        # drop animation frames whose graphic no longer exists (pruned cache)
-        if out and all(isinstance(v, dict) and "pngUrl" in v for v in out):
-            out = [v for v in out if not re.search(r"(?:\.\./|/app/static/)", v["pngUrl"])]
+        # Existence-check frame dicts BEFORE their refs get rewritten below:
+        # rewrite() turns /app/static/goes/x.png into bare goes/x.png, which
+        # _frame_file could not resolve - every uniform frame list failed the
+        # check and was silently emptied (satellite page shipped 0 frames on
+        # ALL bands even with every PNG on disk, 2026-09-17).
+        pre = o
+        if pre and all(isinstance(v, dict) for v in pre):
+            refs = []
+            uniform = True
+            for v in pre:
+                ref = next((v[k] for k in _FRAME_KEYS
+                            if isinstance(v.get(k), str)
+                            and not v[k].startswith("http")
+                            and v[k].lower().endswith(_IMG_EXTS)), None)
+                if ref is None:
+                    uniform = False
+                    break
+                refs.append(ref)
+            if uniform and all(refs):
+                pre = [v for v, ref in zip(pre, refs)
+                       if os.path.isfile(_frame_file(ref) or "")]
+        out = [_walk_json(v, copy_log) for v in pre]
         return out
     if isinstance(o, str) and ("../" in o or "/app/static/" in o or "static/" in o):
         return rewrite(o, copy_log)
@@ -77,14 +117,34 @@ def _walk_json(o, copy_log):
 
 
 def package():
-    """Build docs/ from the current static/site build. Returns count."""
+    """Build docs/ from the current static/site build. Returns count.
+
+    Rebuilds into a staging dir and swaps atomically: the old code rmtree'd
+    the LIVE docs/ tree in place, so any failure mid-delete (an AV scan, a
+    file created concurrently - a marker file 2026-09-21) left the whole
+    public tree 404 until the next cycle. The swap can only fail at the
+    rename, and that path falls back to a merge-copy so docs/ is never
+    left empty.
+    """
     if not os.path.isfile(os.path.join(SITE_DIR, "index.html")):
         print(f"No site build found in {SITE_DIR} - run the app or "
               f"'python website.py' first."); return 0
-    if os.path.isdir(DOCS_DIR):
-        shutil.rmtree(DOCS_DIR)
-    os.makedirs(DOCS_DIR, exist_ok=True)
-    with open(os.path.join(DOCS_DIR, ".nojekyll"), "w") as f:
+    staging = DOCS_DIR + ".new"
+    shutil.rmtree(staging, ignore_errors=True)
+    os.makedirs(staging, exist_ok=True)
+
+    # paused truth-marker: when STOP is active, ship PAUSED.json so served
+    # pages can announce the freeze instead of looking merely stale.
+    if os.path.isfile(os.path.join(".freebuff", "PAUSED")):
+        try:
+            json.dump({"paused": True,
+                       "since": open(os.path.join(".freebuff", "PAUSED"),
+                                     encoding="utf-8").read().strip()},
+                      open(os.path.join(staging, "PAUSED.json"), "w"))
+        except OSError:
+            pass
+
+    with open(os.path.join(staging, ".nojekyll"), "w") as f:
         f.write("")
 
     copy_log = set()
@@ -94,26 +154,36 @@ def package():
             continue
         text = open(os.path.join(SITE_DIR, name), encoding="utf-8").read()
         out = rewrite(text, copy_log)
-        with open(os.path.join(DOCS_DIR, name), "w", encoding="utf-8") as f:
+        with open(os.path.join(staging, name), "w", encoding="utf-8") as f:
             f.write(out)
 
     # data.json: rewrite string values structurally
     data = json.load(open(os.path.join(SITE_DIR, "data.json"), encoding="utf-8"))
     data = _walk_json(data, copy_log)
-    with open(os.path.join(DOCS_DIR, "data.json"), "w", encoding="utf-8") as f:
+    with open(os.path.join(staging, "data.json"), "w", encoding="utf-8") as f:
         json.dump(data, f)
 
     # the stand-alone Facebook post page lives outside static/site
     fb_src = os.path.join("static", "fb_page.html")
     if os.path.isfile(fb_src):
         out = rewrite(open(fb_src, encoding="utf-8").read(), copy_log)
-        with open(os.path.join(DOCS_DIR, "fb_page.html"), "w", encoding="utf-8") as f:
+        with open(os.path.join(staging, "fb_page.html"), "w", encoding="utf-8") as f:
             f.write(out)
 
     # branded share card (og:image), absolute URL on the page so copy it explicitly
     og_src = os.path.join("static", "fb_og.png")
     if os.path.isfile(og_src):
-        shutil.copy2(og_src, os.path.join(DOCS_DIR, "og.png"))
+        shutil.copy2(og_src, os.path.join(staging, "og.png"))
+
+    # per-storm share landing pages (one-click Facebook sharer targets);
+    # the storm PNGs themselves arrive via data.json references
+    share_dir = os.path.join("static", "share")
+    if os.path.isdir(share_dir):
+        os.makedirs(os.path.join(staging, "share"), exist_ok=True)
+        for fn in sorted(os.listdir(share_dir)):
+            if fn.endswith(".html"):
+                shutil.copy2(os.path.join(share_dir, fn),
+                             os.path.join(staging, "share", fn))
 
     # copy every referenced graphic into docs/<dir>/
     n = 0
@@ -121,10 +191,19 @@ def package():
         src = os.path.join("static", rel)
         if not os.path.isfile(src):
             continue  # source vanished between generation and packaging
-        dst = os.path.join(DOCS_DIR, _safe_name(rel))
+        dst = os.path.join(staging, _safe_name(rel))
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         try:
-            shutil.copy2(src, dst)
+            # HARDLINK not copy: docs/ is a throwaway staging view of static/
+            # on the same volume - a link costs zero extra disk (a full copy
+            # duplicated ~500 MB every build). os.replace-into / rmtree of
+            # docs/ between builds never deletes the static/ original.
+            if os.path.exists(dst):
+                os.remove(dst)
+            try:
+                os.link(src, dst)
+            except OSError:
+                shutil.copy2(src, dst)   # cross-volume / FS without hardlinks
         except OSError:
             continue  # writer replaced/locked the file mid-copy
         n += 1
@@ -139,11 +218,43 @@ def package():
                     continue   # .gif = native SPC sectors, .png = East TN zoom crops
                 src = os.path.join(dirpath, fn)
                 rel = os.path.relpath(src, "static")
-                dst = os.path.join(DOCS_DIR, _safe_name(rel))
+                dst = os.path.join(staging, _safe_name(rel))
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 if not os.path.exists(dst):
-                    shutil.copy2(src, dst)
+                    try:
+                        os.link(src, dst)
+                    except OSError:
+                        shutil.copy2(src, dst)
                     n += 1
+
+    # Atomic-ish swap: the staging tree is complete, so the live site only
+    # changes hands at one rename. If anything holds a handle on docs/ and
+    # the rename fails, merge-copy staging into the existing tree instead -
+    # docs/ is never left empty either way.
+    old = DOCS_DIR + ".old"
+    shutil.rmtree(old, ignore_errors=True)
+    swapped = False
+    if os.path.isdir(DOCS_DIR):
+        try:
+            os.rename(DOCS_DIR, old)
+            try:
+                os.rename(staging, DOCS_DIR)
+                swapped = True
+            except OSError:
+                os.rename(old, DOCS_DIR)   # live tree back in place
+        except OSError:
+            pass
+    else:
+        try:
+            os.rename(staging, DOCS_DIR)
+            swapped = True
+        except OSError:
+            pass
+    if swapped:
+        shutil.rmtree(old, ignore_errors=True)
+    else:
+        shutil.copytree(staging, DOCS_DIR, dirs_exist_ok=True)
+        shutil.rmtree(staging, ignore_errors=True)
     return n
 
 

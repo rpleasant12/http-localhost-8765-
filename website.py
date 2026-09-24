@@ -28,6 +28,7 @@ import hashlib
 import html
 import json
 import os
+import urllib.parse
 import re
 import threading
 import time
@@ -496,7 +497,23 @@ def collect_data():
             # official graphic + TN threat + Facebook share image
             entry["graphicUrl"] = _storm_graphic_url(entry.get("advisoryUrl"))
             entry["tnThreat"] = _tn_threat(entry, ww)
-            entry["sharePng"] = _storm_share_png(entry, entry["graphicUrl"])
+            png = _storm_share_png(entry, entry["graphicUrl"])
+            if not png and entry.get("advisoryUrl"):
+                # NHC throttles the graphics pages sometimes - fall back to
+                # the last good PNG on disk so the share link stays alive
+                code = (_basin_code(entry.get("advisoryUrl")) or "").upper()
+                stale = (os.path.join("static", "share", f"storm_{code}.png")
+                         if code else None)
+                if code and os.path.exists(stale):
+                    png = stale.replace("\\", "/")
+                    _storm_share_page(os.path.join("static", "share"),
+                                      code, entry)
+            entry["sharePng"] = png
+            entry["sharePage"] = ((entry["sharePng"] or "").replace(
+                ".png", ".html") if entry["sharePng"] else None)
+            entry["shareUrl"] = (config.PUBLIC_SITE_URL.rstrip("/")
+                                 + "/" + entry["sharePage"].replace("static/", "", 1)
+                                 if entry["sharePage"] else None)
             storms.append(entry)
     except Exception:  # noqa: BLE001
         raw_storms = []
@@ -1502,6 +1519,65 @@ def _tn_threat(entry, ww):
     return None
 
 
+def _storm_share_page(out_dir, code, entry):
+    """One-click Facebook share landing page for a storm (share/<code>.html).
+
+    Facebook's sharer only renders a preview for a real page with OG tags -
+    a raw PNG link shares as a bare URL. This page carries the storm image
+    as og:image plus a big "Share on Facebook" button, so posting the
+    summary to the TNWN page is one click. Rewritten only when content
+    changes (keeps publish diffs clean). Never raises.
+    """
+    try:
+        pub = config.PUBLIC_SITE_URL.rstrip("/")
+        page_url = f"{pub}/share/storm_{code}.html"
+        img_url = f"{pub}/share/storm_{code}.png"
+        name = (entry.get("name") or "Storm").upper()
+        cls = entry.get("classification") or ""
+        cls_lbl = {"HU": "Hurricane", "MH": "Major Hurricane",
+                   "TS": "Tropical Storm", "TD": "Tropical Depression",
+                   "SS": "Subtropical Storm", "SD": "Subtropical Depression",
+                   "PTC": "Post-tropical"}.get(cls, cls or "Cyclone")
+        kt = entry.get("intensity")
+        kt = int(float(kt)) if kt else 0
+        threat = entry.get("tnThreat")
+        title = f"{cls_lbl} {name} - Tennessee Weather Network"
+        desc = (f"{kt} kt winds, pressure {entry.get('pressure') or '?'} mb, "
+                f"{entry.get('movement') or 'movement n/a'}. "
+                "Official NHC cone + forecast track.")
+        if threat == "watch":
+            desc += " Watch/warning area includes Tennessee."
+        elif threat == "track":
+            desc += " Forecast track toward Tennessee."
+        sharer = ("https://www.facebook.com/sharer/sharer.php?u="
+                  + urllib.parse.quote(page_url, safe=""))
+        doc = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta property="og:type" content="article">
+<meta property="og:title" content="{html.escape(title)}">
+<meta property="og:description" content="{html.escape(desc)}">
+<meta property="og:image" content="{img_url}">
+<meta property="og:url" content="{page_url}">
+<title>{html.escape(title)}</title>
+<style>body{{margin:0;background:#12151a;color:#e8eef5;font:16px/1.5 system-ui,sans-serif;text-align:center}}
+img{{max-width:min(94vw,900px);border-radius:12px;margin:18px auto 6px;display:block}}
+a.btn{{display:inline-block;margin:14px 6px 30px;padding:13px 26px;border-radius:10px;
+background:#1877f2;color:#fff;font-weight:700;text-decoration:none;font-size:18px}}
+a.alt{{background:#2a313b;color:#cdd7e4;font-weight:500;font-size:15px}}
+.src{{color:#7d8794;font-size:13px;margin:8px 0 40px}}</style></head><body>
+<img src="{img_url}" alt="{html.escape(title)}">
+<a class="btn" href="{sharer}" target="_blank" rel="noopener">Share on Facebook</a>
+<a class="btn alt" href="{img_url}" target="_blank" rel="noopener">Open full image</a>
+<div class="src">{html.escape(entry.get('lastUpdate') or '')} \u00b7 <a href=\"https://www.facebook.com/tennesseeweathernetwork\" style=\"color:#7d8794\">Tennessee Weather Network</a>
+</div></body></html>"""
+        dst = os.path.join(out_dir, f"storm_{code}.html")
+        if not os.path.exists(dst) or open(dst, encoding="utf-8").read() != doc:
+            with open(dst, "w", encoding="utf-8") as fh:
+                fh.write(doc)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _storm_share_png(entry, graphic_url):
     """Branded storm-summary graphic (static/share/storm_<code>.png).
 
@@ -1524,6 +1600,7 @@ def _storm_share_png(entry, graphic_url):
         fresh = os.path.exists(stamp_file) and \
             open(stamp_file, encoding="utf-8").read().strip() == graphic_url
         if fresh and os.path.exists(out):
+            _storm_share_page(out_dir, code, entry)
             return out.replace("\\", "/")
         r = _rq.get(graphic_url, headers={"User-Agent": "Mozilla/5.0 tnwx/1.0"},
                     timeout=30)
@@ -1595,6 +1672,7 @@ def _storm_share_png(entry, graphic_url):
         canvas.save(out, "PNG", optimize=True)
         with open(stamp_file, "w", encoding="utf-8") as fh:
             fh.write(graphic_url)
+        _storm_share_page(out_dir, code, entry)
         return out.replace("\\", "/")
     except Exception:  # noqa: BLE001
         return os.path.exists(out) and out.replace("\\", "/") or None
@@ -2769,7 +2847,7 @@ function tpopup(s) {
                 : "<br/><span class=src>No coastal watches/warnings in effect</span>")
     + (s.lastUpdate ? "<br/><span class=src>Advisory " + s.lastUpdate + "</span>" : "")
     + (s.graphicUrl ? "<br/><a href=\"" + s.graphicUrl + "\" target=\"_blank\" rel=\"noopener\">Official NHC graphic \u2197</a>" : "")
-    + (s.sharePng ? "<br/><a href=\"" + s.sharePng + "\" target=\"_blank\" rel=\"noopener\" title=\"Open the shareable summary graphic\"><img src=\"" + s.sharePng + "\" alt=\"storm summary\" style=\"width:100%;max-width:270px;border-radius:8px;margin-top:6px\"/></a>" : "");
+    + (s.sharePage ? "<br/><a href=\"" + s.sharePage + "\" target=\"_blank\" rel=\"noopener\" title=\"Open the shareable summary graphic\"><img src=\"" + s.sharePng + "\" alt=\"storm summary\" style=\"width:100%;max-width:270px;border-radius:8px;margin-top:6px\"/></a>" : "");
 }
 function buildTropMap() {
   if (tmap) { tmap.remove(); tmap = null; }
@@ -2797,13 +2875,16 @@ function tropRender(d2) {
     + '<div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:10px">'
     + list.filter(s => s.graphicUrl).map(s => {
         const img = s.sharePng || s.graphicUrl;
+        const pg = s.sharePage || s.sharePng || s.graphicUrl;
+        const fb = "https://www.facebook.com/sharer/sharer.php?u="
+          + (s.shareUrl ? encodeURIComponent(s.shareUrl) : encodeURIComponent(location.origin + location.pathname));
         return '<span style="display:inline-flex;align-items:center;gap:6px">'
-          + '<a href="' + img + '" target="_blank" rel="noopener" title="Open shareable graphic">'
+          + '<a href="' + pg + '" target="_blank" rel="noopener" title="Open shareable graphic">'
           + '<img src="' + img + '" alt="" loading="lazy" '
           + 'style="width:76px;height:48px;object-fit:cover;border-radius:6px;border:1px solid #333c46"></a>'
           + '<span style="display:inline-flex;flex-direction:column;gap:2px">'
           + '<a href="tropical.html">' + (s.name || "?") + ' cone \u2197</a>'
-          + '<a href="' + img + '" target="_blank" rel="noopener">FB graphic \u2197</a>'
+          + '<a href="' + fb + '" target="_blank" rel="noopener" style="color:#1877f2;font-weight:600">\ud83d\udce3 Share to FB</a>'
           + '</span></span>';
       }).join("")
     + '</div>';
