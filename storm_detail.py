@@ -74,7 +74,7 @@ def season_summary_png(d, year=None):
             return None
         out = os.path.join("static", "share", f"season_{year}.png")
         os.makedirs(os.path.dirname(out), exist_ok=True)
-        npts = sum(len(s["pts"]) for s in storms)
+        npts = sum(len(s["pts"]) for s in storms) * 100 + 2   # +fmt version
         try:
             if os.path.exists(out + ".n") and \
                     open(out + ".n").read().strip() == str(npts) \
@@ -152,6 +152,34 @@ def season_summary_png(d, year=None):
             x, y = _xy(pk[0], pk[1])
             _pkv = pk[2] or 0
             r = 7 + min(10, int(_pkv) // 15)
+            d2.ellipse((x - r, y - r, x + r, y + r),
+                       outline=(255, 255, 255), width=2, fill=col)
+
+        # name labels at each track's end (last advisory position), placed
+        # to the right of the point and nudged to avoid collisions with
+        # labels/points already drawn - so the graphic reads standalone
+        lab_f = _font(19, True)
+        placed = []
+        for s in storms:
+            end = s["pts"][-1]
+            lx, ly = _xy(end[0], end[1])
+            tx, ty = lx + 12, ly - 10
+            tw = lab_f.getbbox(s["b"].get("name") or "?")[2]
+            box = (tx - 2, ty - 2, tx + tw + 4, ty + 24)
+            for _bx in placed:
+                if not (box[2] < _bx[0] or box[0] > _bx[2]
+                        or box[3] < _bx[1] or box[1] > _bx[3]):
+                    ty += 26                      # nudge down on overlap
+                    box = (tx - 2, ty - 2, tx + tw + 4, ty + 24)
+            tx = min(tx, MX + MW - tw - 8)        # keep inside the map
+            ty = min(max(ty, MY + 4), MY + MH - 26)
+            box = (tx - 2, ty - 2, tx + tw + 4, ty + 24)
+            placed.append(box)
+            d2.line((lx + 5, ly, tx - 2, ty + 10),
+                    fill=(200, 208, 218), width=1)
+            d2.text((tx, ty), (s["b"].get("name") or "?").upper(),
+                    font=lab_f, fill=(240, 244, 250),
+                    stroke_width=2, stroke_fill=(16, 19, 24))
 
         # legend + stat block
         x = MX + MW + 50
