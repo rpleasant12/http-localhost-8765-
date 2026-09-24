@@ -94,7 +94,7 @@ function tpopup(s) {
                 : "<br/><span class=src>No coastal watches/warnings in effect</span>")
     + (s.lastUpdate ? "<br/><span class=src>Advisory " + s.lastUpdate + "</span>" : "")
     + (s.graphicUrl ? "<br/><a href=\"" + s.graphicUrl + "\" target=\"_blank\" rel=\"noopener\">Official NHC graphic \u2197</a>" : "")
-    + (s.sharePng ? "<br/><a href=\"" + s.sharePng + "\" target=\"_blank\" rel=\"noopener\" title=\"Open the shareable summary graphic\"><img src=\"" + s.sharePng + "\" alt=\"storm summary\" style=\"width:100%;max-width:270px;border-radius:8px;margin-top:6px\"/></a>" : "");
+    + (s.sharePage ? "<br/><a href=\"" + s.sharePage + "\" target=\"_blank\" rel=\"noopener\" title=\"Open the shareable summary graphic\"><img src=\"" + s.sharePng + "\" alt=\"storm summary\" style=\"width:100%;max-width:270px;border-radius:8px;margin-top:6px\"/></a>" : "");
 }
 function buildTropMap() {
   if (tmap) { tmap.remove(); tmap = null; }
@@ -122,13 +122,16 @@ function tropRender(d2) {
     + '<div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:10px">'
     + list.filter(s => s.graphicUrl).map(s => {
         const img = s.sharePng || s.graphicUrl;
+        const pg = s.sharePage || s.sharePng || s.graphicUrl;
+        const fb = "https://www.facebook.com/sharer/sharer.php?u="
+          + (s.shareUrl ? encodeURIComponent(s.shareUrl) : encodeURIComponent(location.origin + location.pathname));
         return '<span style="display:inline-flex;align-items:center;gap:6px">'
-          + '<a href="' + img + '" target="_blank" rel="noopener" title="Open shareable graphic">'
+          + '<a href="' + pg + '" target="_blank" rel="noopener" title="Open shareable graphic">'
           + '<img src="' + img + '" alt="" loading="lazy" '
           + 'style="width:76px;height:48px;object-fit:cover;border-radius:6px;border:1px solid #333c46"></a>'
           + '<span style="display:inline-flex;flex-direction:column;gap:2px">'
           + '<a href="tropical.html">' + (s.name || "?") + ' cone \u2197</a>'
-          + '<a href="' + img + '" target="_blank" rel="noopener">FB graphic \u2197</a>'
+          + '<a href="' + fb + '" target="_blank" rel="noopener" style="color:#1877f2;font-weight:600">\ud83d\udce3 Share to FB</a>'
           + '</span></span>';
       }).join("")
     + '</div>';
@@ -515,13 +518,13 @@ setTimeout(function () {
 
 <header class="hero">
   <h1>🌦️ <span style="color:var(--acc)">Tennessee Weather Network</span></h1>
-  <div class="sub">Greeneville, TN · updated 2026-09-24 12:39 PM ET</div>
+  <div class="sub">Greeneville, TN · updated 2026-09-24 12:53 PM ET</div>
 </header>
 
 <div class="card"><div class="now">
-  <div class="big">64°F</div>
+  <div class="big">68°F</div>
   <div><div style="font-size:18px;color:#cdd7e4">Cloudy</div>
-  <div class="meta">💧 Dew point 55°F · 💨 E 5 mph · Humidity 73%<br/>Observation 11:35 AM</div></div>
+  <div class="meta">💧 Dew point 57°F · 💨 N 0 mph · Humidity 68%<br/>Observation 12:15 PM</div></div>
 </div></div>
 
 <div class="card"><h2>⚠️ Active alerts</h2><div class="alerts"><div class="alert ok">No active alerts for this area.</div></div></div>
