@@ -30,6 +30,7 @@ import json
 import os
 import urllib.parse
 import re
+import shutil
 import threading
 import time
 
@@ -511,6 +512,10 @@ def collect_data():
             entry["sharePng"] = png
             entry["sharePage"] = ((entry["sharePng"] or "").replace(
                 ".png", ".html") if entry["sharePng"] else None)
+            # persist this advisory into the per-storm history archive
+            archive_bundle = _archive_storm(s, entry)
+            if archive_bundle:
+                entry["archiveCount"] = archive_bundle["count"]
             entry["shareUrl"] = (config.PUBLIC_SITE_URL.rstrip("/")
                                  + "/" + entry["sharePage"].replace("static/", "", 1)
                                  if entry["sharePage"] else None)
@@ -783,7 +788,33 @@ def collect_data():
         "tropModels": _trop_models_safe(),
         "climate": _climate_safe(),
         "elNino": _enso_safe(),
+        "mrmsProducts": {k: v.get("label", k) for k, v in MRMS_CATALOG.items()},
+        # per-product MRMS loops for the radar page's level picker (disk reads;
+        # the shared background renderer fills each over time) - pre-filtered
+        # into mrms_loops above so only frames still on disk ship
+        "mrmsLoops": mrms_loops,
+        "hailCase": _hail_case_safe(),
+        "sites": site_frames,
+        "siteCatalog": site_catalog,
+        "obs": {"stations": obs_stations, "cities": city_obs, "us": us_obs},
+        "cityForecasts": city_fc,
+        "sounding": sounding,
+        "satBands": sat_bands,
+        "satHome": "wvh",
+        "severe": {
+            "outlooks": outlook_feats,
+            "warnings": ww,
+            "tnAlerts": tn,
+            "md": md,
+            "reports": reports,
+            "ltgHistory": ltg_history,
+            "forecast": severe_forecast(),
+            "maps": sevmaps_bundle(),
+        },
         "tropical": _trop_carry_block(storms, nhc_gfx, wr_geo, out_geo),
+
+
+        "stormArchive": _storm_archive_list(),
         "modelCatalog": model_catalog,
         "renderIndex": _render_index(),
         "pivotUs": _pivot_us(),
@@ -796,6 +827,84 @@ def collect_data():
         "meso": meso,
         "lightning": lightning,
     }
+
+
+def _storm_archive_list():
+    """Gallery bundles for every archived storm, most advisories first."""
+    try:
+        if not os.path.isdir(_ARCH_DIR):
+            return []
+        out = []
+        for sid in sorted(os.listdir(_ARCH_DIR)):
+            sdir = os.path.join(_ARCH_DIR, sid)
+            if not os.path.isdir(sdir):
+                continue
+            name, cls = sid.upper(), ""
+            try:
+                metas = sorted(f for f in os.listdir(sdir)
+                               if f.endswith("_meta.json"))
+                if metas:
+                    m = json.load(open(os.path.join(sdir, metas[-1]),
+                                       encoding="utf-8"))
+                    name = m.get("name") or name
+                    cls = m.get("classification") or ""
+            except (OSError, ValueError):
+                pass
+            b = _archive_bundle(sid, name, cls)
+            if b:
+                out.append(b)
+        out.sort(key=lambda b: (b["advisories"][0]["stamp"]
+                                if b.get("advisories") else ""), reverse=True)
+        return out
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def page_storms(d):
+    """Storm history gallery: every archived advisory per storm."""
+    arch = d.get("stormArchive") or []
+    cards = ""
+    for b in arch:
+        cls_lbl = {"HU": "Hurricane", "MH": "Major Hurricane",
+                   "TS": "Tropical Storm", "TD": "Tropical Depression",
+                   "SS": "Subtropical Storm", "SD": "Subtropical Depression",
+                   "PTC": "Post-tropical"}.get(b.get("class") or "", "")
+        rows = ""
+        for a in b["advisories"]:
+            threat = ("<span style=\"color:#ff8a80;font-weight:700\">\u26a0 TN</span>"
+                      if a.get("tnThreat") == "watch"
+                      else ("<span style=\"color:#e0a458\">\u2192 TN</span>"
+                            if a.get("tnThreat") == "track" else ""))
+            sum_img = (f'<a href="{a["summary"]}" target="_blank" rel="noopener">'
+                       f'<img src="{a["summary"]}" loading="lazy" alt="summary" '
+                       'style="width:100%;max-width:210px;border-radius:8px"/></a>'
+                       if a.get("summary") else "")
+            rows += (
+                f'<div class="day" style="text-align:left">'
+                f'<div class="dname" style="font-size:13px">{html.escape(str(a["lastUpdate"]))} {threat}</div>'
+                f'<a href="{a["cone"]}" target="_blank" rel="noopener">'
+                f'<img src="{a["cone"]}" loading="lazy" alt="cone" '
+                'style="width:100%;max-width:210px;border-radius:8px;margin-top:4px"/></a>'
+                + sum_img +
+                f'<div style="color:#7d8794;font-size:12px;margin-top:4px">'
+                f'{a.get("intensity") or "?"} kt \u00b7 {a.get("pressure") or "?"} mb</div>'
+                f'</div>')
+        cards += (
+            f'<div class="card"><h2>\U0001f32f {html.escape(b["name"])} '
+            f'<span style="color:#7d8794;font-size:14px;font-weight:400">'
+            f'{html.escape(cls_lbl)} \u00b7 {b["count"]} archived advisor'
+            f'{"y" if b["count"] == 1 else "ies"}</span></h2>'
+            f'<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(230px,1fr))">'
+            f'{rows}</div></div>')
+    if not cards:
+        cards = ('<div class="card"><span class="src">No archived advisories '
+                 'yet - storms appear here automatically as NHC issues them.</span></div>')
+    body = f"""
+<header class="hero"><h1>\U0001f4bc <span style="color:var(--acc)">Storm history</span></h1>
+<div class="sub">Every archived NHC advisory cone + summary card, newest first \u00b7 updated {html.escape(d["generated"])}</div></header>
+{cards}
+"""
+    return _page("Storms", "storms.html", body)
 
 
 # ------------------------------------------------- single-radar NEXRAD
@@ -2524,7 +2633,7 @@ window.onDataRefresh = function (d) {{ refresh(d); }};   /* soft auto-refresh: t
 
 def _page(title, active, body, extra_head=""):
     pages = [("index.html", "Home"), ("radar.html", "Radar"), ("satellite.html", "Satellite"),
-             ("models.html", "Models"), ("tropical.html", "NHC"),
+             ("models.html", "Models"), ("tropical.html", "NHC"), ("storms.html", "Storms"),
              ("tropmodels.html", "Trop Models"), ("climate.html", "Climate"),
              ("enso.html", "El Niño"),
              ("severe.html", "Severe"),             ("winter.html", "Winter Forecast"),
@@ -2884,6 +2993,158 @@ function tropRender(d2) {
 })();
 if (typeof SITE_DATA !== "undefined" && SITE_DATA) tropRender(SITE_DATA);
 </script>"""
+
+
+# --------------------------------------------------------- storm advisory archive
+_ARCH_DIR = os.path.join("static", "archive")
+_ARCH_KEEP = 24            # advisories kept per storm
+_ARCH_MAX_BYTES = 60 * 1024 * 1024   # global cap across all storms
+_UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) tnwx/1.0"}
+
+
+def _arch_stamp(last_update):
+    """YYYYMMDDHHMM from an NHC '2026-09-24 15:00Z' advisory timestamp."""
+    m = re.search(r"(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})", last_update or "")
+    if m:
+        return "".join(m.groups())
+    return time.strftime("%Y%m%d%H%M", time.gmtime())
+
+
+def _archive_storm(raw, entry):
+    """Persist one advisory for a storm; return its gallery bundle.
+
+    Files land in static/archive/<id>/: <stamp>_cone.png (official NHC
+    graphic), <stamp>_summary.png (the branded TNWN card) and a meta
+    json. Writing is idempotent per advisory stamp, so the every-cycle
+    build only downloads when NHC issues a new advisory. Returns
+    {id,name,class,count,advisories:[latest 12, newest first]} or None.
+    Never raises.
+    """
+    try:
+        import requests as _rq
+        sid = re.sub(r"[^a-z0-9]", "", (raw.get("id") or
+                                        entry.get("name") or "storm").lower())
+        sdir = os.path.join(_ARCH_DIR, sid)
+        os.makedirs(sdir, exist_ok=True)
+        stamp = _arch_stamp(entry.get("lastUpdate"))
+        cone_p = os.path.join(sdir, f"{stamp}_cone.png")
+        sum_p = os.path.join(sdir, f"{stamp}_summary.png")
+        meta_p = os.path.join(sdir, f"{stamp}_meta.json")
+        if not os.path.exists(cone_p):
+            url = entry.get("graphicUrl")
+            if not url:
+                return None
+            r = _rq.get(url, headers=_UA, timeout=30)
+            if r.status_code != 200:
+                return None
+            tmp = cone_p + ".tmp"
+            with open(tmp, "wb") as fh:
+                fh.write(r.content)
+            os.replace(tmp, cone_p)
+        if not os.path.exists(sum_p) and entry.get("sharePng"):
+            src = entry["sharePng"]
+            if os.path.exists(src):
+                shutil.copyfile(src, sum_p)
+        if not os.path.exists(meta_p):
+            meta = {k: entry.get(k) for k in
+                    ("name", "classification", "intensity", "pressure",
+                     "movement", "lastUpdate", "lat", "lon", "tnThreat",
+                     "watches", "advisoryUrl", "graphicUrl")}
+            meta["stamp"] = stamp
+            meta["archivedAt"] = time.strftime("%Y-%m-%d %H:%MZ", time.gmtime())
+            tmp = meta_p + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(meta, fh)
+            os.replace(tmp, meta_p)
+        _archive_prune_storm(sdir)
+        return _archive_bundle(sid, entry.get("name") or "Storm",
+                               entry.get("classification") or "")
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _archive_prune_storm(sdir):
+    """Keep only the newest _ARCH_KEEP advisories in one storm dir."""
+    try:
+        stamps = {}
+        for f in os.listdir(sdir):
+            m = re.match(r"(\d{12})_", f)
+            if m:
+                stamps.setdefault(m.group(1), []).append(
+                    os.path.join(sdir, f))
+        extra = sorted(stamps)[:-_ARCH_KEEP] if len(stamps) > _ARCH_KEEP else []
+        for st in extra:
+            for p in stamps[st]:
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _archive_enforce_budget():
+    """Global cap: delete oldest-mtime archive files beyond 60 MB."""
+    try:
+        files = []
+        total = 0
+        for root, _dirs, fnames in os.walk(_ARCH_DIR):
+            for f in fnames:
+                p = os.path.join(root, f)
+                try:
+                    sz = os.path.getsize(p)
+                    files.append((os.path.getmtime(p), sz, p))
+                    total += sz
+                except OSError:
+                    continue
+        if total <= _ARCH_MAX_BYTES:
+            return
+        for _mt, sz, p in sorted(files):
+            if total <= _ARCH_MAX_BYTES:
+                break
+            try:
+                os.remove(p)
+                total -= sz
+            except OSError:
+                continue
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _archive_bundle(sid, name, cls):
+    """Gallery bundle for one storm from its archive dir (latest 12)."""
+    sdir = os.path.join(_ARCH_DIR, sid)
+    if not os.path.isdir(sdir):
+        return None
+    stamps = {}
+    for f in os.listdir(sdir):
+        m = re.match(r"(\d{12})_(cone\.png|summary\.png|meta\.json)$", f)
+        if m:
+            stamps.setdefault(m.group(1), {})[m.group(2)] = \
+                os.path.join(sdir, f).replace("\\", "/")
+    advisories = []
+    for st in sorted(stamps, reverse=True)[:12]:
+        parts = stamps[st]
+        meta = {}
+        if "meta.json" in parts:
+            try:
+                meta = json.load(open(parts["meta.json"], encoding="utf-8"))
+            except (OSError, ValueError):
+                meta = {}
+        advisories.append({
+            "stamp": st,
+            "lastUpdate": meta.get("lastUpdate") or st,
+            "intensity": meta.get("intensity"),
+            "pressure": meta.get("pressure"),
+            "tnThreat": meta.get("tnThreat"),
+            "cone": "static/archive/" + sid + f"/{st}_cone.png",
+            "summary": ("static/archive/" + sid + f"/{st}_summary.png"
+                        if "summary.png" in parts else None),
+        })
+    if not advisories:
+        return None
+    return {"id": sid, "name": name, "class": cls,
+            "count": len(stamps), "advisories": advisories}
 
 
 def page_index(d):
@@ -8537,6 +8798,7 @@ _DISK_BUDGETS = {          # max bytes per cache dir (age prunes handle the rest
     # hard drive"). site_updater.prune_published_local() additionally deletes
     # local frames older than their display window after every confirmed push.
     "nexrad_sites": 40_000_000,
+    "archive": 60_000_000,   # storm history gallery (per-advisory cone+summary)
     "mrms": 25_000_000,
     "goes": 110_000_000,    # ALL ABI bands x last frames x ~600 KB (~100 MB);
     # a 25 MB cap made the sweeper delete frames minutes after the site build
@@ -8763,6 +9025,7 @@ def generate_site():
             "satellite.html": page_satellite(d),
             "models.html": page_models(d),
             "tropical.html": page_tropical(d),
+            "storms.html": page_storms(d),
             "tropmodels.html": page_tropmodels(d),
             "climate.html": page_climate(d),
             "enso.html": page_enso(d),
