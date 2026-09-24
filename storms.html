@@ -353,9 +353,48 @@ setTimeout(function () {
 <div class="wrap">
 
 <header class="hero"><h1>💼 <span style="color:var(--acc)">Storm history</span></h1>
-<div class="sub">Every archived NHC advisory cone + summary card, newest first · updated 2026-09-24 3:06 PM ET</div></header>
+<div class="sub">Every archived NHC advisory cone + summary card, newest first · updated 2026-09-24 3:21 PM ET</div></header>
 <div class="card"><h2>🌯 Fay <span style="color:#7d8794;font-size:14px;font-weight:400">Tropical Storm · 1 archived advisory</span></h2><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(230px,1fr))"><div class="day" style="text-align:left"><div class="dname" style="font-size:13px">2026-09-24 15:00Z </div><a href="archive/al062026/202609241500_cone.png" target="_blank" rel="noopener"><img src="archive/al062026/202609241500_cone.png" loading="lazy" alt="cone" style="width:100%;max-width:210px;border-radius:8px;margin-top:4px"/></a><a href="archive/al062026/202609241500_summary.png" target="_blank" rel="noopener"><img src="archive/al062026/202609241500_summary.png" loading="lazy" alt="summary" style="width:100%;max-width:210px;border-radius:8px"/></a><div style="color:#7d8794;font-size:12px;margin-top:4px">45 kt · 1005 mb</div></div></div></div><div class="card"><h2>🌯 Odalys <span style="color:#7d8794;font-size:14px;font-weight:400">Hurricane · 1 archived advisory</span></h2><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(230px,1fr))"><div class="day" style="text-align:left"><div class="dname" style="font-size:13px">2026-09-24 15:00Z </div><a href="archive/ep162026/202609241500_cone.png" target="_blank" rel="noopener"><img src="archive/ep162026/202609241500_cone.png" loading="lazy" alt="cone" style="width:100%;max-width:210px;border-radius:8px;margin-top:4px"/></a><a href="archive/ep162026/202609241500_summary.png" target="_blank" rel="noopener"><img src="archive/ep162026/202609241500_summary.png" loading="lazy" alt="summary" style="width:100%;max-width:210px;border-radius:8px"/></a><div style="color:#7d8794;font-size:12px;margin-top:4px">80 kt · 976 mb</div></div></div></div><div class="card"><h2>🌯 Polo <span style="color:#7d8794;font-size:14px;font-weight:400">Hurricane · 1 archived advisory</span></h2><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(230px,1fr))"><div class="day" style="text-align:left"><div class="dname" style="font-size:13px">2026-09-24 15:00Z </div><a href="archive/ep172026/202609241500_cone.png" target="_blank" rel="noopener"><img src="archive/ep172026/202609241500_cone.png" loading="lazy" alt="cone" style="width:100%;max-width:210px;border-radius:8px;margin-top:4px"/></a><a href="archive/ep172026/202609241500_summary.png" target="_blank" rel="noopener"><img src="archive/ep172026/202609241500_summary.png" loading="lazy" alt="summary" style="width:100%;max-width:210px;border-radius:8px"/></a><div style="color:#7d8794;font-size:12px;margin-top:4px">135 kt · 928 mb</div></div></div></div>
-
+<script>
+window.STORM_FRAMES = {};
+window.sAnim = {
+  st: {}, timer: {},
+  show: function (sid, i) {
+    const fr = STORM_FRAMES[sid]; if (!fr || !fr.length) return;
+    const s = this.st[sid] || (this.st[sid] = { i: 0 });
+    s.i = ((i % fr.length) + fr.length) % fr.length;
+    const f = fr[s.i];
+    const img = document.getElementById("anim_" + sid);
+    if (img) img.src = f.u;
+    const lab = document.getElementById("animlab_" + sid);
+    if (lab) lab.textContent = (s.i + 1) + "/" + fr.length + " · " + f.t
+      + " · " + (f.k == null ? "?" : f.k) + " kt · " + (f.p == null ? "?" : f.p) + " mb";
+  },
+  stop: function (sid) {
+    if (this.timer[sid]) { clearInterval(this.timer[sid]); this.timer[sid] = null; }
+    const btn = document.getElementById("animplay_" + sid);
+    if (btn) btn.textContent = "▶ Play";
+  },
+  step: function (sid, dd) {
+    this.stop(sid);
+    const s = this.st[sid];
+    this.show(sid, (s ? s.i : 0) + dd);
+  },
+  next: function (sid) { this.step(sid, 1); },
+  prev: function (sid) { this.step(sid, -1); },
+  toggle: function (sid) {
+    if (this.timer[sid]) { this.stop(sid); return; }
+    const s = this.st[sid] || (this.st[sid] = { i: 0 });
+    const btn = document.getElementById("animplay_" + sid);
+    if (btn) btn.textContent = "⏸ Pause";
+    this.timer[sid] = setInterval(() => {
+      const fr = STORM_FRAMES[sid], st = this.st[sid];
+      this.show(sid, st.i + 1);
+    }, 1100);
+  }
+};
+Object.keys(window.STORM_FRAMES).forEach(sid => sAnim.show(sid, 0));
+</script>
 </div>
 <footer>
   <div id="upd" style="color:#7d8794">checking data age…</div>
