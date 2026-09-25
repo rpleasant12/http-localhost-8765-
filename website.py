@@ -813,6 +813,7 @@ def collect_data():
         },
         "tropical": _trop_carry_block(storms, nhc_gfx, wr_geo, out_geo),
         "stormSearch": _storm_search_safe(),
+        "fronts": _fronts_safe(),
         "stormArchive": _storm_archive_list(),
         "modelCatalog": model_catalog,
         "renderIndex": _render_index(),
@@ -826,6 +827,164 @@ def collect_data():
         "meso": meso,
         "lightning": lightning,
     }
+
+
+def page_fronts(d):
+    """WPC surface fronts: analyzed Day 1 + forecast Days 2-3 on Leaflet maps.
+
+    Reads SITE_DATA.fronts (polylines + H/L centers, WGS84). Day tabs,
+    standard NWS front symbology, click-to-toggle each front type, and
+    soft refresh through onDataRefresh so the 90 s cycle never kills the
+    user's zoom/pan.
+    """
+    body = r"""
+<header class="hero"><h1>🗺️ <span style="color:var(--acc)">Surface fronts</span></h1>
+<div class="sub">WPC surface analysis (Day 1) + forecast fronts (Days 2-3) · free, no keys</div></header>
+
+<div class="card">
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <button class="fday on" id="fd1" onclick="showDay(1)" style="background:#1d2432;color:#eee;border:1px solid var(--line);border-radius:8px;padding:8px 16px;cursor:pointer;font-weight:600">Day 1 (analysis)</button>
+    <button class="fday" id="fd2" onclick="showDay(2)" style="background:#141920;color:#aab4be;border:1px solid var(--line);border-radius:8px;padding:8px 16px;cursor:pointer">Day 2</button>
+    <button class="fday" id="fd3" onclick="showDay(3)" style="background:#141920;color:#aab4be;border:1px solid var(--line);border-radius:8px;padding:8px 16px;cursor:pointer">Day 3</button>
+    <span id="fmeta" class="src" style="margin-left:auto"></span>
+  </div>
+  <div id="fmap" style="height:460px;border-radius:10px;margin-top:10px"></div>
+  <div id="flegend" style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;align-items:center"></div>
+  <p class="src" style="margin-top:6px">Standard NWS symbology · click a legend entry to toggle that front type · chart rebuilt by WPC roughly every 6 hours</p>
+</div>
+
+<script>
+const FRONT_STYLE = {
+  cold:       {color: "#2f6fce", weight: 3.5, dash: null},
+  warm:       {color: "#d64545", weight: 3.5, dash: null},
+  stationary: {color: "#c05ab0", weight: 3.5, dash: "10 6"},
+  occluded:   {color: "#b8860b", darkred: true, weight: 3.5, dash: null},
+  trough:     {color: "#8a9aa8", weight: 2.5, dash: "6 8"}
+};
+const FRONT_NAME = {cold: "Cold", warm: "Warm", stationary: "Stationary",
+                    occluded: "Occluded", trough: "Trough"};
+const FDAYS = (typeof SITE_DATA !== "undefined" && SITE_DATA && SITE_DATA.fronts
+               && SITE_DATA.fronts.days) || [];
+let fday = 1, fmap = null, flayer = null, fuser = false;
+let fshow = {cold: true, warm: true, stationary: true, occluded: true,
+             trough: true};
+function fwatch(m) {
+  /* only genuine user gestures freeze the auto-fit; programmatic
+     fitBounds must not (it fires move events too) */
+  m.on("dragstart", () => fuser = true);
+  m.on("wheel", () => fuser = true);
+}
+
+function dayData(n) {
+  for (const d of FDAYS) if (d.day === n) return d;
+  return null;
+}
+
+function drawFronts() {
+  if (!fmap) return;
+  if (flayer) flayer.remove();
+  flayer = L.layerGroup().addTo(fmap);
+  const d = dayData(fday);
+  const meta = document.getElementById("fmeta");
+  const root = (typeof SITE_DATA !== "undefined" && SITE_DATA) || {};
+  const iss = (root.fronts && root.fronts.issued) || "";
+  if (meta) meta.textContent =
+    (d && d.valid ? "Valid " + d.valid : "")
+    + (iss ? " \u00b7 chart issued " + iss : "");
+  if (!d) {
+    if (meta) meta.textContent = "No front data available right now.";
+    return;
+  }
+  const lls = [];
+  for (const f of d.fronts || []) {
+    if (!fshow[f.t]) continue;
+    const st = FRONT_STYLE[f.t] || {};
+    const opts = {color: st.color || "#888", weight: st.weight || 3,
+                  opacity: .95};
+    if (st.dash) opts.dashArray = st.dash;
+    for (const path of f.pts || []) {
+      const ll = path.map(p => [p[1], p[0]]);
+      lls.push(...ll);
+      L.polyline(ll, opts).bindTooltip(FRONT_NAME[f.t] + " front").addTo(flayer);
+    }
+  }
+  for (const c of d.centers || []) {
+    const p = [c.y, c.x];
+    lls.push(p);
+    L.marker(p, {icon: L.divIcon({className: "hl-ic", html:
+      '<div style="font:700 17px/1.1 system-ui;color:'
+      + (c.k === "H" ? "#4d94e8" : "#e05252")
+      + ';text-shadow:0 1px 3px #000,0 0 6px #0008">' + c.k
+      + '</div>', iconSize: [22, 22], iconAnchor: [11, 11]})})
+      .bindTooltip((c.k === "H" ? "High" : "Low") + " pressure center")
+      .addTo(flayer);
+  }
+  if (lls.length && !fuser) fmap.fitBounds(L.latLngBounds(lls).pad(0.12));
+}
+
+function legend() {
+  const box = document.getElementById("flegend");
+  box.innerHTML = Object.keys(FRONT_STYLE).map(k => {
+    const s = FRONT_STYLE[k];
+    const line = 'height:0;border-top:' + s.weight + 'px '
+      + (s.dash ? 'dashed' : 'solid') + ' ' + s.color;
+    return '<span onclick="tog(\'' + k + '\')" style="cursor:pointer;'
+      + 'user-select:none;padding:3px 8px;border-radius:6px;'
+      + 'background:' + (fshow[k] ? '#1d2432' : 'transparent')
+      + ';color:' + (fshow[k] ? '#e8eef5' : '#5b6773')
+      + '" id="lg_' + k + '"><span style="display:inline-block;width:34px;'
+      + line + ';vertical-align:middle;margin-right:6px"></span>'
+      + FRONT_NAME[k] + '</span>';
+  }).join("");
+}
+
+function tog(k) {
+  fshow[k] = !fshow[k];
+  legend();
+  drawFronts();
+}
+
+function showDay(n) {
+  fday = n;
+  for (const i of [1, 2, 3]) {
+    const b = document.getElementById("fd" + i);
+    if (b) {
+      const on = i === n;
+      b.style.background = on ? "#1d2432" : "#141920";
+      b.style.color = on ? "#eee" : "#aab4be";
+      b.classList.toggle("on", on);
+    }
+  }
+  drawFronts();
+}
+
+if (FDAYS.length) {
+  fmap = L.map("fmap", {zoomSnap: 0.5, attributionControl: false,
+                        scrollWheelZoom: true});
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+              {maxNativeZoom: 19, maxZoom: 21}).addTo(fmap);
+  document.getElementById("fmap").classList.add("map-dark");
+  fwatch(fmap);
+  legend();
+  drawFronts();
+}
+
+window.onDataRefresh = function (d) {
+  if (!d || !d.fronts) return;
+  if (!fmap) {
+    /* first fetch arrived after load (data.json was slow): build the map now */
+    fmap = L.map("fmap", {zoomSnap: 0.5, attributionControl: false});
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                {maxNativeZoom: 19, maxZoom: 21}).addTo(fmap);
+    document.getElementById("fmap").classList.add("map-dark");
+    fwatch(fmap);
+  }
+  legend();
+  drawFronts();
+};
+</script>
+"""
+    return _page("Fronts", "fronts.html", body)
 
 
 def page_history(d):
@@ -966,6 +1125,15 @@ document.getElementById("yr").addEventListener("keydown",
 </script>
 """
     return _page("History", "history.html", body)
+
+
+def _fronts_safe():
+    """WPC surface fronts/centers for the Fronts page (never breaks a build)."""
+    try:
+        from data.fronts import payload
+        return payload()
+    except Exception:  # noqa: BLE001
+        return {"issued": "", "fileEpochMs": 0, "days": []}
 
 
 def _storm_search_safe():
@@ -2874,7 +3042,7 @@ window.onDataRefresh = function (d) {{ refresh(d); }};   /* soft auto-refresh: t
 
 def _page(title, active, body, extra_head=""):
     pages = [("index.html", "Home"), ("radar.html", "Radar"), ("satellite.html", "Satellite"),
-             ("models.html", "Models"), ("tropical.html", "NHC"), ("storms.html", "Storms"),
+             ("models.html", "Models"), ("tropical.html", "NHC"),             ("storms.html", "Storms"), ("fronts.html", "Fronts"),
              ("history.html", "History"),
              ("tropmodels.html", "Trop Models"), ("climate.html", "Climate"),
              ("enso.html", "El Niño"),
@@ -9285,6 +9453,7 @@ def generate_site():
             "tropical.html": page_tropical(d),
             "storms.html": page_storms(d),
             "history.html": page_history(d),
+            "fronts.html": page_fronts(d),
             "tropmodels.html": page_tropmodels(d),
             "climate.html": page_climate(d),
             "enso.html": page_enso(d),
