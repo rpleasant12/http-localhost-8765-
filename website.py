@@ -2136,9 +2136,12 @@ def _storm_share_png(entry, graphic_url):
                    fill=(255, 240, 240))
             y += 58
         y = max(y, 560)
+        from data._tz import produced as _produced
         d.text((24, H - 34), f"Official NHC cone \u00b7 {entry.get('lastUpdate') or ''}"
                "  \u00b7  facebook.com/tennesseeweathernetwork",
                font=_font(17), fill=(122, 132, 144))
+        d.text((24, H - 60), _produced(), font=_font(15),
+               fill=(96, 104, 114))
         d.rectangle((0, 0, W, 6), fill=acc)
         canvas.save(out, "PNG", optimize=True)
         with open(stamp_file, "w", encoding="utf-8") as fh:

@@ -211,6 +211,12 @@ def season_summary_png(d, year=None):
                     font=_font(15), fill=(150, 160, 172))
             y += 66
         y = max(y, MY + MH - 40)
+        try:
+            from data._tz import produced as _produced
+            d2.text((24, H - 60), _produced(), font=_font(14),
+                    fill=(96, 104, 114))
+        except Exception:  # noqa: BLE001
+            pass
         d2.text((24, H - 34),
                 f"Tracks from archived NHC advisory positions \u00b7 "
                 f"facebook.com/tennesseeweathernetwork",
