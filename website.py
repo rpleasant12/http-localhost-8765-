@@ -3578,12 +3578,65 @@ def _archive_upgrade_cones(sdir):
         pass
 
 
+def _archive_smallcone_lg(cone_abs):
+    """Crisp display twin for a small archived cone (<static>/archive/...
+    _cone_lg.png). NHC only publishes small (~60x49) graphics for past
+    advisories, and CSS-upscaling them looks blurry. The twin upscales
+    the capture by a clean INTEGER factor with nearest-neighbor sampling
+    (sharp pixel edges instead of smoothing mush) and adds a subtle
+    bottom strip noting the small-size capture. The original file is
+    never modified. Returns the twin's static/ path, or the original
+    path when no twin is needed. Idempotent per cycle. Never raises.
+    """
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        try:
+            with Image.open(cone_abs) as im:
+                w, h = im.size
+        except Exception:  # noqa: BLE001
+            return cone_abs.replace("\\", "/")
+        if w >= 300:
+            return cone_abs.replace("\\", "/")      # full-size: no twin
+        lg = cone_abs[:-4] + "_lg.png"
+        if os.path.exists(lg) and \
+                os.path.getmtime(lg) >= os.path.getmtime(cone_abs):
+            return lg.replace("\\", "/")
+        k = max(1, min(6, 420 // w))                # integer upscale
+        tw, th = w * k, h * k
+        strip = 34
+        canvas = Image.new("RGB", (tw, th + strip), (18, 21, 26))
+        src = Image.open(cone_abs).convert("RGB")
+        canvas.paste(src.resize((tw, th), Image.NEAREST), (0, 0))
+        d = ImageDraw.Draw(canvas)
+
+        def _font(sz):
+            for p in ("C:/Windows/Fonts/segoeui.ttf",
+                      "C:/Windows/Fonts/arial.ttf"):
+                try:
+                    return ImageFont.truetype(p, sz)
+                except OSError:
+                    continue
+            return ImageFont.load_default()
+
+        d.text((10, th + 9),
+               f"Archived capture \u00b7 NHC small-size graphic \u00b7 shown {k}x",
+               font=_font(16), fill=(122, 132, 144))
+        d.rectangle((0, th, tw, th + 2), fill=(38, 48, 62))
+        tmp = lg + ".tmp"
+        canvas.save(tmp, "PNG", optimize=True)
+        os.replace(tmp, lg)
+        return lg.replace("\\", "/")
+    except Exception:  # noqa: BLE001
+        return cone_abs.replace("\\", "/")
+
+
 def _archive_bundle(sid, name, cls):
     """Gallery bundle for one storm from its archive dir (latest 12)."""
     sdir = os.path.join(_ARCH_DIR, sid)
     if not os.path.isdir(sdir):
         return None
     _archive_upgrade_cones(sdir)
+    _lg_cache = {}
     stamps = {}
     for f in os.listdir(sdir):
         m = re.match(r"(\d{12})_(cone\.png|summary\.png|meta\.json)$", f)
@@ -3599,6 +3652,11 @@ def _archive_bundle(sid, name, cls):
                 meta = json.load(open(parts["meta.json"], encoding="utf-8"))
             except (OSError, ValueError):
                 meta = {}
+        cone_disp = _lg_cache.get(st)
+        if cone_disp is None:
+            cone_disp = _archive_smallcone_lg(
+                os.path.join(sdir, f"{st}_cone.png"))
+            _lg_cache[st] = cone_disp
         advisories.append({
             "stamp": st,
             "lastUpdate": meta.get("lastUpdate") or st,
@@ -3607,7 +3665,7 @@ def _archive_bundle(sid, name, cls):
             "tnThreat": meta.get("tnThreat"),
             "lat": meta.get("lat"), "lon": meta.get("lon"),
             "class": meta.get("classification"),
-            "cone": "static/archive/" + sid + f"/{st}_cone.png",
+            "cone": cone_disp,
             "summary": ("static/archive/" + sid + f"/{st}_summary.png"
                         if "summary.png" in parts else None),
         })
