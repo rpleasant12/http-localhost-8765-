@@ -353,7 +353,7 @@ setTimeout(function () {
 <div class="wrap">
 
 <header class="hero"><h1>⚡ <span style="color:var(--acc)">HRRR · RRFS</span></h1>
-<div class="sub">3-km convection-allowing models: SPC's official HRRR browser + our own RRFS/HRRR MetPy renders · free, no keys · updated 2026-09-25 12:07 PM ET</div></header>
+<div class="sub">3-km convection-allowing models: SPC's official HRRR browser + our own RRFS/HRRR MetPy renders · free, no keys · updated 2026-09-25 12:38 PM ET</div></header>
 
 <div class="card">
   <h2>📡 RRFS radar <span class="src" style="font-weight:400">simulated composite reflectivity · our MetPy render from NOAA 3-km GRIB</span></h2>
@@ -370,6 +370,30 @@ setTimeout(function () {
     <select id="zSpeed"><option value="1400">0.5x</option><option value="700" selected>1x</option><option value="350">2x</option></select>
   </div>
   <p class="src" id="zMeta" style="margin-top:6px">RRFS renders hourly F001-F018 as NOAA publishes each cycle · valid times in ET on each map</p>
+</div>
+
+<div class="card">
+  <h2>🚨 Severe weather <span class="src" style="font-weight:400">SPC outlooks · CAM severe parameters · East-TN hail/rotation forecast</span></h2>
+  <div class="kpis" style="margin:6px 0"><div class="kpi"><span>SPC Day 1<b class="chip" style="background:#c1e9c1;font-size:15px">TSTM · General Thunderstorms Risk</b></div><div class="kpi"><span>SPC Day 2<b class="chip" style="background:#66cdaa;font-size:15px">MRGL · Marginal Risk</b></div></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start">
+    <div>
+      <div id="olMap" style="height:300px;border-radius:10px;border:1px solid #333c46" class="map-dark"></div>
+      <div class="src" style="margin-top:4px">SPC Day 1 categorical risks (official colors) · click a polygon for the risk level</div>
+    </div>
+    <div>
+      <table style="width:100%;border-collapse:collapse;font-size:14px">
+        <tr style="color:#7d8794"><th style="text-align:left;padding:4px">Valid (ET)</th><th style="text-align:left">Hail (East TN)</th><th style="text-align:left">Rotation (UPHL)</th></tr>
+        <tr><td>16:00Z</td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td></tr><tr><td>17:00Z</td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td></tr><tr><td>18:00Z</td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td></tr><tr><td>19:00Z</td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td></tr><tr><td>20:00Z</td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td></tr><tr><td>21:00Z</td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td></tr><tr><td>22:00Z</td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td></tr><tr><td>23:00Z</td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td></tr>
+      </table>
+      <div class="src" style="margin-top:6px">Peak this window: hail <b style="color:#ffb74d">0.0 mm</b> · rotation <b style="color:#ce93d8">0 m²/s²</b> · from the live HRRR run via data.severe</div>
+    </div>
+  </div>
+  <div class="ctl" style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <label class="src" style="margin:0">CAM severe parameter</label>
+    <select id="vCombo"></select>
+    <span class="src" style="margin:0">frames step hourly · rendered locally from NOAA GRIB</span>
+  </div>
+  <div id="vWrap" style="margin-top:10px"></div>
 </div>
 
 <div class="card">
@@ -481,6 +505,76 @@ document.getElementById("sSel").oninput = e => { sFh = +e.target.value; sShow();
 document.getElementById("sProd").onchange = sShow;
 document.getElementById("sSec").onchange = sShow;
 
+/* ---------------- severe: SPC outlook map + CAM severe renders ---------------- */
+const OL_POLYS = [{"color": "#c1e9c1", "rings": [[[-108.7, 31.63], [-108.59, 32.39], [-108.6, 32.69], [-108.74, 32.99], [-108.99, 33.08], [-109.8, 33.04], [-110.92, 32.79], [-111.57, 32.96], [-111.98, 33.54], [-112.42, 34.88], [-112.79, 37.8], [-112.32, 38.69], [-110.51, 39.99], [-108.06, 41.49], [-107.38, 42.42], [-106.85, 43.59], [-106.26, 44.26], [-105.06, 44.57], [-104.08, 44.45], [-103.03, 43.88], [-102.56, 43.74], [-101.81, 43.67], [-101.07, 44.01], [-100.6, 44.27], [-98.91, 45.46], [-97.82, 46.01], [-97.0, 46.02], [-96.27, 45.6], [-93.89, 42.67], [-93.6, 40.91], [-94.17, 39.1], [-95.69, 36.38], [-95.87, 36.0], [-97.99, 32.88], [-98.46, 32.47], [-99.28, 32.42], [-100.08, 32.5], [-100.57, 32.26], [-100.98, 31.81], [-101.3629466381715, 29.44269432367776], [-101.45, 29.518], [-101.616, 29.594], [-101.852, 29.614], [-102.125, 29.651], [-102.3, 29.645], [-102.486, 29.578], [-102.613, 29.283], [-102.733, 29.098], [-102.962, 28.86], [-103.419, 28.868], [-104.191, 29.275], [-104.636, 29.554], [-104.879, 29.863], [-104.926, 30.211], [-105.115, 30.476], [-105.605, 30.822], [-106.064, 31.194], [-106.509, 31.409], [-106.568, 31.573], [-107.183, 31.602], [-107.745, 31.62], [-108.002, 31.623], [-108.044, 31.186], [-108.9623477006165, 31.13089913796301], [-108.7, 31.63]]]}, {"color": "#c1e9c1", "rings": [[[-116.34, 48.33], [-117.46, 47.73], [-119.67, 47.21], [-121.83, 47.03], [-122.61, 47.38], [-123.45971613882891, 49.06243769627237], [-123.29, 49.187], [-123.111, 49.134], [-122.837, 49.303], [-122.534, 49.247], [-121.576, 49.18], [-120.445, 49.201], [-119.226, 49.203], [-117.702, 49.217], [-116.063, 49.223], [-116.04234713516593, 49.222959583434765], [-116.34, 48.33]]]}, {"color": "#c1e9c1", "rings": [[[-74.96, 38.38], [-74.71, 39.31], [-74.26, 40.22], [-72.91, 41.29], [-70.58, 41.84], [-69.5460226355224, 42.075276677579986], [-69.483, 42.001], [-69.443, 41.721], [-69.548, 41.498], [-69.488, 41.199], [-69.663, 41.018], [-69.946, 40.916], [-70.34, 40.942], [-70.838, 40.931], [-71.244, 40.859], [-71.608, 40.77], [-72.156, 40.586], [-72.567, 40.462], [-72.893, 40.33], [-73.2, 40.303], [-73.648, 40.236], [-73.751, 39.803], [-73.839, 39.533], [-74.085, 39.198], [-74.372, 38.982], [-74.504, 38.814], [-74.716, 38.67], [-74.701, 38.442], [-74.762, 38.239], [-74.89677436098933, 38.000649046768864], [-74.96, 38.38]]]}, {"color": "#c1e9c1", "rings": [[[-109.73, 48.82], [-110.08, 48.05], [-110.93, 47.7], [-111.72, 47.81], [-112.60098672766078, 49.22324943885864], [-111.288, 49.211], [-109.98, 49.207], [-109.70154075557653, 49.19946048977193], [-109.73, 48.82]]]}, {"color": "#c1e9c1", "rings": [[[-82.41, 24.51], [-81.63, 24.67], [-81.3, 25.03], [-81.24, 25.68], [-80.65, 26.42], [-79.85, 26.63], [-79.72202020414667, 26.593831938234498], [-79.766, 26.228], [-79.812, 25.576], [-79.965, 25.158], [-80.143, 24.859], [-80.331, 24.705], [-80.635, 24.487], [-81.054, 24.361], [-81.782, 24.208], [-82.816, 24.169], [-83.10843655144622, 24.201217586176277], [-82.41, 24.51]]]}, {"color": "#c1e9c1", "rings": [[[-99.33, 27.04], [-98.71, 27.14], [-97.99, 27.0], [-97.28, 26.58], [-96.83347207225896, 26.378341974421588], [-96.749, 25.948], [-97.075, 25.799], [-97.23, 25.659], [-97.68, 25.837], [-98.218, 25.934], [-98.509, 26.039], [-99.103, 26.254], [-99.357, 26.519], [-99.489, 26.804], [-99.55792880927682, 26.935693253496353], [-99.33, 27.04]]]}];
+let olMap = null, olLayer = null, vIdx = 0, vTimer = null;
+function drawOutlooks() {
+  if (!OL_POLYS.length) return;
+  if (!olMap) {
+    olMap = L.map("olMap", {attributionControl: false, zoomSnap: 0.5});
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                {maxNativeZoom: 19, maxZoom: 21}).addTo(olMap);
+  }
+  if (olLayer) olLayer.remove();
+  olLayer = L.layerGroup().addTo(olMap);
+  const lls = [];
+  for (const p of OL_POLYS) {
+    for (const ring of (p.rings || [])) {
+      const ll = ring.map(pt => [pt[1], pt[0]]);
+      lls.push(...ll);
+      L.polygon(ll, {color: "#333c46", weight: 1, fillColor: p.color,
+                     fillOpacity: .55})
+        .bindTooltip("SPC Day 1 categorical risk")
+        .addTo(olLayer);
+    }
+  }
+  /* keep East Tennessee in frame even when today's risk is far away */
+  lls.push([35.86, -86.35]);
+  olMap.fitBounds(L.latLngBounds(lls).pad(0.2));
+}
+function vFrames() {
+  const c = document.getElementById("vCombo");
+  if (!c || !c.value) return null;
+  const parts = c.value.split("|");
+  return (REND || []).find(x => x.model === parts[0] && x.product === parts[1]
+                              && x.region === parts[2]) || null;
+}
+function vFill() {
+  const seen = new Set(), opts = [];
+  for (const c of (REND || [])) {
+    if (["cape_wind", "mucape", "lr75", "shear06"].indexOf(c.product) < 0) continue;
+    const key = c.model + "|" + c.product + "|" + c.region;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const regionLbl = c.region === "etn" ? "East TN" : "CONUS";
+    opts.push('<option value="' + key + '">' + c.model + ' ' + c.product
+      + ' · ' + regionLbl + '</option>');
+  }
+  document.getElementById("vCombo").innerHTML = opts.join("")
+    || '<option value="">(no severe renders yet)</option>';
+  vShow();
+}
+function vShow() {
+  const c = vFrames();
+  const wrap = document.getElementById("vWrap");
+  if (!c || !c.frames || !c.frames.length) {
+    wrap.innerHTML = '<div class="src">No severe-parameter renders in this build yet.</div>';
+    return;
+  }
+  vIdx = Math.min(vIdx, c.frames.length - 1);
+  const f = c.frames[vIdx];
+  wrap.innerHTML = '<img src="' + f.url + '" loading="lazy" style="width:100%;max-width:900px;border-radius:10px;border:1px solid #333c46"/>'
+    + '<div class="ctl" style="margin-top:8px"><button id="vPlay">▶</button><span class="frame">F' + String(f.fh).padStart(3, "0") + '</span>'
+    + '<select id="vSel">' + c.frames.map((x, i) => '<option value="' + i + '"' + (i === vIdx ? ' selected' : '') + '>F' + String(x.fh).padStart(3, "0") + '</option>').join("") + '</select>'
+    + '<span class="frame">init ' + c.cycle.slice(4,6) + '/' + c.cycle.slice(6,8) + ' ' + c.cycle.slice(8,10) + 'Z</span></div>';
+  wrap.querySelector('#vSel').onchange = e => { vIdx = +e.target.value; vShow(); };
+  wrap.querySelector('#vPlay').onclick = () => {
+    if (vTimer) { clearInterval(vTimer); vTimer = null; wrap.querySelector('#vPlay').textContent = '▶'; return; }
+    vTimer = setInterval(() => { vIdx++; vShow(); }, 900);
+  };
+}
+document.getElementById("vCombo").onchange = () => { vIdx = 0; vShow(); };
+
 window.onDataRefresh = function (d) {
   if (!d) return;
   SHR = d.spcHrrr || {};
@@ -490,6 +584,8 @@ window.onDataRefresh = function (d) {
     sFh = Math.min(18, Math.max(1, parseInt(document.getElementById("sSel").value, 10) || 18));
     sShow();
     zShow();
+    vFill();
+    try { drawOutlooks(); } catch (_e) {}
     rFill();
   } else zShow();
 };
