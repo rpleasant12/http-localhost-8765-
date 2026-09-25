@@ -3528,17 +3528,28 @@ def _archive_enforce_budget():
 
 
 def _archive_upgrade_cones(sdir):
-    """Replace tiny (_sm, ~60x49) archived cones with the full-size graphic.
+    """Backfill full-size cones for archived advisories, silently skipping
+    what NHC cannot provide.
 
-    Early-season archives stored NHC's small cone, which the gallery
-    upscales into a blurry thumbnail. NHC keeps the current advisory's
-    full-size cone at the deterministic no-_sm URL, so upgrade each storm's
-    newest thumbnail once; older advisories keep what they have (NHC only
-    serves the latest). Runs inline with the archive scan, costs one HEAD
-    per small cone per cycle, and never raises.
+    Strategy, verified against live NHC behavior (2026-09-25):
+      1. The storm's newest small thumbnail can be replaced with the
+         deterministic no-_sm URL, which serves the CURRENT advisory's
+         full-size cone. Accept it only when it differs from every
+         already-full-size capture in the archive (md5) - NHC's refresh
+         path ignores the trailing stamp and serves the latest image, so
+         a match means it is NOT this advisory's graphic. On a match the
+         small original stays and the attempt is marked done.
+      2. Older advisories: NHC's per-storm archive pages are text-only and
+         the Wayback Machine has no snapshots of refresh-path URLs, so
+         historical full-size cones genuinely do not exist anywhere.
+         A per-storm .backfill_done marker makes that failure a one-shot
+         probe instead of a per-cycle HTTP tax.
+    Runs inline with the archive scan; never raises.
     """
+    done_p = os.path.join(sdir, ".backfill_done")
     try:
         import requests as _rq
+        import hashlib
         stamps = {}
         for f in os.listdir(sdir):
             m = re.match(r"(\d{12})_cone\.png$", f)
@@ -3547,15 +3558,43 @@ def _archive_upgrade_cones(sdir):
                                   os.path.join(sdir, f))
         if not stamps:
             return
+        from PIL import Image
+        small = set()
+        for st, p in stamps.items():
+            try:
+                with Image.open(p) as im:
+                    if im.width < 300:
+                        small.add(st)
+            except Exception:  # noqa: BLE001
+                pass
+        if not small:
+            return                    # everything full-size: nothing to do
         newest = max(stamps)
         cone_p = stamps[newest]
+        # one-shot marker "<reason>:<stamp>": a failed probe is not retried
+        # while the newest advisory is unchanged; a NEW advisory (new stamp)
+        # re-arms the backfill automatically
         try:
-            from PIL import Image
-            with Image.open(cone_p) as im:
-                if im.width >= 300:
-                    return                       # already full-size
-        except Exception:
-            return                               # unreadable: leave alone
+            done = open(done_p, encoding="utf-8").read().strip()
+        except OSError:
+            done = ""
+        if newest not in small and done.startswith("latest-only"):
+            # newest is already full-size, so the live image can only be the
+            # one we already have: historical smalls are settled, and this
+            # avoids re-probing (one 190 KB fetch) on every future advisory
+            return
+        if done.endswith(":" + newest):
+            return
+        # md5 of every already-full-size capture, for the genuine check
+        full_md5s = set()
+        for st, p in stamps.items():
+            if st in small:
+                continue
+            try:
+                full_md5s.add(hashlib.md5(
+                    open(p, "rb").read()).hexdigest())
+            except OSError:
+                pass
         meta_p = os.path.join(sdir, f"{newest}_meta.json")
         try:
             meta = json.load(open(meta_p, encoding="utf-8"))
@@ -3563,13 +3602,30 @@ def _archive_upgrade_cones(sdir):
             meta = {}
         url = meta.get("graphicUrl") or ""
         if "/storm_graphics/" not in url or "_5day_cone_sm" not in url:
+            open(done_p, "w").write("no-sm-url:" + newest)
             return
-        # same path with _sm stripped serves the full-size graphic (the
+        # the same path with _sm stripped serves the full-size graphic (the
         # trailing stamp is ignored by NHC - verified against old stamps)
         full_url = url.replace("_5day_cone_sm", "_5day_cone")
         r = _rq.get(full_url, headers=_UA, timeout=30)
         if r.status_code != 200 or len(r.content) < 5000:
+            return                               # transient: retry next cycle
+        digest = hashlib.md5(r.content).hexdigest()
+        if digest in full_md5s or not full_md5s:
+            # Either NHC served the current advisory's image (md5 matches a
+            # known-full sibling - the refresh path ignores the stamp), or
+            # the archive has no full-size capture to verify against at all
+            # (pre-fix era). Either way the small original is the only
+            # genuine image for this advisory: keep it, stop probing.
+            open(done_p, "w").write("latest-only:" + newest)
             return
+        try:
+            from io import BytesIO
+            if Image.open(BytesIO(r.content)).width < 300:
+                open(done_p, "w").write("small-only:" + newest)
+                return
+        except Exception:  # noqa: BLE001
+            pass
         tmp = cone_p + ".tmp"
         with open(tmp, "wb") as fh:
             fh.write(r.content)
