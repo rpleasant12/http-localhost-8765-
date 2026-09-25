@@ -10333,13 +10333,30 @@ _SEED = []
 
 _SEED_LAST = [0.0]      # last seed attempt (monotonic-ish wall clock)
 _SEED_STALE_S = 6 * 3600   # re-render a seed combo only after this age
-_ROT_RUNNING = [False]  # a rotation pass is in progress - never stack more
+_ROT_RUNNING = [False]  # a rotation pass in progress - never stack more
 _ROT_POS = [0]          # rotation cursor across the FULL combo space
 _ROT_BATCH = 48         # combos per pass (round-robin, see below); keeps a
                         # pass under ~45 min even when it lands on heavy models
 _ROT_GATE = 900.0       # min seconds between passes; passes then run
                         # back-to-back (~100-120 renders/h, full catalog
                         # swept in under a day - inside the 21 h retention)
+
+# CAM-severe fast lane: hail/uphl/scp/stp/ehi/ship/refc/shear01 for the two
+# 3-km CAMs take the first slots of every pass, always for the model's
+# CURRENT find_cycle() result. The staleness rotation is deliberately cycle-
+# agnostic (a 5 h old tile still shows the same pattern), but for severe
+# parameters a visitor checking the HRRR-vs-RRFS comparison card or the
+# severe player right after a NOAA cycle drop wants THIS run's frame, not a
+# cycle-old stand-in. Capped per pass so the lane can never starve the other
+# ~1,300 combos that keep the walls multi-model (the 2026-09-23 starvation
+# lesson); HRRR/RRFS cycles are hourly, so the lane drains in a pass or two
+# and then yields its slots back to the staleness rotation automatically.
+_CAM_SEVERE_PRODUCTS = ("refc", "hail", "uphl", "scp", "stp", "ehi", "ship",
+                        "shear01")
+_CAM_SEVERE_MODELS = ("HRRR", "RRFS")
+_CAM_SEVERE_FHS = (1, 6)  # near-term frame + core severe window
+_CAM_SEVERE_CAP = 16     # lane slots per pass out of the 48-slot budget
+_SEVERE_LN_LAST = [0.0]  # lane runs at most once per _ROT_GATE window
 
 
 def _all_model_combos():
@@ -10442,11 +10459,12 @@ def _seed_model_maps():
             # stat churn per pass, on top of the renders (2026-09-19)
             import re as _re
             _mre = _re.compile(r"^(.+)_(f\d{3})_(\d{10})_([a-z0-9]+)\.png$")
+            _map_files = os.listdir(MAP_DIR)
             counts = {}
             newest_by_key = {}      # (model_prod, region) -> newest mtime
                                     # across ALL cycles: _age is staleness-
                                     # based, not current-cycle-based
-            for fn in os.listdir(MAP_DIR):
+            for fn in _map_files:
                 counts[fn.split("_", 1)[0]] = counts.get(fn.split("_", 1)[0], 0) + 1
                 _m = _mre.match(fn)
                 if not _m:
@@ -10458,6 +10476,59 @@ def _seed_model_maps():
                 _key = (_m.group(1), _m.group(4))
                 if _mt > newest_by_key.get(_key, 0.0):
                     newest_by_key[_key] = _mt
+
+            # ---- CAM-severe fast lane -----------------------------------
+            # Severe products for the two 3-km CAMs, for the model's CURRENT
+            # cycle only: anything missing a frame for find_cycle()'s result
+            # queues here, ahead of the staleness rotation. Capped per pass
+            # (_CAM_SEVERE_CAP) so the walls' multi-model coverage can never
+            # starve; HRRR/RRFS cycles are hourly, so ~2-3 passes after a
+            # NOAA publish the lane is drained and yields no work.
+            severe_batch = []
+            try:
+                if _t.time() - _SEVERE_LN_LAST[0] >= _ROT_GATE:
+                    from data.model_maps import PRODUCTS_BY_MODEL as _pbm
+                    cur = {m: _cyc(m) for m in _CAM_SEVERE_MODELS}
+                    severe_want = []
+                    for m in _CAM_SEVERE_MODELS:
+                        if cur.get(m) is None:
+                            continue
+                        cyc = cur[m]
+                        cycs = f"{cyc:%Y%m%d%H}"
+                        # "prod|region|fh" set for this model+cycle from the
+                        # pass-wide file list (no extra directory walk)
+                        have = set()
+                        for fn in _map_files:
+                            if fn.startswith(f"{m}_") and f"_{cycs}_" in fn:
+                                tail = fn.rsplit("_", 1)[-1]
+                                _fh = fn.split("_f")[-1][:3]
+                                if tail[:-4] in ("etn", "us") and _fh.isdigit():
+                                    have.add(fn.split("_", 1)[1].split("_f")[0]
+                                             + "|" + tail[:-4] + "|" + _fh)
+                        for prod in _CAM_SEVERE_PRODUCTS:
+                            if prod not in (_pbm.get(m) or []):
+                                continue      # product this model doesn't carry
+                            for region in ("etn", "us"):
+                                for fh in _CAM_SEVERE_FHS:
+                                    if f"{prod}|{region}|{fh:03d}" not in have:
+                                        severe_want.append(
+                                            (m, fh, prod, region))
+                    # tornado-relevant products first within the lane, then
+                    # round-robin across models so one CAM cannot hog it
+                    _rank = {p: i for i, p in enumerate(_CAM_SEVERE_PRODUCTS)}
+                    severe_want.sort(key=lambda c: (_rank.get(c[2], 99), c[0]))
+                    _by_m = {}
+                    for c in severe_want:
+                        _by_m.setdefault(c[0], []).append(c)
+                    while (len(severe_batch) < _CAM_SEVERE_CAP
+                           and any(_by_m.values())):
+                        for _m in _CAM_SEVERE_MODELS:
+                            if _by_m.get(_m) and len(severe_batch) < _CAM_SEVERE_CAP:
+                                severe_batch.append(_by_m[_m].pop(0))
+                    _SEVERE_LN_LAST[0] = _t.time()
+            except Exception:                      # noqa: BLE001 - lane is optional
+                severe_batch = []
+            # ---- end fast lane ------------------------------------------
 
             def _age(combo):
                 # STALENESS semantics: age of the combo's newest frame from
@@ -10512,6 +10583,12 @@ def _seed_model_maps():
                         if _front.get(_m) and len(batch) < _ROT_BATCH:
                             batch.append(_front[_m].pop(0))
 
+            # the severe fast lane renders FIRST, inside the pass budget:
+            # whatever it takes leaves fewer staleness slots this pass
+            batch = batch[:max(0, _ROT_BATCH - len(severe_batch))]
+            if severe_batch:
+                batch = severe_batch + batch
+
             ok = fail = 0
             skipped = set()
             failed_models = set()
@@ -10541,7 +10618,8 @@ def _seed_model_maps():
             # its fetch path broke (dead NOAA dir, herbie source gone)
             print(f"model-map rotation: {ok} rendered, {fail} failed"
                   + (f" ({', '.join(sorted(failed_models))})" if failed_models else "")
-                  + (f" | no live cycle: {', '.join(sorted(skipped))}" if skipped else ""),
+                  + (f" | no live cycle: {', '.join(sorted(skipped))}" if skipped else "")
+                  + (f" | severe-lane {len(severe_batch)}" if severe_batch else ""),
                   flush=True)
         except Exception:                          # noqa: BLE001
             pass
