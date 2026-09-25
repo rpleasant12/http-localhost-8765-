@@ -353,7 +353,24 @@ setTimeout(function () {
 <div class="wrap">
 
 <header class="hero"><h1>⚡ <span style="color:var(--acc)">HRRR · RRFS</span></h1>
-<div class="sub">3-km convection-allowing models: SPC's official HRRR browser + our own RRFS/HRRR MetPy renders · free, no keys · updated 2026-09-25 10:55 AM ET</div></header>
+<div class="sub">3-km convection-allowing models: SPC's official HRRR browser + our own RRFS/HRRR MetPy renders · free, no keys · updated 2026-09-25 11:19 AM ET</div></header>
+
+<div class="card">
+  <h2>📡 RRFS radar <span class="src" style="font-weight:400">simulated composite reflectivity · our MetPy render from NOAA 3-km GRIB</span></h2>
+  <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <label class="src" style="margin:0">Area</label>
+    <select id="zRegion"><option value="etn">East Tennessee</option><option value="us">US (CONUS)</option></select>
+    <span id="zCycle" class="src" style="margin:0"></span>
+  </div>
+  <img id="zFrame" loading="lazy" alt="RRFS simulated radar"
+       style="width:100%;max-width:1000px;border-radius:10px;border:1px solid #333c46;margin-top:10px"/>
+  <div class="ctl" style="margin-top:8px">
+    <button id="zPlay">▶</button><span class="frame" id="zFh">--</span>
+    <button id="zPrev">◀</button><select id="zSel"></select><button id="zNext">▶</button>
+    <select id="zSpeed"><option value="1400">0.5x</option><option value="700" selected>1x</option><option value="350">2x</option></select>
+  </div>
+  <p class="src" id="zMeta" style="margin-top:6px">RRFS renders hourly F001-F018 as NOAA publishes each cycle · valid times in ET on each map</p>
+</div>
 
 <div class="card">
   <h2>🌩️ SPC HRRR browser <span id="sRun" class="src" style="font-weight:400"></span></h2>
@@ -391,6 +408,41 @@ setTimeout(function () {
 /* filled by onDataRefresh: SITE_DATA is still null while this script
    parses (data.json loads async), so the payload always arrives late */
 let SHR = {}, REND = [], sBooted = false;
+
+/* ---------------- RRFS simulated-radar player ---------------- */
+let zTimer = null, zIdx = 0;
+function zFrames() {
+  const reg = document.getElementById("zRegion").value;
+  const c = (REND || []).find(x => x.model === "RRFS" && x.product === "refc"
+                                  && x.region === reg);
+  return (c && c.frames) || [];
+}
+function zShow() {
+  const fr = zFrames();
+  const img = document.getElementById("zFrame");
+  if (!fr.length) {
+    document.getElementById("zMeta").textContent =
+      "RRFS radar not rendered in this build yet - the updater fills it in as NOAA publishes cycles.";
+    return;
+  }
+  zIdx = ((zIdx % fr.length) + fr.length) % fr.length;
+  const f = fr[zIdx];
+  img.src = f.url;
+  document.getElementById("zFh").textContent = "F" + String(f.fh).padStart(3, "0");
+  document.getElementById("zSel").innerHTML = fr.map((x, i) =>
+    '<option value="' + i + '"' + (i === zIdx ? ' selected' : '') + '>F' + String(x.fh).padStart(3, "0") + '</option>').join("");
+}
+function zToggle() {
+  if (zTimer) { clearInterval(zTimer); zTimer = null; document.getElementById("zPlay").textContent = "▶"; return; }
+  document.getElementById("zPlay").textContent = "⏸";
+  const ms = +document.getElementById("zSpeed").value;
+  zTimer = setInterval(() => { zIdx++; zShow(); }, ms);
+}
+document.getElementById("zPlay").onclick = zToggle;
+document.getElementById("zPrev").onclick = () => { zIdx--; zShow(); };
+document.getElementById("zNext").onclick = () => { zIdx++; zShow(); };
+document.getElementById("zSel").onchange = e => { zIdx = +e.target.value; zShow(); };
+document.getElementById("zRegion").onchange = () => { zIdx = 0; zShow(); };
 
 /* ---------------- SPC frames player ---------------- */
 let sTimer = null, sFh = 18;
@@ -437,8 +489,9 @@ window.onDataRefresh = function (d) {
     sBooted = true;
     sFh = Math.min(18, Math.max(1, parseInt(document.getElementById("sSel").value, 10) || 18));
     sShow();
+    zShow();
     rFill();
-  }
+  } else zShow();
 };
 /* data.json may already be cached by the shell's first fetch: if it beat
    this script, initialize now instead of waiting ~3 min for the next poll */
