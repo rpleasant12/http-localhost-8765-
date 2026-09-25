@@ -1103,18 +1103,43 @@ function vFrames() {{
   return (REND || []).find(x => x.model === parts[0] && x.product === parts[1]
                               && x.region === parts[2]) || null;
 }}
+const V_LBL = {{
+  scp: "SCP supercell composite", stp: "STP tornado parameter",
+  ehi: "EHI energy-helicity", ship: "SHIP hail parameter",
+  cape_wind: "CAPE + winds", mucape: "MUCAPE",
+  hail: "Hail diameter (mm)", uphl: "Updraft helicity (rotation)",
+  shear06: "0-6 km shear", shear01: "0-1 km shear", lr75: "75 mb lapse rate"
+}};
+const V_GROUP = {{
+  scp: "SPC composites", stp: "SPC composites", ehi: "SPC composites",
+  ship: "Hail", hail: "Hail",
+  uphl: "Wind & rotation", shear06: "Wind & rotation",
+  shear01: "Wind & rotation", cape_wind: "Wind & rotation",
+  mucape: "Instability", lr75: "Instability"
+}};
 function vFill() {{
-  const seen = new Set(), opts = [];
+  const seen = new Set();
+  const groups = {{}};
   for (const c of (REND || [])) {{
-    if (["cape_wind", "mucape", "lr75", "shear06"].indexOf(c.product) < 0) continue;
+    if (!(c.product in V_GROUP)) continue;
     const key = c.model + "|" + c.product + "|" + c.region;
     if (seen.has(key)) continue;
     seen.add(key);
-    const regionLbl = c.region === "etn" ? "East TN" : "CONUS";
-    opts.push('<option value="' + key + '">' + c.model + ' ' + c.product
-      + ' \u00b7 ' + regionLbl + '</option>');
+    const g = V_GROUP[c.product];
+    (groups[g] = groups[g] || []).push([key, c]);
   }}
-  document.getElementById("vCombo").innerHTML = opts.join("")
+  let html = "";
+  for (const g of ["SPC composites", "Hail", "Wind & rotation", "Instability"]) {{
+    if (!groups[g]) continue;
+    html += '<optgroup label="' + g + '">';
+    for (const [key, c] of groups[g]) {{
+      const regionLbl = c.region === "etn" ? "East TN" : "CONUS";
+      html += '<option value="' + key + '">' + c.model + ' '
+        + (V_LBL[c.product] || c.product) + ' \u00b7 ' + regionLbl + '</option>';
+    }}
+    html += '</optgroup>';
+  }}
+  document.getElementById("vCombo").innerHTML = html
     || '<option value="">(no severe renders yet)</option>';
   vShow();
 }}
