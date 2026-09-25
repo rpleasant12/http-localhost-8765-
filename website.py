@@ -1972,7 +1972,12 @@ def _storm_graphic_url(advisory_url):
             m = re.search(r'(/storm_graphics/[A-Z]{2}\d{2}/refresh/[^\s"]*?'
                           r'_5day_cone_sm\+png/[^\s"]+?\.png)', r.text)
             if m:
-                url = "https://www.nhc.noaa.gov" + m.group(1)
+                # NHC's scraped URL is the _sm (small ~60x49) cone; the same
+                # path without _sm serves the full-size (~900x736) version.
+                # Prefer it - gallery thumbnails upscale the small one into
+                # a blurry mess (2026-09-25).
+                url = ("https://www.nhc.noaa.gov" + m.group(1)) \
+                    .replace("_5day_cone_sm", "_5day_cone")
     except Exception:  # noqa: BLE001
         url = None
     _GFX_CACHE[code] = (time.time(), url)
@@ -3439,6 +3444,10 @@ def _archive_storm(raw, entry):
             if not url:
                 return None
             r = _rq.get(url, headers=_UA, timeout=30)
+            if r.status_code != 200 and "_5day_cone_sm" not in url:
+                # full-size cone unavailable - fall back to NHC's small one
+                r = _rq.get(url.replace("_5day_cone", "_5day_cone_sm"),
+                            headers=_UA, timeout=30)
             if r.status_code != 200:
                 return None
             tmp = cone_p + ".tmp"
@@ -3515,11 +3524,63 @@ def _archive_enforce_budget():
         pass
 
 
+def _archive_upgrade_cones(sdir):
+    """Replace tiny (_sm, ~60x49) archived cones with the full-size graphic.
+
+    Early-season archives stored NHC's small cone, which the gallery
+    upscales into a blurry thumbnail. NHC keeps the current advisory's
+    full-size cone at the deterministic no-_sm URL, so upgrade each storm's
+    newest thumbnail once; older advisories keep what they have (NHC only
+    serves the latest). Runs inline with the archive scan, costs one HEAD
+    per small cone per cycle, and never raises.
+    """
+    try:
+        import requests as _rq
+        stamps = {}
+        for f in os.listdir(sdir):
+            m = re.match(r"(\d{12})_cone\.png$", f)
+            if m:
+                stamps.setdefault(m.group(1),
+                                  os.path.join(sdir, f))
+        if not stamps:
+            return
+        newest = max(stamps)
+        cone_p = stamps[newest]
+        try:
+            from PIL import Image
+            with Image.open(cone_p) as im:
+                if im.width >= 300:
+                    return                       # already full-size
+        except Exception:
+            return                               # unreadable: leave alone
+        meta_p = os.path.join(sdir, f"{newest}_meta.json")
+        try:
+            meta = json.load(open(meta_p, encoding="utf-8"))
+        except (OSError, ValueError):
+            meta = {}
+        url = meta.get("graphicUrl") or ""
+        if "/storm_graphics/" not in url or "_5day_cone_sm" not in url:
+            return
+        # same path with _sm stripped serves the full-size graphic (the
+        # trailing stamp is ignored by NHC - verified against old stamps)
+        full_url = url.replace("_5day_cone_sm", "_5day_cone")
+        r = _rq.get(full_url, headers=_UA, timeout=30)
+        if r.status_code != 200 or len(r.content) < 5000:
+            return
+        tmp = cone_p + ".tmp"
+        with open(tmp, "wb") as fh:
+            fh.write(r.content)
+        os.replace(tmp, cone_p)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _archive_bundle(sid, name, cls):
     """Gallery bundle for one storm from its archive dir (latest 12)."""
     sdir = os.path.join(_ARCH_DIR, sid)
     if not os.path.isdir(sdir):
         return None
+    _archive_upgrade_cones(sdir)
     stamps = {}
     for f in os.listdir(sdir):
         m = re.match(r"(\d{12})_(cone\.png|summary\.png|meta\.json)$", f)
