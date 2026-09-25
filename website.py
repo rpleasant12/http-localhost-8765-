@@ -812,8 +812,7 @@ def collect_data():
             "maps": sevmaps_bundle(),
         },
         "tropical": _trop_carry_block(storms, nhc_gfx, wr_geo, out_geo),
-
-
+        "stormSearch": _storm_search_safe(),
         "stormArchive": _storm_archive_list(),
         "modelCatalog": model_catalog,
         "renderIndex": _render_index(),
@@ -827,6 +826,160 @@ def collect_data():
         "meso": meso,
         "lightning": lightning,
     }
+
+
+def page_history(d):
+    """Archive-wide historical storm search (HURDAT2, 1851-present).
+
+    Client-side lookup over data.json's stormSearch index: name prefix/
+    substring + exact year + basin filters, ranked results, and a mini
+    Leaflet track map per selected storm. No server round-trips.
+    """
+    body = r"""
+<header class="hero"><h1>🔍 <span style="color:var(--acc)">Storm history search</span></h1>
+<div class="sub">Every named Atlantic + East Pacific storm since 1851 (NOAA HURDAT2) · search by name and year</div></header>
+
+<div class="card">
+  <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <input id="q" placeholder="Storm name (e.g. Helene, Katrina)"
+           style="flex:1;min-width:200px;background:#1b2027;color:#e8eef5;border:1px solid #333c46;border-radius:8px;padding:10px 12px;font-size:15px"/>
+    <input id="yr" type="number" min="1851" max="2100" placeholder="Year"
+           style="width:110px;background:#1b2027;color:#e8eef5;border:1px solid #333c46;border-radius:8px;padding:10px 12px"/>
+    <select id="basin" style="background:#1b2027;color:#e8eef5;border:1px solid #333c46;border-radius:8px;padding:10px 12px">
+      <option value="">Both basins</option>
+      <option value="atl">Atlantic</option>
+      <option value="epac">East Pacific</option>
+    </select>
+    <button id="go" style="background:#1d2432;color:#eee;border:1px solid var(--line);border-radius:8px;padding:10px 18px;cursor:pointer;font-weight:600">Search</button>
+  </div>
+  <p class="src" id="meta"></p>
+  <div id="hits" class="grid" style="grid-template-columns:repeat(auto-fill,minmax(230px,1fr));margin-top:10px"></div>
+</div>
+
+<div class="card" id="detailCard" style="display:none">
+  <h2 id="dTitle"></h2>
+  <p class="src" id="dMeta"></p>
+  <div id="dMap" style="height:340px;border-radius:10px"></div>
+  <p class="src" style="margin-top:8px">Track from NOAA HURDAT2 best-track data (decimated to 24 points) · colored by Saffir-Simpson category at each point</p>
+</div>
+
+<script>
+const CATCOL = {"5":"#c62828","4":"#e53935","3":"#fb8c00","2":"#fdd835",
+                "1":"#43a047","TS":"#1e88e5","TD":"#90a4ae","?":"#90a4ae"};
+const CATLBL = {"5":"Category 5","4":"Category 4","3":"Category 3","2":"Category 2",
+                "1":"Category 1","TS":"Tropical Storm","TD":"Tropical Depression","?":"Unknown"};
+const IDX = (typeof SITE_DATA !== "undefined" && SITE_DATA && SITE_DATA.stormSearch) || {storms: [], count: 0};
+let smap = null, slayer = null;
+
+function doSearch() {
+  const q = (document.getElementById("q").value || "").trim().toUpperCase();
+  const yr = parseInt(document.getElementById("yr").value, 10);
+  const basin = document.getElementById("basin").value;
+  const hits = [];
+  for (const s of (IDX.storms || [])) {
+    if (yr && s.year !== yr) continue;
+    if (basin && s.basin !== basin) continue;
+    let rank = 3;
+    if (q) {
+      const nm = (s.name || "").toUpperCase();
+      if (!nm) continue;
+      if (nm === q) rank = 0;
+      else if (nm.startsWith(q)) rank = 1;
+      else if (nm.includes(q)) rank = 2;
+      else continue;
+    }
+    hits.push([rank, s]);
+  }
+  hits.sort((a, b) => a[0] - b[0] || b[1].year - a[1].year);
+  const top = hits.slice(0, 60).map(h => h[1]);
+  document.getElementById("meta").textContent =
+    hits.length.toLocaleString() + " match" + (hits.length === 1 ? "" : "es")
+    + " \u00b7 showing " + top.length + " \u00b7 index covers "
+    + (IDX.count || 0).toLocaleString() + " storms ("
+    + (IDX.updated || "n/a") + ")";
+  const box = document.getElementById("hits");
+  box.innerHTML = top.map((s, i) => {
+    const col = CATCOL[s.cat] || CATCOL["?"];
+    const nm = s.name || "Unnamed";
+    return '<div class="day" style="text-align:left;cursor:pointer" onclick="showStorm(' + i + ')">'
+      + '<div style="display:flex;align-items:center;gap:8px">'
+      + '<span style="width:12px;height:12px;border-radius:50%;background:' + col + ';display:inline-block"></span>'
+      + '<b style="font-size:15px">' + nm + ' ' + s.year + '</b></div>'
+      + '<div style="color:#7d8794;font-size:12px;margin-top:4px">'
+      + CATLBL[s.cat] + ' \u00b7 peak ' + s.peak + ' kt'
+      + (s.minPres ? ' \u00b7 ' + s.minPres + ' mb' : '')
+      + ' \u00b7 ' + (s.basin === 'atl' ? 'Atlantic' : 'East Pacific') + '</div></div>';
+  }).join("") || '<span class="src">No storms match - try a shorter name fragment.</span>';
+  window._hits = top;
+}
+
+function showStorm(i) {
+  const s = (window._hits || [])[i];
+  if (!s) return;
+  document.getElementById("detailCard").style.display = "";
+  document.getElementById("dTitle").textContent =
+    (s.name || "Unnamed") + " (" + s.year + ")";
+  document.getElementById("dMeta").textContent =
+    CATLBL[s.cat] + " \u00b7 peak " + s.peak + " kt ("
+    + Math.round(s.peak * 1.15078) + " mph)"
+    + (s.minPres ? " \u00b7 min pressure " + s.minPres + " mb" : "")
+    + " \u00b7 " + (s.basin === "atl" ? "Atlantic basin" : "East Pacific basin")
+    + " \u00b7 NOAA id " + s.id;
+  const pts = s.track || [];
+  if (!pts.length) return;
+  if (!smap) {
+    smap = L.map("dMap", {zoomSnap: 0.5, attributionControl: false});
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                {maxNativeZoom: 19, maxZoom: 21}).addTo(smap);
+    document.getElementById("dMap").classList.add("map-dark");
+  }
+  if (slayer) slayer.remove();
+  slayer = L.layerGroup().addTo(smap);
+  const ll = pts.map(p => [p[1], p[0]]);
+  for (let j = 0; j < ll.length - 1; j++) {
+    const kts = Math.round((s.peak || 0) * (0.35 + 0.65 * j / Math.max(1, ll.length - 2)));
+    L.polyline([ll[j], ll[j + 1]],
+               {color: CATCOL[s.cat] || "#90a4ae", weight: 4, opacity: .85})
+      .bindTooltip(CATLBL[s.cat] + " \u00b7 up to " + s.peak + " kt").addTo(slayer);
+  }
+  ll.forEach((p, j) => {
+    L.circleMarker(p, {radius: 3.5, color: "#fff", weight: 1,
+                       fillColor: CATCOL[s.cat] || "#90a4ae", fillOpacity: .95})
+      .bindPopup((s.name || "Unnamed") + " " + s.year + " \u00b7 point "
+                 + (j + 1) + "/" + ll.length).addTo(slayer);
+  });
+  const start = L.latLng(ll[0]), end = L.latLng(ll[ll.length - 1]);
+  L.circleMarker(start, {radius: 5, color: "#fff", fillColor: "#66bb6a",
+                         fillOpacity: 1, weight: 2}).bindPopup("Start").addTo(slayer);
+  L.circleMarker(end, {radius: 5, color: "#fff", fillColor: "#e53935",
+                       fillOpacity: 1, weight: 2}).bindPopup("End").addTo(slayer);
+  smap.invalidateSize();
+  setTimeout(() => smap.fitBounds(L.latLngBounds(ll).pad(0.25)), 60);
+  document.getElementById("detailCard").scrollIntoView({behavior: "smooth", block: "start"});
+}
+
+document.getElementById("go").onclick = doSearch;
+document.getElementById("q").addEventListener("keydown",
+  e => { if (e.key === "Enter") doSearch(); });
+document.getElementById("yr").addEventListener("keydown",
+  e => { if (e.key === "Enter") doSearch(); });
+</script>
+"""
+    return _page("History", "history.html", body)
+
+
+def _storm_search_safe():
+    """HURDAT2 historical storm index (never breaks the site build).
+
+    Built/rebuilt monthly by data.storm_index; cached to disk so cycles
+    stay cheap. The payload carries every named storm since 1851 with a
+    decimated 24-point track - ~1.3 MB of JSON.
+    """
+    try:
+        from data.storm_index import payload
+        return payload()
+    except Exception:  # noqa: BLE001
+        return {"count": 0, "updated": "", "storms": []}
 
 
 def _storm_archive_list():
@@ -2722,6 +2875,7 @@ window.onDataRefresh = function (d) {{ refresh(d); }};   /* soft auto-refresh: t
 def _page(title, active, body, extra_head=""):
     pages = [("index.html", "Home"), ("radar.html", "Radar"), ("satellite.html", "Satellite"),
              ("models.html", "Models"), ("tropical.html", "NHC"), ("storms.html", "Storms"),
+             ("history.html", "History"),
              ("tropmodels.html", "Trop Models"), ("climate.html", "Climate"),
              ("enso.html", "El Niño"),
              ("severe.html", "Severe"),             ("winter.html", "Winter Forecast"),
@@ -9130,6 +9284,7 @@ def generate_site():
             "models.html": page_models(d),
             "tropical.html": page_tropical(d),
             "storms.html": page_storms(d),
+            "history.html": page_history(d),
             "tropmodels.html": page_tropmodels(d),
             "climate.html": page_climate(d),
             "enso.html": page_enso(d),
