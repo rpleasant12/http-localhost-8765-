@@ -818,6 +818,7 @@ def collect_data():
         "stormArchive": _storm_archive_list(),
         "modelCatalog": model_catalog,
         "renderIndex": _render_index(),
+        "cmpCam": _cmp_cam_index(),
         "pivotUs": _pivot_us(),
         "pivotEtn": _pivot_us("etn"),
         "sevTowns": _sev_towns_safe(),
@@ -828,6 +829,95 @@ def collect_data():
         "meso": meso,
         "lightning": lightning,
     }
+
+
+_CMP_PRODUCTS = (
+    # (product key, dropdown label) - only products BOTH 3-km CAMs render
+    # locally, so every dropdown choice can actually pair frame-for-frame.
+    ("refc", "Simulated radar"),
+    ("scp", "SCP composite"),
+    ("stp", "STP tornado"),
+    ("ehi", "EHI"),
+    ("ship", "SHIP hail"),
+    ("hail", "Hail diameter"),
+    ("uphl", "Updraft helicity"),
+    ("shear01", "0-1 km shear"),
+)
+
+
+def _cmp_cam_index():
+    """HRRR-vs-RRFS side-by-side pairs: same VALID time, one frame each.
+
+    Both CAMs render hourly, but they publish on different schedules (HRRR
+    cycles every hour from AWS, RRFS mirrors land here in bursts), so the
+    two models' newest cycles rarely match. Pairing by frame NUMBER would
+    silently compare F003-of-12Z against F003-of-18Z - different valid
+    times on the same wall - so frames are matched on cycle+fh (absolute
+    valid time) and each panel labels its own init cycle. Per product/
+    region the (HRRR cycle, RRFS cycle) combination with the most complete
+    pairs wins; a pair whose RRFS half was never rendered still ships, with
+    the page saying "not rendered this cycle" instead of guessing. Only
+    combos with at least one complete pair are listed.
+    """
+    from data._tz import day_hm
+
+    base = "static/model_maps"
+    rx = re.compile(r"(HRRR|RRFS)_(\w+)_f(\d+)_(\d{10})_(\w+)\.png$")
+    got = {}  # (model, product, region, cycle) -> {fh: filename}
+    try:
+        names = os.listdir(base)
+    except OSError:
+        names = []
+    for fn in names:
+        m = rx.match(fn)
+        if not m:
+            continue
+        model, prod, fh, cyc, region = m.groups()
+        got.setdefault((model, prod, region, cyc), {})[int(fh)] = fn
+
+    def _valid(cyc, fh):
+        return dt.datetime.strptime(cyc, "%Y%m%d%H") + dt.timedelta(hours=fh)
+
+    out = []
+    for prod, lbl in _CMP_PRODUCTS:
+        for region in ("etn", "us"):
+            h_cycs = sorted({c for (mo, p, r, c) in got
+                             if mo == "HRRR" and p == prod and r == region},
+                            reverse=True)
+            r_cycs = sorted({c for (mo, p, r, c) in got
+                             if mo == "RRFS" and p == prod and r == region},
+                            reverse=True)
+            best = None
+            for hc in h_cycs:
+                h_frames = got[("HRRR", prod, region, hc)]
+                for rc in r_cycs:
+                    r_by_valid = {_valid(rc, fh): fh
+                                  for fh in got[("RRFS", prod, region, rc)]}
+                    pairs = []
+                    for fh, fn in h_frames.items():
+                        v = _valid(hc, fh)
+                        rfh = r_by_valid.get(v)
+                        pairs.append({
+                            "vISO": v.strftime("%Y-%m-%dT%H:00Z"),
+                            "vLbl": day_hm(v) + " ET",
+                            "hrrr": {"fh": fh, "url": f"../model_maps/{fn}"},
+                            "rrfs": ({"fh": rfh,
+                                      "url": "../model_maps/"
+                                             + got[("RRFS", prod, region, rc)][rfh]}
+                                     if rfh is not None else None),
+                        })
+                    pairs.sort(key=lambda x: x["vISO"])
+                    complete = sum(1 for x in pairs if x["rrfs"])
+                    if not complete:
+                        continue
+                    key = (complete, hc, rc)
+                    if best is None or key > best[0]:
+                        best = (key, hc, rc, pairs)
+            if best:
+                _key, hc, rc, pairs = best
+                out.append({"product": prod, "label": lbl, "region": region,
+                            "hrrrCycle": hc, "rrfsCycle": rc, "pairs": pairs})
+    return out
 
 
 def page_hrrr(d):
@@ -937,6 +1027,38 @@ def page_hrrr(d):
 </div>
 
 <div class="card">
+  <h2>⚔️ HRRR vs RRFS <span class="src" style="font-weight:400">side-by-side · same valid time · where the two 3-km CAMs disagree</span></h2>
+  <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <label class="src" style="margin:0">Product</label>
+    <select id="cProd"></select>
+    <label class="src" style="margin:0">Area</label>
+    <select id="cRegion"><option value="etn">East Tennessee</option><option value="us">US (CONUS)</option></select>
+    <span id="cCycles" class="src" style="margin:0"></span>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start">
+    <div>
+      <div class="src" style="margin-bottom:4px;color:#ce93d8">HRRR (init <span id="cHcyc"></span>)</div>
+      <img id="cHrrr" loading="lazy" alt="HRRR panel"
+           style="width:100%;max-width:640px;border-radius:10px;border:1px solid #333c46;display:block"/>
+      <div id="cHmiss" class="src" style="display:none;color:#ffb74d;margin-top:4px"></div>
+    </div>
+    <div>
+      <div class="src" style="margin-bottom:4px;color:#8ecae6">RRFS (init <span id="cRcyc"></span>)</div>
+      <img id="cRrfs" loading="lazy" alt="RRFS panel"
+           style="width:100%;max-width:640px;border-radius:10px;border:1px solid #333c46;display:block"/>
+      <div id="cRmiss" class="src" style="display:none;color:#ffb74d;margin-top:4px"></div>
+    </div>
+  </div>
+  <div class="ctl" style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <button id="cPlay">▶</button><span class="frame" id="cFh">--</span>
+    <button id="cPrev">◀</button><select id="cSel"></select><button id="cNext">▶</button>
+    <select id="cSpeed"><option value="1400">0.5x</option><option value="700" selected>1x</option><option value="350">2x</option></select>
+    <span id="cMeta" class="src"></span>
+  </div>
+  <p class="src" style="margin-top:6px">Valid times shown in ET · each panel labels its own init cycle · a panel reading "not rendered this cycle" means our updater hasn't produced that CAM's frame for this valid time yet - never a blank guess.</p>
+</div>
+
+<div class="card">
   <h2>🚨 Severe weather <span class="src" style="font-weight:400">SPC outlooks · CAM severe parameters · East-TN hail/rotation forecast</span></h2>
   <div class="kpis" style="margin:6px 0">{ol_chips or '<div class="kpi"><span>SPC outlook</span><b class="chip" style="background:#333c46;font-size:14px">unavailable</b></div>'}</div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start">
@@ -995,7 +1117,7 @@ def page_hrrr(d):
 <script>
 /* filled by onDataRefresh: SITE_DATA is still null while this script
    parses (data.json loads async), so the payload always arrives late */
-let SHR = {{}}, REND = [], sBooted = false;
+let SHR = {{}}, REND = [], CMP = [], sBooted = false;
 
 /* ---------------- RRFS simulated-radar player ---------------- */
 let zTimer = null, zIdx = 0;
@@ -1031,6 +1153,77 @@ document.getElementById("zPrev").onclick = () => {{ zIdx--; zShow(); }};
 document.getElementById("zNext").onclick = () => {{ zIdx++; zShow(); }};
 document.getElementById("zSel").onchange = e => {{ zIdx = +e.target.value; zShow(); }};
 document.getElementById("zRegion").onchange = () => {{ zIdx = 0; zShow(); }};
+
+/* ---------------- HRRR vs RRFS side-by-side comparison ---------------- */
+let cTimer = null, cIdx = 0;
+const CMP_PRODUCTS = [
+  ["refc", "Simulated radar"], ["scp", "SCP composite"], ["stp", "STP tornado"],
+  ["ehi", "EHI"], ["ship", "SHIP hail"], ["hail", "Hail diameter"],
+  ["uphl", "Updraft helicity"], ["shear01", "0-1 km shear"]];
+function cCombo() {{
+  const prod = document.getElementById("cProd").value;
+  const reg = document.getElementById("cRegion").value;
+  return (CMP || []).find(x => x.product === prod && x.region === reg) || null;
+}}
+function cShow() {{
+  const c = cCombo();
+  const hi = document.getElementById("cHrrr"), ri = document.getElementById("cRrfs");
+  const hm = document.getElementById("cHmiss"), rm = document.getElementById("cRmiss");
+  if (!c || !c.pairs || !c.pairs.length) {{
+    hi.style.visibility = "hidden"; ri.style.visibility = "hidden";
+    hm.style.display = "block"; hm.textContent = "No HRRR-vs-RRFS pairs yet - the updater renders both CAMs each cycle.";
+    rm.style.display = "none";
+    document.getElementById("cFh").textContent = "--";
+    document.getElementById("cSel").innerHTML = "";
+    document.getElementById("cCycles").textContent = "";
+    document.getElementById("cHcyc").textContent = "";
+    document.getElementById("cRcyc").textContent = "";
+    document.getElementById("cMeta").textContent = "";
+    return;
+  }}
+  cIdx = ((cIdx % c.pairs.length) + c.pairs.length) % c.pairs.length;
+  const p = c.pairs[cIdx];
+  if (p.hrrr) {{ hi.src = p.hrrr.url; hi.style.visibility = "visible"; hm.style.display = "none"; }}
+  else {{ hi.style.visibility = "hidden"; hm.style.display = "block"; hm.textContent = "not rendered this cycle"; }}
+  if (p.rrfs) {{ ri.src = p.rrfs.url; ri.style.visibility = "visible"; rm.style.display = "none"; }}
+  else {{ ri.style.visibility = "hidden"; rm.style.display = "block"; rm.textContent = "not rendered this cycle"; }}
+  const cyc = s => s.slice(4,6) + "/" + s.slice(6,8) + " " + s.slice(8,10) + "Z";
+  document.getElementById("cFh").textContent = p.vLbl;
+  document.getElementById("cHcyc").textContent = cyc(c.hrrrCycle);
+  document.getElementById("cRcyc").textContent = cyc(c.rrfsCycle);
+  document.getElementById("cCycles").textContent =
+    "HRRR init " + cyc(c.hrrrCycle) + " \u00b7 RRFS init " + cyc(c.rrfsCycle);
+  document.getElementById("cSel").innerHTML = c.pairs.map((x, i) =>
+    '<option value="' + i + '"' + (i === cIdx ? ' selected' : '') + '>' + x.vLbl + '</option>').join("");
+  const n = c.pairs.filter(x => x.hrrr && x.rrfs).length;
+  document.getElementById("cMeta").textContent =
+    n + " of " + c.pairs.length + " valid times have both CAMs rendered";
+}}
+function cToggle() {{
+  if (cTimer) {{ clearInterval(cTimer); cTimer = null; document.getElementById("cPlay").textContent = "▶"; return; }}
+  document.getElementById("cPlay").textContent = "⏸";
+  const ms = +document.getElementById("cSpeed").value;
+  cTimer = setInterval(() => {{ cIdx++; cShow(); }}, ms);
+}}
+function cFill() {{
+  const reg = document.getElementById("cRegion").value;
+  const seen = new Set();
+  let opts = "";
+  for (const [key, lbl] of CMP_PRODUCTS) {{
+    if (seen.has(key)) continue;
+    if (!(CMP || []).some(x => x.product === key && x.region === reg)) continue;
+    seen.add(key);
+    opts += '<option value="' + key + '">' + lbl + '</option>';
+  }}
+  document.getElementById("cProd").innerHTML = opts || '<option value="">(no paired renders yet)</option>';
+  cShow();
+}}
+document.getElementById("cPlay").onclick = cToggle;
+document.getElementById("cPrev").onclick = () => {{ cIdx--; cShow(); }};
+document.getElementById("cNext").onclick = () => {{ cIdx++; cShow(); }};
+document.getElementById("cSel").onchange = e => {{ cIdx = +e.target.value; cShow(); }};
+document.getElementById("cProd").onchange = () => {{ cIdx = 0; cShow(); }};
+document.getElementById("cRegion").onchange = () => {{ cIdx = 0; cFill(); }};
 
 /* ---------------- SPC frames player ---------------- */
 let sTimer = null, sFh = 18;
@@ -1168,15 +1361,17 @@ window.onDataRefresh = function (d) {{
   if (!d) return;
   SHR = d.spcHrrr || {{}};
   REND = d.renderIndex || [];
+  CMP = d.cmpCam || [];
   if (!sBooted) {{
     sBooted = true;
     sFh = Math.min(18, Math.max(1, parseInt(document.getElementById("sSel").value, 10) || 18));
     sShow();
     zShow();
+    cFill();
     vFill();
     try {{ drawOutlooks(); }} catch (_e) {{}}
     rFill();
-  }} else zShow();
+  }} else {{ zShow(); cShow(); }}
 }};
 /* data.json may already be cached by the shell's first fetch: if it beat
    this script, initialize now instead of waiting ~3 min for the next poll */
