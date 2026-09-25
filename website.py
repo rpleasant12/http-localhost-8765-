@@ -971,6 +971,40 @@ def page_hrrr(d):
             _polys.append({"color": o.get("fill") or "#c1e9c1",
                            "rings": poly})
 
+    # --- active SPC watches (IEM polygons) + MCD outlines on the mini-map ---
+    try:
+        from data.spc_watch import bundle as _watch_bundle
+        watches = _watch_bundle().get("features") or []
+    except Exception:  # noqa: BLE001 - watch fetch flake never kills the page
+        watches = []
+    watch_polys = []
+    for w in watches[:8]:
+        watch_polys.append({
+            "label": w.get("label") or "Watch",
+            "color": w.get("color") or "#ffb300",
+            "pds": bool(w.get("pds")),
+            "probs": w.get("probs") or "",
+            "extras": w.get("extras") or "",
+            "expire": w.get("expire") or "",
+            "rings": w.get("rings") or [],
+        })
+    watch_json = json.dumps(watch_polys)
+    md_polys = []
+    for m in (sev.get("md") or [])[:6]:
+        ring = ((m.get("geometry") or {}).get("coordinates") or [[]])[0]
+        if len(ring) < 4:
+            continue
+        concern = str(m.get("concerning") or "")
+        watch_likely = bool(m.get("prob") and int(m.get("prob") or 0) >= 70)
+        md_polys.append({
+            "label": f"MD #{m.get('num')} \u00b7 watch prob {m.get('prob')}%"
+                     if m.get("prob") else f"MD #{m.get('num')}",
+            "color": "#ff5722" if watch_likely else "#ab47bc",
+            "rings": [ring],
+            "concerning": concern[:110] + ("\u2026" if len(concern) > 110 else ""),
+        })
+    md_json = json.dumps(md_polys)
+
     # --- East-TN hail/rotation CAM forecast rows ---
     hours = fc.get("hours") or []
     fc_rows = ""
@@ -1064,7 +1098,7 @@ def page_hrrr(d):
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start">
     <div>
       <div id="olMap" style="height:300px;border-radius:10px;border:1px solid #333c46" class="map-dark"></div>
-      <div class="src" style="margin-top:4px">SPC Day 1 categorical risks (official colors) · click a polygon for the risk level</div>
+      <div class="src" style="margin-top:4px">SPC Day 1 categorical risks (official colors) · <span style="color:#ff1744">tornado watches</span> · <span style="color:#ffb300">severe t-stm watches</span> · <span style="color:#ff5722">MCDs (watch likely)</span> · click a polygon for details</div>
     </div>
     <div>
       <table style="width:100%;border-collapse:collapse;font-size:14px">
@@ -1264,9 +1298,10 @@ document.getElementById("sSec").onchange = sShow;
 
 /* ---------------- severe: SPC outlook map + CAM severe renders ---------------- */
 const OL_POLYS = {polys_json};
+const WATCH_POLYS = {watch_json};
+const MD_POLYS = {md_json};
 let olMap = null, olLayer = null, vIdx = 0, vTimer = null;
 function drawOutlooks() {{
-  if (!OL_POLYS.length) return;
   if (!olMap) {{
     olMap = L.map("olMap", {{attributionControl: false, zoomSnap: 0.5}});
     L.tileLayer("https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png",
@@ -1275,16 +1310,33 @@ function drawOutlooks() {{
   if (olLayer) olLayer.remove();
   olLayer = L.layerGroup().addTo(olMap);
   const lls = [];
+  const fit = (ring, opts, tip) => {{
+    const ll = ring.map(pt => [pt[1], pt[0]]);
+    lls.push(...ll);
+    L.polygon(ll, opts).bindTooltip(tip).addTo(olLayer);
+  }};
+  /* draw order: outlook fill (bottom) -> watches -> MCD outlines (top) */
   for (const p of OL_POLYS) {{
-    for (const ring of (p.rings || [])) {{
-      const ll = ring.map(pt => [pt[1], pt[0]]);
-      lls.push(...ll);
-      L.polygon(ll, {{color: "#333c46", weight: 1, fillColor: p.color,
-                     fillOpacity: .55}})
-        .bindTooltip("SPC Day 1 categorical risk")
-        .addTo(olLayer);
-    }}
+    for (const ring of (p.rings || []))
+      fit(ring, {{color: "#333c46", weight: 1, fillColor: p.color,
+                 fillOpacity: .55}}, "SPC Day 1 categorical risk");
   }}
+  for (const w of WATCH_POLYS) {{
+    for (const ring of (w.rings || []))
+      fit(ring, {{color: w.color, weight: 2.5,
+                 fillColor: w.color, fillOpacity: .12}},
+          "<b>" + w.label + (w.pds ? " \u26a1PDS" : "") + "</b>"
+          + (w.probs ? "<br/>" + w.probs : "")
+          + (w.extras ? "<br/>" + w.extras : "")
+          + "<br/>expires " + w.expire + " ET");
+  }}
+  for (const m of MD_POLYS) {{
+    for (const ring of (m.rings || []))
+      fit(ring, {{color: m.color, weight: 2.5, dashArray: "7 5",
+                 fillOpacity: .05, fillColor: m.color}},
+          "<b>" + m.label + "</b>" + (m.concerning ? "<br/>" + m.concerning : ""));
+  }}
+  if (!lls.length) lls.push([35.86, -86.35]);
   /* keep East Tennessee in frame even when today's risk is far away */
   lls.push([35.86, -86.35]);
   olMap.fitBounds(L.latLngBounds(lls).pad(0.2));
