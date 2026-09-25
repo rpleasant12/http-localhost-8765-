@@ -353,7 +353,7 @@ setTimeout(function () {
 <div class="wrap">
 
 <header class="hero"><h1>⚡ <span style="color:var(--acc)">HRRR · RRFS</span></h1>
-<div class="sub">3-km convection-allowing models: SPC's official HRRR browser + our own RRFS/HRRR MetPy renders · free, no keys · updated 2026-09-25 10:28 AM ET</div></header>
+<div class="sub">3-km convection-allowing models: SPC's official HRRR browser + our own RRFS/HRRR MetPy renders · free, no keys · updated 2026-09-25 10:43 AM ET</div></header>
 
 <div class="card">
   <h2>🌩️ SPC HRRR browser <span id="sRun" class="src" style="font-weight:400"></span></h2>
@@ -388,8 +388,9 @@ setTimeout(function () {
 </div>
 
 <script>
-const SHR = (typeof SITE_DATA !== "undefined" && SITE_DATA && SITE_DATA.spcHrrr) || {};
-const REND = (typeof SITE_DATA !== "undefined" && SITE_DATA && SITE_DATA.renderIndex) || [];
+/* filled by onDataRefresh: SITE_DATA is still null while this script
+   parses (data.json loads async), so the payload always arrives late */
+let SHR = {}, REND = [], sBooted = false;
 
 /* ---------------- SPC frames player ---------------- */
 let sTimer = null, sFh = 18;
@@ -427,8 +428,21 @@ document.getElementById("sNext").onclick = () => { sFh = sFh >= 18 ? 1 : sFh + 1
 document.getElementById("sSel").oninput = e => { sFh = +e.target.value; sShow(); };
 document.getElementById("sProd").onchange = sShow;
 document.getElementById("sSec").onchange = sShow;
-sFh = Math.min(18, Math.max(1, parseInt(document.getElementById("sSel").value, 10) || 18));
-sShow();
+
+window.onDataRefresh = function (d) {
+  if (!d) return;
+  SHR = d.spcHrrr || {};
+  REND = d.renderIndex || [];
+  if (!sBooted) {
+    sBooted = true;
+    sFh = Math.min(18, Math.max(1, parseInt(document.getElementById("sSel").value, 10) || 18));
+    sShow();
+    rFill();
+  }
+};
+/* data.json may already be cached by the shell's first fetch: if it beat
+   this script, initialize now instead of waiting ~3 min for the next poll */
+if (typeof SITE_DATA !== "undefined" && SITE_DATA) window.onDataRefresh(SITE_DATA);
 
 /* ---------------- our renders explorer ---------------- */
 function rCombos() {
