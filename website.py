@@ -814,6 +814,7 @@ def collect_data():
         "tropical": _trop_carry_block(storms, nhc_gfx, wr_geo, out_geo),
         "stormSearch": _storm_search_safe(),
         "fronts": _fronts_safe(),
+        "spcHrrr": _spc_hrrr_safe(),
         "stormArchive": _storm_archive_list(),
         "modelCatalog": model_catalog,
         "renderIndex": _render_index(),
@@ -827,6 +828,175 @@ def collect_data():
         "meso": meso,
         "lightning": lightning,
     }
+
+
+def page_hrrr(d):
+    """HRRR + RRFS convection-allowing model page.
+
+    Two sources, both free/keyless:
+      - SPC's official 3-km HRRR browser frames (8 products x 4 sectors,
+        F001-F018 hourly) - the page builds frame URLs client-side from the
+        payload's run stamp and plays them without proxying.
+      - The site's own MetPy renders of NOAA RRFS + HRRR GRIB (from the
+        renderIndex payload), so RRFS appears even though NOAA GSL's RRFS
+        display is currently imageless (verified 2026-09-25), plus PSU's
+        15-minute HRRR future-radar loop.
+    """
+    rend = [c for c in (d.get("renderIndex") or [])
+            if c.get("model") in ("HRRR", "RRFS") and (c.get("frames"))]
+    psu = d.get("psu")
+
+    def _opts(lst, val_key, lbl_key):
+        return "".join(f'<option value="{html.escape(str(o[val_key]))}">'
+                       f'{html.escape(str(o[lbl_key]))}</option>' for o in lst)
+
+    body = f"""
+<header class="hero"><h1>⚡ <span style="color:var(--acc)">HRRR · RRFS</span></h1>
+<div class="sub">3-km convection-allowing models: SPC's official HRRR browser + our own RRFS/HRRR MetPy renders · free, no keys · updated {html.escape(d["generated"])}</div></header>
+
+<div class="card">
+  <h2>🌩️ SPC HRRR browser <span id="sRun" class="src" style="font-weight:400"></span></h2>
+  <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <label class="src" style="margin:0">Product</label>
+    <select id="sProd">{_opts((d.get('spcHrrr') or {{}}).get('products') or [], 'k', 'label')}</select>
+    <label class="src" style="margin:0">Sector</label>
+    <select id="sSec">{_opts((d.get('spcHrrr') or {{}}).get('sectors') or [], 'sector', 'label')}</select>
+  </div>
+  <img id="sFrame" loading="lazy" alt="SPC HRRR frame"
+       style="width:100%;max-width:1000px;border-radius:10px;border:1px solid #333c46;margin-top:10px"/>
+  <div class="ctl" style="margin-top:8px">
+    <button id="sPlay">▶</button><span class="frame" id="sFh">--</span>
+    <button id="sPrev">◀</button><input id="sSel" type="range" min="1" max="18" value="18" style="flex:1;min-width:160px"/><button id="sNext">▶</button>
+    <select id="sSpeed"><option value="1400">0.5x</option><option value="700" selected>1x</option><option value="350">2x</option></select>
+  </div>
+  <p class="src" id="sMeta" style="margin-top:6px">Frames F001-F018 hourly · images served directly from www.spc.noaa.gov</p>
+</div>
+
+<div class="card">
+  <h2>🧮 Our RRFS + HRRR renders <span class="src" style="font-weight:400">(MetPy × Cartopy from NOAA GRIB)</span></h2>
+  <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <label class="src" style="margin:0">Model</label>
+    <select id="rModel"><option value="RRFS">RRFS</option><option value="HRRR">HRRR</option></select>
+    <label class="src" style="margin:0">Product</label>
+    <select id="rProd"></select>
+    <label class="src" style="margin:0">Area</label>
+    <select id="rRegion"><option value="etn">East Tennessee</option><option value="us">US (CONUS)</option></select>
+  </div>
+  <div id="rWrap" style="margin-top:10px"></div>
+  <p class="src" id="rMeta" style="margin-top:6px"></p>
+</div>
+
+<script>
+/* filled by onDataRefresh: SITE_DATA is still null while this script
+   parses (data.json loads async), so the payload always arrives late */
+let SHR = {{}}, REND = [], sBooted = false;
+
+/* ---------------- SPC frames player ---------------- */
+let sTimer = null, sFh = 18;
+function sUrl() {{
+  const run = SHR.run || "";
+  const prod = document.getElementById("sProd").value;
+  const sec = document.getElementById("sSec").value;
+  if (!run) return "";
+  const dt = new Date(Date.UTC(+run.slice(0,4), +run.slice(4,6)-1, +run.slice(6,8), +run.slice(8,10)));
+  dt.setUTCHours(dt.getUTCHours() + sFh);
+  const v = dt.toISOString().replace(/[-:T]/g, "").slice(0, 10);
+  const secn = sec.slice(1);
+  return "https://www.spc.noaa.gov/exper/hrrr/data/hrrr3/" + sec
+    + "/R" + run + "_F" + String(sFh).padStart(3, "0") + "_V" + v
+    + "_S" + secn + "_" + prod + ".gif";
+}}
+function sShow() {{
+  const u = sUrl();
+  const img = document.getElementById("sFrame");
+  if (!u) {{ document.getElementById("sMeta").textContent = "SPC HRRR data unavailable right now - our RRFS/HRRR renders below still work."; return; }}
+  img.src = u;
+  document.getElementById("sFh").textContent = "F" + String(sFh).padStart(3, "0");
+  const lbl = (SHR.runLabel || "");
+  document.getElementById("sRun").textContent = lbl ? "\u00b7 init " + lbl : "";
+}}
+function sToggle() {{
+  if (sTimer) {{ clearInterval(sTimer); sTimer = null; document.getElementById("sPlay").textContent = "▶"; return; }}
+  document.getElementById("sPlay").textContent = "⏸";
+  const ms = +document.getElementById("sSpeed").value;
+  sTimer = setInterval(() => {{ sFh = sFh >= 18 ? 1 : sFh + 1; document.getElementById("sSel").value = sFh; sShow(); }}, ms);
+}}
+document.getElementById("sPlay").onclick = sToggle;
+document.getElementById("sPrev").onclick = () => {{ sFh = sFh <= 1 ? 18 : sFh - 1; document.getElementById("sSel").value = sFh; sShow(); }};
+document.getElementById("sNext").onclick = () => {{ sFh = sFh >= 18 ? 1 : sFh + 1; document.getElementById("sSel").value = sFh; sShow(); }};
+document.getElementById("sSel").oninput = e => {{ sFh = +e.target.value; sShow(); }};
+document.getElementById("sProd").onchange = sShow;
+document.getElementById("sSec").onchange = sShow;
+
+window.onDataRefresh = function (d) {{
+  if (!d) return;
+  SHR = d.spcHrrr || {{}};
+  REND = d.renderIndex || [];
+  if (!sBooted) {{
+    sBooted = true;
+    sFh = Math.min(18, Math.max(1, parseInt(document.getElementById("sSel").value, 10) || 18));
+    sShow();
+    rFill();
+  }}
+}};
+/* data.json may already be cached by the shell's first fetch: if it beat
+   this script, initialize now instead of waiting ~3 min for the next poll */
+if (typeof SITE_DATA !== "undefined" && SITE_DATA) window.onDataRefresh(SITE_DATA);
+
+/* ---------------- our renders explorer ---------------- */
+function rCombos() {{
+  const m = document.getElementById("rModel").value;
+  const reg = document.getElementById("rRegion").value;
+  const seen = new Set();
+  const out = [];
+  for (const c of REND) {{
+    if (c.model !== m || c.region !== reg || seen.has(c.product)) continue;
+    seen.add(c.product); out.push(c);
+  }}
+  return out;
+}}
+function rFill() {{
+  const combos = rCombos();
+  document.getElementById("rProd").innerHTML = combos.map(c =>
+    '<option value="' + c.product + '">' + c.product + '</option>').join("")
+    || '<option value="">(none rendered yet)</option>';
+  rShow();
+}}
+function rShow() {{
+  const m = document.getElementById("rModel").value;
+  const p = document.getElementById("rProd").value;
+  const reg = document.getElementById("rRegion").value;
+  const c = REND.find(x => x.model === m && x.product === p && x.region === reg);
+  const wrap = document.getElementById("rWrap");
+  if (!c || !c.frames || !c.frames.length) {{
+    wrap.innerHTML = '<div class="src">No ' + m + ' ' + p + ' (' + reg + ') frames in this build.</div>';
+    document.getElementById("rMeta").textContent = "";
+    return;
+  }}
+  const f = c.frames[c.frames.length - 1];
+  wrap.innerHTML = '<img src="' + f.url + '" loading="lazy" style="width:100%;max-width:900px;border-radius:10px;border:1px solid #333c46"/>'
+    + '<div class="ctl" style="margin-top:8px"><select id="rSel">'
+    + c.frames.map((fr, i) => '<option value="' + i + '"' + (i === c.frames.length - 1 ? ' selected' : '') + '>F' + String(fr.fh).padStart(3, "0") + '</option>').join("")
+    + '</select><span class="frame">init ' + c.cycle.slice(4,6) + '/' + c.cycle.slice(6,8) + ' ' + c.cycle.slice(8,10) + 'Z</span></div>';
+  document.getElementById("rSel").onchange = e => {{ wrap.querySelector("img").src = c.frames[+e.target.value].url; }};
+  document.getElementById("rMeta").textContent = c.frames.length + " frame(s) \u00b7 newest cycle " + c.cycle;
+}}
+document.getElementById("rModel").onchange = rFill;
+document.getElementById("rRegion").onchange = rFill;
+document.getElementById("rProd").onchange = rShow;
+rFill();
+</script>
+"""
+    return _page("HRRR · RRFS", "hrrr.html", body)
+
+
+def _spc_hrrr_safe():
+    """SPC HRRR browser payload for the HRRR+RRFS page (never breaks a build)."""
+    try:
+        from data.spc_hrrr import payload
+        return payload()
+    except Exception:  # noqa: BLE001
+        return {"run": "", "runLabel": "", "products": [], "sectors": []}
 
 
 def page_fronts(d):
@@ -3044,7 +3214,8 @@ window.onDataRefresh = function (d) {{ refresh(d); }};   /* soft auto-refresh: t
 
 def _page(title, active, body, extra_head=""):
     pages = [("index.html", "Home"), ("radar.html", "Radar"), ("satellite.html", "Satellite"),
-             ("models.html", "Models"), ("tropical.html", "NHC"),             ("storms.html", "Storms"), ("fronts.html", "Fronts"),
+             ("models.html", "Models"), ("hrrr.html", "HRRR · RRFS"),
+             ("tropical.html", "NHC"),             ("storms.html", "Storms"), ("fronts.html", "Fronts"),
              ("history.html", "History"),
              ("tropmodels.html", "Trop Models"), ("climate.html", "Climate"),
              ("enso.html", "El Niño"),
@@ -9626,6 +9797,7 @@ def generate_site():
             "storms.html": page_storms(d),
             "history.html": page_history(d),
             "fronts.html": page_fronts(d),
+            "hrrr.html": page_hrrr(d),
             "tropmodels.html": page_tropmodels(d),
             "climate.html": page_climate(d),
             "enso.html": page_enso(d),
