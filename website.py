@@ -845,6 +845,71 @@ def page_hrrr(d):
     rend = [c for c in (d.get("renderIndex") or [])
             if c.get("model") in ("HRRR", "RRFS") and (c.get("frames"))]
     psu = d.get("psu")
+    sev = d.get("severe") or {}
+    fc = sev.get("forecast") or {}
+
+    # --- SPC outlook chips + mini-map (Day 1/2 categorical) ---
+    _CAT_ORDER = ["HIGH", "MDT", "ENH", "SLGT", "MRGL", "TSTM"]
+    ol = [o for o in (sev.get("outlooks") or [])
+          if o.get("label") in _CAT_ORDER and o.get("geometry")]
+    seen_day = {}
+    for o in ol:
+        seen_day.setdefault(o.get("day"), []).append(o)
+    ol_chips = ""
+    for day in ("day1", "day2"):
+        day_ols = seen_day.get(day) or []
+        if not day_ols:
+            continue
+        top = sorted(day_ols, key=lambda o: _CAT_ORDER.index(o["label"]))[0]
+        ol_chips += (f'<div class="kpi"><span>SPC {day.replace("day", "Day ")}'
+                     f'<b class="chip" style="background:{top["fill"]};font-size:15px">'
+                     f'{html.escape(top["label"])} · {html.escape(top.get("label2") or "")}</b></div>')
+
+    def _ol_polys(geo):
+        if not geo:
+            return []
+        t = geo.get("type")
+        if t == "Polygon":
+            return [geo.get("coordinates", [])]
+        if t == "MultiPolygon":
+            return geo.get("coordinates", [])
+        return []
+
+    _polys = []
+    for o in (seen_day.get("day1") or []):
+        for poly in _ol_polys(o.get("geometry")):
+            _polys.append({"color": o.get("fill") or "#c1e9c1",
+                           "rings": poly})
+
+    # --- East-TN hail/rotation CAM forecast rows ---
+    hours = fc.get("hours") or []
+    fc_rows = ""
+    for hrow in hours[:8]:
+        t = str(hrow.get("time") or "")
+        try:
+            from data._tz import iso_local
+            t_lbl = iso_local(t)
+        except Exception:  # noqa: BLE001
+            t_lbl = t[11:16] + "Z"
+        fc_rows += (
+            f'<tr><td>{html.escape(t_lbl)}</td>'
+            f'<td><span class="chip" style="background:{hrow.get("catColor") or "#81c784"};font-size:13px">'
+            f'{"-" if hrow.get("cat") is None else html.escape(str(hrow["cat"]))}</span></td>'
+            f'<td><span class="chip" style="background:{hrow.get("ucatColor") or "#81c784"};font-size:13px">'
+            f'{"-" if hrow.get("ucat") is None else html.escape(str(hrow["ucat"]))}</span></td></tr>')
+    peak = fc.get("peak") or {}
+    peak_rot = fc.get("peakRot") or {}
+
+    def _sev_renders():
+        out = []
+        for c in rend:
+            if c["product"] in ("cape_wind", "mucape", "lr75", "shear06",
+                                "sbcape", "mlcape"):
+                out.append(c)
+        return out
+
+    sev_combos = _sev_renders()
+    polys_json = json.dumps(_polys)
 
     def _opts(lst, val_key, lbl_key):
         return "".join(f'<option value="{html.escape(str(o[val_key]))}">'
@@ -869,6 +934,30 @@ def page_hrrr(d):
     <select id="zSpeed"><option value="1400">0.5x</option><option value="700" selected>1x</option><option value="350">2x</option></select>
   </div>
   <p class="src" id="zMeta" style="margin-top:6px">RRFS renders hourly F001-F018 as NOAA publishes each cycle · valid times in ET on each map</p>
+</div>
+
+<div class="card">
+  <h2>🚨 Severe weather <span class="src" style="font-weight:400">SPC outlooks · CAM severe parameters · East-TN hail/rotation forecast</span></h2>
+  <div class="kpis" style="margin:6px 0">{ol_chips or '<div class="kpi"><span>SPC outlook</span><b class="chip" style="background:#333c46;font-size:14px">unavailable</b></div>'}</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start">
+    <div>
+      <div id="olMap" style="height:300px;border-radius:10px;border:1px solid #333c46" class="map-dark"></div>
+      <div class="src" style="margin-top:4px">SPC Day 1 categorical risks (official colors) · click a polygon for the risk level</div>
+    </div>
+    <div>
+      <table style="width:100%;border-collapse:collapse;font-size:14px">
+        <tr style="color:#7d8794"><th style="text-align:left;padding:4px">Valid (ET)</th><th style="text-align:left">Hail (East TN)</th><th style="text-align:left">Rotation (UPHL)</th></tr>
+        {fc_rows or '<tr><td colspan="3" class="src">CAM severe forecast unavailable right now.</td></tr>'}
+      </table>
+      <div class="src" style="margin-top:6px">Peak this window: hail <b style="color:#ffb74d">{peak.get('mm', 0):.1f} mm</b>{' at ' + html.escape(str(peak.get('time') or '')) if peak.get('time') else ''} · rotation <b style="color:#ce93d8">{peak_rot.get('val', 0):.0f} m²/s²</b>{' at ' + html.escape(str(peak_rot.get('time') or '')) if peak_rot.get('time') else ''} · from the live HRRR run via data.severe</div>
+    </div>
+  </div>
+  <div class="ctl" style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <label class="src" style="margin:0">CAM severe parameter</label>
+    <select id="vCombo"></select>
+    <span class="src" style="margin:0">frames step hourly · rendered locally from NOAA GRIB</span>
+  </div>
+  <div id="vWrap" style="margin-top:10px"></div>
 </div>
 
 <div class="card">
@@ -980,6 +1069,76 @@ document.getElementById("sSel").oninput = e => {{ sFh = +e.target.value; sShow()
 document.getElementById("sProd").onchange = sShow;
 document.getElementById("sSec").onchange = sShow;
 
+/* ---------------- severe: SPC outlook map + CAM severe renders ---------------- */
+const OL_POLYS = {polys_json};
+let olMap = null, olLayer = null, vIdx = 0, vTimer = null;
+function drawOutlooks() {{
+  if (!OL_POLYS.length) return;
+  if (!olMap) {{
+    olMap = L.map("olMap", {{attributionControl: false, zoomSnap: 0.5}});
+    L.tileLayer("https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png",
+                {{maxNativeZoom: 19, maxZoom: 21}}).addTo(olMap);
+  }}
+  if (olLayer) olLayer.remove();
+  olLayer = L.layerGroup().addTo(olMap);
+  const lls = [];
+  for (const p of OL_POLYS) {{
+    for (const ring of (p.rings || [])) {{
+      const ll = ring.map(pt => [pt[1], pt[0]]);
+      lls.push(...ll);
+      L.polygon(ll, {{color: "#333c46", weight: 1, fillColor: p.color,
+                     fillOpacity: .55}})
+        .bindTooltip("SPC Day 1 categorical risk")
+        .addTo(olLayer);
+    }}
+  }}
+  /* keep East Tennessee in frame even when today's risk is far away */
+  lls.push([35.86, -86.35]);
+  olMap.fitBounds(L.latLngBounds(lls).pad(0.2));
+}}
+function vFrames() {{
+  const c = document.getElementById("vCombo");
+  if (!c || !c.value) return null;
+  const parts = c.value.split("|");
+  return (REND || []).find(x => x.model === parts[0] && x.product === parts[1]
+                              && x.region === parts[2]) || null;
+}}
+function vFill() {{
+  const seen = new Set(), opts = [];
+  for (const c of (REND || [])) {{
+    if (["cape_wind", "mucape", "lr75", "shear06"].indexOf(c.product) < 0) continue;
+    const key = c.model + "|" + c.product + "|" + c.region;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const regionLbl = c.region === "etn" ? "East TN" : "CONUS";
+    opts.push('<option value="' + key + '">' + c.model + ' ' + c.product
+      + ' \u00b7 ' + regionLbl + '</option>');
+  }}
+  document.getElementById("vCombo").innerHTML = opts.join("")
+    || '<option value="">(no severe renders yet)</option>';
+  vShow();
+}}
+function vShow() {{
+  const c = vFrames();
+  const wrap = document.getElementById("vWrap");
+  if (!c || !c.frames || !c.frames.length) {{
+    wrap.innerHTML = '<div class="src">No severe-parameter renders in this build yet.</div>';
+    return;
+  }}
+  vIdx = Math.min(vIdx, c.frames.length - 1);
+  const f = c.frames[vIdx];
+  wrap.innerHTML = '<img src="' + f.url + '" loading="lazy" style="width:100%;max-width:900px;border-radius:10px;border:1px solid #333c46"/>'
+    + '<div class="ctl" style="margin-top:8px"><button id="vPlay">\u25b6</button><span class="frame">F' + String(f.fh).padStart(3, "0") + '</span>'
+    + '<select id="vSel">' + c.frames.map((x, i) => '<option value="' + i + '"' + (i === vIdx ? ' selected' : '') + '>F' + String(x.fh).padStart(3, "0") + '</option>').join("") + '</select>'
+    + '<span class="frame">init ' + c.cycle.slice(4,6) + '/' + c.cycle.slice(6,8) + ' ' + c.cycle.slice(8,10) + 'Z</span></div>';
+  wrap.querySelector('#vSel').onchange = e => {{ vIdx = +e.target.value; vShow(); }};
+  wrap.querySelector('#vPlay').onclick = () => {{
+    if (vTimer) {{ clearInterval(vTimer); vTimer = null; wrap.querySelector('#vPlay').textContent = '\u25b6'; return; }}
+    vTimer = setInterval(() => {{ vIdx++; vShow(); }}, 900);
+  }};
+}}
+document.getElementById("vCombo").onchange = () => {{ vIdx = 0; vShow(); }};
+
 window.onDataRefresh = function (d) {{
   if (!d) return;
   SHR = d.spcHrrr || {{}};
@@ -989,6 +1148,8 @@ window.onDataRefresh = function (d) {{
     sFh = Math.min(18, Math.max(1, parseInt(document.getElementById("sSel").value, 10) || 18));
     sShow();
     zShow();
+    vFill();
+    try {{ drawOutlooks(); }} catch (_e) {{}}
     rFill();
   }} else zShow();
 }};
