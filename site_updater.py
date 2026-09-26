@@ -100,6 +100,83 @@ def check_public_freshness(force=False):
 
 
 # ------------------------------------------------------------
+# NOAA UPSTREAM FEED WATCHDOG
+# A stalled NOAA feed looks identical to a broken site from the outside
+# (RRFS sat 4+ h at 21Z on 2026-09-25 and the page read "NOT UPDATING").
+# Reuse website._upstream_status() - the same probe round the models-page
+# status line ships - so the log and the page can never disagree. Warn
+# once per incident per model; RRFS past RRFS_STALE_HOURS re-warns hourly
+# (bounded) because RRFS staleness is what users notice first.
+# ------------------------------------------------------------
+UPSTREAM_CHECK_EVERY = 300       # check every 5 min
+RRFS_STALE_HOURS = 2.0           # RRFS publishes hourly; 2 h = upstream gap
+RRFS_REWARN_EVERY = 3600         # while stalled, re-warn hourly
+
+_upstream_last_check = 0.0
+_upstream_alerted = {}           # model -> True while its incident is open
+_rrfs_last_warn = 0.0
+
+
+def check_upstream_feeds(force=False):
+    """Warn in the log when NOAA model feeds lag their publish rhythm.
+
+    Calls website._upstream_status() (12-min probe cache shared with the
+    models page) on a 5-min throttle. Any feed whose newest published
+    cycle is older than its maxAge logs a WARNING once per incident and a
+    "fresh again" line when it recovers; RRFS older than RRFS_STALE_HOURS
+    additionally re-warns hourly for the duration of the gap. An empty
+    probe round (network down) stays silent - never a false alarm.
+    """
+    global _upstream_last_check, _rrfs_last_warn
+    now = time.time()
+    if not force and now - _upstream_last_check < UPSTREAM_CHECK_EVERY:
+        return
+    _upstream_last_check = now
+
+    try:
+        import website as _website
+        status = _website._upstream_status()
+    except Exception as exc:  # noqa: BLE001 - must never break the update cycle
+        log(f"upstream feed check error: {exc}")
+        return
+    if not status:
+        return                      # probe round produced nothing - stay silent
+
+    import datetime as _dt
+    now_utc = _dt.datetime.now(_dt.timezone.utc)
+
+    def _age_h(cyc):
+        try:
+            c = _dt.datetime.strptime(cyc, "%Y%m%d%H").replace(
+                tzinfo=_dt.timezone.utc)
+        except (ValueError, TypeError):
+            return None
+        return (now_utc - c).total_seconds() / 3600.0
+
+    for model, info in sorted(status.items()):
+        cyc = (info or {}).get("cycle")
+        age = _age_h(cyc)
+        if age is None:
+            continue
+        max_age = float((info or {}).get("maxAge") or 2.0)
+        if age > max_age:
+            if not _upstream_alerted.get(model):
+                _upstream_alerted[model] = True
+                log(f"WARNING: NOAA {model} feed lagging - newest published "
+                    f"cycle {cyc} is {age:.1f} h old (normal <= {max_age:.1f} h); "
+                    f"renders hold at that cycle until NOAA uploads.")
+            if (model == "RRFS" and age > RRFS_STALE_HOURS
+                    and now - _rrfs_last_warn >= RRFS_REWARN_EVERY):
+                _rrfs_last_warn = now
+                log(f"WARNING: RRFS newest cycle {cyc} is {age:.1f} h old "
+                    f"(> {RRFS_STALE_HOURS:.0f} h) - RRFS maps and the "
+                    f"HRRR-vs-RRFS card are holding at the old init. NOAA "
+                    f"upstream gap, not a site fault.")
+        elif _upstream_alerted.pop(model, None):
+            log(f"NOAA {model} feed fresh again (newest cycle {cyc}).")
+
+
+# ------------------------------------------------------------
 # DETACHED PUBLISH
 # ------------------------------------------------------------
 
@@ -784,6 +861,10 @@ def main():
 
             # Freshness watchdog (own 5-min throttle inside).
             check_public_freshness()
+
+            # NOAA upstream feed watchdog (own 5-min throttle inside;
+            # shares website's 12-min probe cache with the models page).
+            check_upstream_feeds()
 
             # ------------------------------------------------
             # SMS WEATHER ALERTS (texts new NWS warnings/alerts)
