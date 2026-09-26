@@ -1035,6 +1035,41 @@ def page_hrrr(d):
     sev_combos = _sev_renders()
     polys_json = json.dumps(_polys)
 
+    # CAM freshness stamp: how far behind the newest rendered cycle of each
+    # model is, so a lagging NOAA feed reads as "waiting on NOAA" instead of
+    # a silently frozen page (2026-09-25 "NOT UPDATING" - RRFS sat on 21Z
+    # for 4+ h while HRRR rolled on; both were behaving correctly).
+    _NOW_ET = dt.datetime.now(_tz.ET)
+
+    def _cam_lag(model):
+        """(lag_hours, cycle_label) for the newest cycle of `model` on disk."""
+        cycs = [c.get("cycle") for c in rend if c.get("model") == model
+                and c.get("cycle")]
+        if not cycs:
+            return None
+        try:
+            newest = dt.datetime.strptime(max(cycs), "%Y%m%d%H").replace(
+                tzinfo=dt.timezone.utc)
+        except ValueError:
+            return None
+        return (( _NOW_ET - newest.astimezone(_tz.ET)
+                  ).total_seconds() / 3600.0,
+                f"{newest:%m/%d} {newest:%H}Z")
+
+    def _lag_lbl(model):
+        lag = _cam_lag(model)
+        if lag is None:
+            return f"{model} renders pending"
+        h, cyc = lag
+        if h < 1.5:
+            return f"{model} current \u00b7 init {cyc}"
+        if h < 4.5:
+            return f"{model} init {cyc} \u00b7 {h:.0f} h old"
+        return f"{model} waiting on NOAA \u00b7 newest init {cyc}, {h:.0f} h old"
+
+    _CAM_AGES = (f"{_lag_lbl('HRRR')} \u00b7 {_lag_lbl('RRFS')} \u00b7 "
+                 f"updated {_NOW_ET:%m/%d %I:%M %p} ET")
+
     def _opts(lst, val_key, lbl_key):
         return "".join(f'<option value="{html.escape(str(o[val_key]))}">'
                        f'{html.escape(str(o[lbl_key]))}</option>' for o in lst)
@@ -1044,7 +1079,7 @@ def page_hrrr(d):
 <div class="sub">3-km convection-allowing models: SPC's official HRRR browser + our own RRFS/HRRR MetPy renders · free, no keys · updated {html.escape(d["generated"])}</div></header>
 
 <div class="card">
-  <h2>📡 RRFS radar <span class="src" style="font-weight:400">simulated composite reflectivity · our MetPy render from NOAA 3-km GRIB</span></h2>
+  <h2>📡 RRFS radar <span class="src" style="font-weight:400">simulated composite reflectivity · our MetPy render from NOAA 3-km GRIB · <span id="zAge">{_CAM_AGES}</span></span></h2>
   <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
     <label class="src" style="margin:0">Area</label>
     <select id="zRegion"><option value="etn">East Tennessee</option><option value="us">US (CONUS)</option></select>
@@ -1061,7 +1096,7 @@ def page_hrrr(d):
 </div>
 
 <div class="card">
-  <h2>⚔️ HRRR vs RRFS <span class="src" style="font-weight:400">side-by-side · same valid time · where the two 3-km CAMs disagree</span></h2>
+  <h2>⚔️ HRRR vs RRFS <span class="src" style="font-weight:400">side-by-side · same valid time · where the two 3-km CAMs disagree · <span id="cAge">{_CAM_AGES}</span></span></h2>
   <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
     <label class="src" style="margin:0">Product</label>
     <select id="cProd"></select>
@@ -1089,7 +1124,7 @@ def page_hrrr(d):
     <select id="cSpeed"><option value="1400">0.5x</option><option value="700" selected>1x</option><option value="350">2x</option></select>
     <span id="cMeta" class="src"></span>
   </div>
-  <p class="src" style="margin-top:6px">Valid times shown in ET · each panel labels its own init cycle · a panel reading "not rendered this cycle" means our updater hasn't produced that CAM's frame for this valid time yet - never a blank guess.</p>
+  <p class="src" style="margin-top:6px">Valid times shown in ET · each panel labels its own init cycle · a panel reading "not rendered this cycle" means our updater hasn't produced that CAM's frame for this valid time yet - never a blank guess · a "waiting on NOAA" stamp means the model's newest published cycle is hours behind; rendering resumes the moment NOAA uploads it.</p>
 </div>
 
 <div class="card">
@@ -1152,6 +1187,8 @@ def page_hrrr(d):
 /* filled by onDataRefresh: SITE_DATA is still null while this script
    parses (data.json loads async), so the payload always arrives late */
 let SHR = {{}}, REND = [], CMP = [], sBooted = false;
+let DATA_STAMP = {json.dumps(d["generated"])};
+const cycLbl = s => s.slice(4,6) + "/" + s.slice(6,8) + " " + s.slice(8,10) + "Z";
 
 /* ---------------- RRFS simulated-radar player ---------------- */
 let zTimer = null, zIdx = 0;
@@ -1169,6 +1206,11 @@ function zShow() {{
       "RRFS radar not rendered in this build yet - the updater fills it in as NOAA publishes cycles.";
     return;
   }}
+  document.getElementById("zAge").textContent = (() => {{
+    const rc = (REND || []).find(x => x.model === "RRFS" && x.product === "refc"
+                                      && x.region === document.getElementById("zRegion").value);
+    return rc ? "RRFS init " + cycLbl(rc.cycle) + " · updated " + (DATA_STAMP || "") : (DATA_STAMP || "");
+  }})();
   zIdx = ((zIdx % fr.length) + fr.length) % fr.length;
   const f = fr[zIdx];
   img.src = f.url;
@@ -1213,8 +1255,10 @@ function cShow() {{
     document.getElementById("cHcyc").textContent = "";
     document.getElementById("cRcyc").textContent = "";
     document.getElementById("cMeta").textContent = "";
+    document.getElementById("cAge").textContent = DATA_STAMP || "";
     return;
   }}
+  document.getElementById("cAge").textContent = DATA_STAMP || "";
   cIdx = ((cIdx % c.pairs.length) + c.pairs.length) % c.pairs.length;
   const p = c.pairs[cIdx];
   if (p.hrrr) {{ hi.src = p.hrrr.url; hi.style.visibility = "visible"; hm.style.display = "none"; }}
