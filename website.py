@@ -819,6 +819,7 @@ def collect_data():
         "modelCatalog": model_catalog,
         "renderIndex": _render_index(),
         "cmpCam": _cmp_cam_index(),
+        "upstream": _upstream_status(),
         "pivotUs": _pivot_us(),
         "pivotEtn": _pivot_us("etn"),
         "sevTowns": _sev_towns_safe(),
@@ -5084,8 +5085,49 @@ setInterval(async () => {
   try {
     const nd = await (await fetch("data.json?t=" + Date.now(), {cache: "no-store"})).json();
     mprogFrom(nd);
+    upFrom(nd);
   } catch (_e) { /* offline tick - keep the last known state */ }
 }, 300000);
+
+/* ---------------- NOAA upstream feed status ----------------
+   Newest cycle each provider feed has published, labeled against its
+   normal publish rhythm so a stalled feed (RRFS sat 4+ h at 21Z on
+   2026-09-25 while HRRR rolled on) reads as "NOAA is behind", not a
+   broken site. UPSTREAM is stamped into data.json each build. */
+function upFrom(up) {
+  const box = document.getElementById("upstreamLine");
+  if (!box) return;
+  up = up || window.UPSTREAM || {};
+  const rows = [];
+  for (const m of Object.keys(up).sort()) {
+    const u = up[m];
+    if (!u || !u.cycle) continue;
+    const age = (Date.now() - Date.parse(u.cycle.slice(0,4) + "-" + u.cycle.slice(4,6) + "-" +
+                 u.cycle.slice(6,8) + "T" + u.cycle.slice(8,10) + ":00:00Z")) / 36e5;
+    const maxA = u.maxAge || 2, hb = u.hoursBetween || 6;
+    const st = age > maxA * 2.5 ? 2 : (age > maxA ? 1 : 0);
+    const lbl = st === 2 ? "stalled" : (st === 1 ? "lagging" : "current");
+    const col = ["#2e7d32", "#ef6c00", "#c62828"][st];
+    rows.push({m, lbl, col, age, hb,
+               cyc: u.cycle.slice(4,6) + "/" + u.cycle.slice(6,8) + " " + u.cycle.slice(8,10) + "Z"});
+  }
+  rows.sort((a, b) => ((b.lbl === "stalled") - (a.lbl === "stalled")) || (b.age - a.age));
+  if (!rows.length) {
+    box.textContent = "NOAA upstream status unavailable this build - the probe round failed or was skipped.";
+    return;
+  }
+  const bad = rows.filter(r => r.lbl !== "current").length;
+  const head = bad
+    ? "⚠️ " + bad + " upstream feed" + (bad > 1 ? "s" : "") + " behind schedule - "
+    : "✅ All " + rows.length + " upstream feeds publishing on schedule - ";
+  box.innerHTML = head + rows.map(r =>
+    '<span title="' + r.m + ": newest published cycle " + r.cyc + ", " +
+      r.age.toFixed(1) + ' h old (normal ≤ ' + r.hb + ' h)" style="margin-right:10px;white-space:nowrap">' +
+      '<span style="color:' + r.col + '">●</span> ' + r.m +
+      " " + r.cyc +
+      (r.lbl === "current" ? "" : " \u00b7 " + r.lbl + " (" + Math.round(r.age) + " h)"));
+}
+upFrom(null);
 """
 
 
@@ -5724,6 +5766,81 @@ window.onDataRefresh = function (d2) { if (d2 && d2.sevTowns) sevTownRender(d2.s
 """
 
 
+# ---- NOAA upstream feed status (models page status line) ----
+# Upper bound of a NORMAL gap between publishable cycles, in hours. A
+# newest cycle older than this reads as "lagging"; beyond 2.5x reads as a
+# stalled feed. Values = cadence + typical publish latency, calibrated
+# against live probes (2026-09-26): CAMs publish hourly within ~2 h,
+# 6-hourly globals land ~3.5-4.5 h after cycle time (worst normal gap
+# just under 10 h), ECMWF dissemination runs 8-10 h behind its 12-hourly
+# cycles, the GFS-init AI models are slower still, and CFS only posts one
+# usable cycle per day. MPAS/SHiELD are not NOMADS feeds and are skipped.
+_UPSTREAM_MAX_AGE = {
+    "HRRR": 2.0, "RRFS": 2.0, "RAP": 2.0, "NBM": 2.5,
+    "GFS": 10.0, "NAM": 10.0, "GEFS": 10.0, "GEFS-Spread": 10.0,
+    "HREF": 10.0, "REFS": 10.0, "SREF": 8.0,
+    "ECMWF": 15.0, "AIFS": 15.0, "AIFS-ENS": 15.0, "EPS-Weekly": 24.0,
+    "AI-GraphCast": 24.0, "AI-Aurora": 24.0, "AI-Pangu": 24.0,
+    "AI-FourCastNet": 24.0, "CFS": 30.0,
+}
+
+# Normal spacing between cycles, for the "normal ≤ N h" tooltip on models
+# whose cadence differs from their NOMADS probe lookback list. Everything
+# not named here publishes hourly and derives 1 h from its probe list.
+_UPSTREAM_HOURS_BETWEEN = {
+    "GFS": 6, "NAM": 6, "GEFS": 6, "GEFS-Spread": 6,
+    "HREF": 6, "REFS": 6, "CFS": 24, "EPS-Weekly": 24, "SREF": 6,
+    "ECMWF": 12, "AIFS": 12, "AIFS-ENS": 12,
+    "AI-GraphCast": 12, "AI-Aurora": 12, "AI-Pangu": 12, "AI-FourCastNet": 12,
+}
+
+_UPSTREAM_CACHE = {"t": 0.0, "v": {}}
+_UPSTREAM_TTL = 720.0        # builds run ~15 min apart; reuse across them
+
+
+def _upstream_status():
+    """Newest cycle each feed model has published upstream.
+
+    Powers the models-page "NOAA upstream" status line. Each entry is just
+    find_cycle() - the same probe the renderers use - labeled with the
+    model's normal publish rhythm, so a stalled feed (RRFS stuck 4+ h at
+    21Z on 2026-09-25 while HRRR rolled on hourly) is visible on the page
+    instead of reading as a broken site. Cached 12 minutes: the probe loop
+    costs one request per candidate cycle, and the updater builds every
+    ~15 min, so most builds reuse the previous probe round.
+    """
+    now = time.time()
+    if now - _UPSTREAM_CACHE["t"] < _UPSTREAM_TTL:
+        return _UPSTREAM_CACHE["v"]
+    out = {}
+    try:
+        from data.model_maps import MAP_MODELS, find_cycle
+        for model in MAP_MODELS:
+            try:
+                c = find_cycle(model)
+            except Exception:  # noqa: BLE001 - one dead probe must not sink the line
+                c = None
+            if c is None:
+                continue
+            if getattr(c, "tzinfo", None) is None:
+                c = c.replace(tzinfo=dt.timezone.utc)
+            hb = _UPSTREAM_HOURS_BETWEEN.get(model)
+            if not hb:
+                cyc = sorted(MAP_MODELS[model].get("cycles") or [6])
+                diffs = [b - a for a, b in zip(cyc, cyc[1:]) if b > a]
+                hb = max(1, min(diffs)) if diffs else 6
+            out[model] = {
+                "cycle": f"{c:%Y%m%d%H}",
+                "maxAge": _UPSTREAM_MAX_AGE.get(model, 2.0),
+                "hoursBetween": hb,
+            }
+    except Exception:  # noqa: BLE001 - status line is optional chrome
+        out = {}
+    _UPSTREAM_CACHE["v"] = out
+    _UPSTREAM_CACHE["t"] = now
+    return out
+
+
 def page_models(d):
     gal = d.get("models") or []
     cards = []
@@ -5778,6 +5895,7 @@ def page_models(d):
   </div>
   <div class="src" id="mprogTxt">Counting rendered maps…</div>
   <div id="mprogModels" style="margin-top:10px"></div>
+  <div id="upstreamLine" class="src" style="margin-top:10px;border-top:1px solid #e5e7eb;padding-top:8px">checking NOAA upstream feeds…</div>
   <div class="src" style="margin-top:4px">Per-model completeness - lowest first, so a starved or broken model shows at the top. Refills every 5 minutes.</div>
 </div>
 
@@ -5867,6 +5985,7 @@ def page_models(d):
 <script>
 const CAT = {json.dumps(cat)};
 const REND = {json.dumps(d.get("renderIndex") or [])};
+window.UPSTREAM = {json.dumps(d.get("upstream") or {})};
 window.PIVOTUS = {json.dumps(d.get("pivotUs") or [])};
 window.PIVOTREG = {json.dumps(d.get("pivotRegions") or {})};
 window.PIVOTETN = {json.dumps(d.get("pivotEtn") or [])};
