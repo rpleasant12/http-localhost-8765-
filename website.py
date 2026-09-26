@@ -2875,21 +2875,55 @@ def _trop_models_safe():
         return {"ok": False, "storms": []}
 
 
+# Climate/ENSO last-good carry-forward: CPC graphics and the ENSO
+# discussion update only 1-2x/day, but a single transient fetch failure
+# during a build used to ship an EMPTY El Nino/climate page until the next
+# build (seen 2026-09-26: enso payload figures=0/oni=0 on the public site
+# while data.enso worked minutes later). Serve the last good bundle for up
+# to 48 h instead of an empty placeholder; refresh happens on the bundles'
+# own cadence (3 h cache inside data.enso/data.climate, self-healing if a
+# mirrored graphic vanishes).
+_CLIMATE_LAST_GOOD = {"t": 0.0, "v": None}
+_ENSO_LAST_GOOD = {"t": 0.0, "v": None}
+_CLIMATE_GOOD_TTL = 48 * 3600.0
+_CLIMATE_REFRESH = 3 * 3600       # "update every so often": ~4x/day
+
+
 def _enso_safe():
-    """El Nino / ENSO bundle (never breaks the site build)."""
+    """El Nino / ENSO bundle - refreshes ~3 h, never regresses to empty."""
     try:
         from data.enso import bundle
-        return bundle()
-    except Exception:                              # noqa: BLE001
+        v = bundle(max_age=_CLIMATE_REFRESH)
+        if not (v and (v.get("oni") or v.get("figures") or v.get("enso"))):
+            raise RuntimeError("bundle came back empty")
+        _ENSO_LAST_GOOD.update(t=time.time(), v=v)
+        return v
+    except Exception as exc:                       # noqa: BLE001
+        last = _ENSO_LAST_GOOD.get("v")
+        if last and time.time() - _ENSO_LAST_GOOD["t"] < _CLIMATE_GOOD_TTL:
+            age = int((time.time() - _ENSO_LAST_GOOD["t"]) / 60)
+            print(f"enso bundle failed ({type(exc).__name__}: {exc}); "
+                  f"carrying forward last good ({age} min old)", flush=True)
+            return last
         return {"oni": [], "sst": [], "chips": [], "figures": []}
 
 
 def _climate_safe():
-    """CPC long-range outlooks + ENSO (never breaks the build)."""
+    """CPC long-range outlooks + ENSO - refreshes ~3 h, never regresses."""
     try:
         from data.climate import bundle as _clb
-        return _clb()
-    except Exception:                                  # noqa: BLE001
+        v = _clb(max_age=_CLIMATE_REFRESH)
+        if not (v and (v.get("groups") or v.get("oni"))):
+            raise RuntimeError("bundle came back empty")
+        _CLIMATE_LAST_GOOD.update(t=time.time(), v=v)
+        return v
+    except Exception as exc:                           # noqa: BLE001
+        last = _CLIMATE_LAST_GOOD.get("v")
+        if last and time.time() - _CLIMATE_LAST_GOOD["t"] < _CLIMATE_GOOD_TTL:
+            age = int((time.time() - _CLIMATE_LAST_GOOD["t"]) / 60)
+            print(f"climate bundle failed ({type(exc).__name__}: {exc}); "
+                  f"carrying forward last good ({age} min old)", flush=True)
+            return last
         return {"ok": False, "groups": [], "oni": []}
 
 
