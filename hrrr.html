@@ -353,10 +353,10 @@ setTimeout(function () {
 <div class="wrap">
 
 <header class="hero"><h1>⚡ <span style="color:var(--acc)">HRRR · RRFS</span></h1>
-<div class="sub">3-km convection-allowing models: SPC's official HRRR browser + our own RRFS/HRRR MetPy renders · free, no keys · updated 2026-09-25 8:54 PM ET</div></header>
+<div class="sub">3-km convection-allowing models: SPC's official HRRR browser + our own RRFS/HRRR MetPy renders · free, no keys · updated 2026-09-25 9:19 PM ET</div></header>
 
 <div class="card">
-  <h2>📡 RRFS radar <span class="src" style="font-weight:400">simulated composite reflectivity · our MetPy render from NOAA 3-km GRIB</span></h2>
+  <h2>📡 RRFS radar <span class="src" style="font-weight:400">simulated composite reflectivity · our MetPy render from NOAA 3-km GRIB · <span id="zAge">HRRR current · init 09/26 00Z · RRFS init 09/25 21Z · 4 h old · updated 09/25 09:22 PM ET</span></span></h2>
   <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
     <label class="src" style="margin:0">Area</label>
     <select id="zRegion"><option value="etn">East Tennessee</option><option value="us">US (CONUS)</option></select>
@@ -373,7 +373,7 @@ setTimeout(function () {
 </div>
 
 <div class="card">
-  <h2>⚔️ HRRR vs RRFS <span class="src" style="font-weight:400">side-by-side · same valid time · where the two 3-km CAMs disagree</span></h2>
+  <h2>⚔️ HRRR vs RRFS <span class="src" style="font-weight:400">side-by-side · same valid time · where the two 3-km CAMs disagree · <span id="cAge">HRRR current · init 09/26 00Z · RRFS init 09/25 21Z · 4 h old · updated 09/25 09:22 PM ET</span></span></h2>
   <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
     <label class="src" style="margin:0">Product</label>
     <select id="cProd"></select>
@@ -401,7 +401,7 @@ setTimeout(function () {
     <select id="cSpeed"><option value="1400">0.5x</option><option value="700" selected>1x</option><option value="350">2x</option></select>
     <span id="cMeta" class="src"></span>
   </div>
-  <p class="src" style="margin-top:6px">Valid times shown in ET · each panel labels its own init cycle · a panel reading "not rendered this cycle" means our updater hasn't produced that CAM's frame for this valid time yet - never a blank guess.</p>
+  <p class="src" style="margin-top:6px">Valid times shown in ET · each panel labels its own init cycle · a panel reading "not rendered this cycle" means our updater hasn't produced that CAM's frame for this valid time yet - never a blank guess · a "waiting on NOAA" stamp means the model's newest published cycle is hours behind; rendering resumes the moment NOAA uploads it.</p>
 </div>
 
 <div class="card">
@@ -415,7 +415,7 @@ setTimeout(function () {
     <div>
       <table style="width:100%;border-collapse:collapse;font-size:14px">
         <tr style="color:#7d8794"><th style="text-align:left;padding:4px">Valid (ET)</th><th style="text-align:left">Hail (East TN)</th><th style="text-align:left">Rotation (UPHL)</th></tr>
-        <tr><td>00:00Z</td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td></tr><tr><td>01:00Z</td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td></tr><tr><td>02:00Z</td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td></tr><tr><td>03:00Z</td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td></tr>
+        <tr><td>01:00Z</td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td></tr><tr><td>02:00Z</td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td></tr><tr><td>03:00Z</td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td></tr><tr><td>04:00Z</td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td></tr><tr><td>05:00Z</td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td></tr><tr><td>06:00Z</td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td></tr><tr><td>07:00Z</td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td></tr><tr><td>08:00Z</td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td><td><span class="chip" style="background:#81c784;font-size:13px">-</span></td></tr>
       </table>
       <div class="src" style="margin-top:6px">Peak this window: hail <b style="color:#ffb74d">0.0 mm</b> · rotation <b style="color:#ce93d8">0 m²/s²</b> · from the live HRRR run via data.severe</div>
     </div>
@@ -464,6 +464,8 @@ setTimeout(function () {
 /* filled by onDataRefresh: SITE_DATA is still null while this script
    parses (data.json loads async), so the payload always arrives late */
 let SHR = {}, REND = [], CMP = [], sBooted = false;
+let DATA_STAMP = "2026-09-25 9:19 PM ET";
+const cycLbl = s => s.slice(4,6) + "/" + s.slice(6,8) + " " + s.slice(8,10) + "Z";
 
 /* ---------------- RRFS simulated-radar player ---------------- */
 let zTimer = null, zIdx = 0;
@@ -481,6 +483,11 @@ function zShow() {
       "RRFS radar not rendered in this build yet - the updater fills it in as NOAA publishes cycles.";
     return;
   }
+  document.getElementById("zAge").textContent = (() => {
+    const rc = (REND || []).find(x => x.model === "RRFS" && x.product === "refc"
+                                      && x.region === document.getElementById("zRegion").value);
+    return rc ? "RRFS init " + cycLbl(rc.cycle) + " · updated " + (DATA_STAMP || "") : (DATA_STAMP || "");
+  })();
   zIdx = ((zIdx % fr.length) + fr.length) % fr.length;
   const f = fr[zIdx];
   img.src = f.url;
@@ -525,8 +532,10 @@ function cShow() {
     document.getElementById("cHcyc").textContent = "";
     document.getElementById("cRcyc").textContent = "";
     document.getElementById("cMeta").textContent = "";
+    document.getElementById("cAge").textContent = DATA_STAMP || "";
     return;
   }
+  document.getElementById("cAge").textContent = DATA_STAMP || "";
   cIdx = ((cIdx % c.pairs.length) + c.pairs.length) % c.pairs.length;
   const p = c.pairs[cIdx];
   if (p.hrrr) { hi.src = p.hrrr.url; hi.style.visibility = "visible"; hm.style.display = "none"; }
