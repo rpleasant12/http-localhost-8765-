@@ -6361,6 +6361,14 @@ def page_tropmodels(d):
     <select id="stormPick" class="sel"></select>
     <span class="src" id="tmSummary">{len(storms)} storm(s) · {n_mods} guidance members · {n_charts} chart(s)</span>
   </div>
+  <div id="basinBtns" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+    <span class="src" style="align-self:center;margin-right:2px">Basin view:</span>
+    <button class="bBtn" data-b="all">🌊 All</button>
+    <button class="bBtn" data-b="gulf">🌴 Gulf of Mexico</button>
+    <button class="bBtn" data-b="atl">🏖️ Atlantic &amp; Caribbean</button>
+    <button class="bBtn" data-b="ep">🌄 E Pacific</button>
+    <button class="bBtn" data-b="cp">🌋 Central Pacific</button>
+  </div>
   <div id="map" class="map-dark"></div>
   <div class="legend" id="famLegend">
     <span><i style="background:#ffffff"></i>Official (OFCL)</span>
@@ -6398,9 +6406,119 @@ def page_tropmodels(d):
 <script>
 const TMS = {json.dumps(tm)};
 const FAMCOL = {json.dumps(_FAMCOL)};
-let map, famGroups = {{}};
+let map, famGroups = {{}}, curBasin = "all", lastBasinEmpty = null;
 const KT_COL = kt => kt >= 137 ? "#d32f2f" : kt >= 113 ? "#e64a19" : kt >= 96 ? "#f57c00"
   : kt >= 83 ? "#ffa000" : kt >= 64 ? "#fbc02d" : kt >= 34 ? "#03a9f4" : "#90a4ae";
+// ---- basin views ------------------------------------------------------
+// The page is storm-centric, but guidance matters by basin too: the Gulf
+// button frames + filters to storms threatening the Gulf of Mexico (an AL
+// storm whose track dips west of 84W counts - Bay of Campeche curls),
+// Atlantic/Caribbean to the open-ocean side, E/C Pacific to those basins.
+// With storms active in several basins at once (typical September), the
+// picker and labels follow the filter and an empty basin says so instead
+// of showing an unrelated storm.
+const BASIN_VIEWS = {{
+  all:  {{ c: [26, -82], z: 4 }},
+  gulf: {{ c: [25.5, -89], z: 5 }},
+  atl:  {{ c: [25, -68], z: 4 }},
+  ep:   {{ c: [17, -105], z: 4 }},
+  cp:   {{ c: [16, -160], z: 4 }},
+}};
+const basinOf = s => {{
+  const b = s.basin || "al";
+  if (b === "ep") return "ep";
+  if (b === "cp") return "cp";
+  let minLon = null;
+  (s.tracks || []).forEach(tr => {{
+    const cs = tr && tr.geo && tr.geo.coordinates;
+    if (!Array.isArray(cs)) return;
+    cs.forEach(c => {{ if (Array.isArray(c) && typeof c[0] === "number"
+                        && (minLon === null || c[0] < minLon)) minLon = c[0]; }});
+  }});
+  return minLon !== null && minLon < -84 ? "gulf" : "atl";
+}};
+const bMatches = s => curBasin === "all" || basinOf(s) === curBasin;
+const basinEmpty = T => (T.storms || []).length > 0 && !(T.storms || []).some(bMatches);
+const bBtns = [...document.querySelectorAll("#basinBtns .bBtn")];
+function paintBtns() {{
+  bBtns.forEach(b => {{
+    b.style.cssText = "cursor:pointer;padding:6px 12px;border-radius:8px;border:1px solid #345;"
+      + "font-size:13px;color:inherit;background:"
+      + (b.dataset.b === curBasin ? "#1e4a6e" : "#0d1117");
+  }});
+}}
+function fillStormPicker(T) {{
+  // Matching storms only, labeled with their basin; opens on the one with
+  // the most guidance (a newly-minted storm with no aid-deck file yet used
+  // to open first, shipped an empty shape and killed the boot, 2026-09-20).
+  // Option values keep the ORIGINAL storm index so drawStorm stays stable.
+  const sel = document.getElementById("stormPick");
+  sel.innerHTML = "";
+  let best = -1, bestN = -1;
+  (T.storms || []).forEach((s, i) => {{
+    if (!bMatches(s)) return;
+    const nM = Array.isArray(s.models) ? s.models.length : 0;
+    const o = document.createElement("option");
+    o.value = i;
+    o.textContent = (s.name || "Storm") + " (" + (s.basinName || basinOf(s))
+      + ") - " + nM + " models";
+    sel.appendChild(o);
+    if (nM > bestN) {{ bestN = nM; best = i; }}
+  }});
+  if (sel.options.length)
+    sel.selectedIndex = [...sel.options].findIndex(o => +o.value === best);
+  return best;
+}}
+function setBasinEmpty(on) {{
+  const m = document.getElementById("map");
+  let box = document.getElementById("basinEmptyBox");
+  if (on && !box) {{
+    box = document.createElement("div");
+    box.id = "basinEmptyBox";
+    box.className = "alert ok";
+    box.innerHTML = "<b>🌊 No active storms in this basin view.</b><br/>"
+      + "Switch back to <b>All</b> (or another basin button above) to see the active systems. "
+      + "Guidance appears here automatically when a storm enters this basin.";
+    if (m && m.parentNode) m.parentNode.insertBefore(box, m);
+    else document.body.appendChild(box);
+  }}
+  if (box) box.style.display = on ? "" : "none";
+  if (m) m.style.display = on ? "none" : "";
+  ["chartsCard", "tblCard"].forEach(id => {{
+    const el = document.getElementById(id);
+    if (el) el.style.display = on ? "none" : "";
+  }});
+  if (on) {{
+    const pp = document.getElementById("pointProb");
+    const tt = document.getElementById("topThreats");
+    if (pp) pp.style.display = "none";
+    if (tt) tt.style.display = "none";
+  }}
+}}
+function applyBasin() {{
+  const T = (typeof DATA !== "undefined" && DATA && (DATA.tropModels || TMS)) || TMS;
+  const best = fillStormPicker(T);
+  if (basinEmpty(T) || best < 0) {{
+    setBasinEmpty(true);
+    lastBasinEmpty = true;
+    if (map) Object.values(famGroups).forEach(g => map.removeLayer(g));
+    return;
+  }}
+  setBasinEmpty(false);
+  lastBasinEmpty = false;
+  if (!map) return;
+  if (curBasin !== "all") {{
+    const v = BASIN_VIEWS[curBasin];
+    map.setView(v.c, v.z);
+  }}
+  drawStorm(best);
+}}
+bBtns.forEach(b => b.onclick = () => {{
+  curBasin = b.dataset.b;
+  paintBtns();
+  applyBasin();
+}});
+paintBtns();
 // ---- strike probability at a point (click the map) -------------------
 // Clicking the map snaps to the nearest town in this gazetteer (TN focus
 // plus Gulf/Caribbean/Mexico coasts - wherever tropical systems actually
@@ -6583,7 +6701,7 @@ function drawStorm(idx) {{
   const s = (TMS.storms || [])[idx];
   // Array.isArray guard: a storm without guidance used to ship tracks as an
   // object, .forEach threw, and the whole map boot died (2026-09-20).
-  if (!s || !Array.isArray(s.tracks)) return;
+  if (!s || !Array.isArray(s.tracks) || !bMatches(s)) return;
   Object.values(famGroups).forEach(g => map.removeLayer(g));
   famGroups = {{}};
   s.tracks.forEach(tr => {{
@@ -6667,7 +6785,10 @@ function drawStorm(idx) {{
   }});
   // fit to official track (or all)
   const ofcl = (s.tracks || []).find(t => t.isOfficial) || (s.tracks || [])[0];
-  if (ofcl && ofcl.geo && ofcl.geo.coordinates && ofcl.geo.coordinates.length)
+  if (curBasin !== "all") {{
+    const v = BASIN_VIEWS[curBasin];
+    map.setView(v.c, v.z);
+  }} else if (ofcl && ofcl.geo && ofcl.geo.coordinates && ofcl.geo.coordinates.length)
     map.fitBounds(L.latLngBounds(ofcl.geo.coordinates.map(c => [c[1], c[0]])).pad(0.35));
   // family checkboxes (one per family actually present on this storm)
   const fc = document.getElementById("famChecks");
@@ -6766,24 +6887,10 @@ async function boot() {{
     if (pp) pp.scrollIntoView({{ behavior: "smooth", block: "nearest" }});
   }});
   const sel = document.getElementById("stormPick");
-  (T.storms || []).forEach((s, i) => {{
-    const nM = Array.isArray(s.models) ? s.models.length : 0;
-    const o = document.createElement("option");
-    o.value = i;
-    o.textContent = `${{s.name || "Storm"}} (${{s.classification || "?"}}) - ${{nM}} models`;
-    sel.appendChild(o);
-  }});
   sel.onchange = () => drawStorm(parseInt(sel.value) || 0);
-  // Open on the storm that actually has guidance: a newly-minted NHC storm
-  // with no aid-deck file yet used to open first, shipped an empty shape,
-  // and killed the boot (2026-09-20).
-  let defIdx = 0, best = -1;
-  (T.storms || []).forEach((s, i) => {{
-    const nM = Array.isArray(s.models) ? s.models.length : 0;
-    if (nM > best) {{ best = nM; defIdx = i; }}
-  }});
-  if (sel.options[defIdx]) sel.selectedIndex = defIdx;
-  drawStorm(defIdx);
+  const defIdx = fillStormPicker(T);
+  if (defIdx >= 0) drawStorm(defIdx);
+  else setBasinEmpty(true);
 }}
 boot();
 /* soft auto-refresh: the summary line tracks every pull, and a storm
@@ -6811,6 +6918,12 @@ function onDataRefresh(d2) {{
     return;
   }}
   tmStormCount = storms.length;   /* steady state: remember, don't re-fire */
+  /* basin filter: a storm entering/leaving the viewed basin without a
+     count change flips the empty state and redraws the picker */
+  if (map && curBasin !== "all") {{
+    const be = basinEmpty(T);
+    if (be !== lastBasinEmpty) applyBasin();
+  }}
 }}
 </script>
 """
