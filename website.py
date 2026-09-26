@@ -134,7 +134,6 @@ def _cache_mpas_shield_from_disk(payload):
         names = os.listdir(STATIC_AI)
     except OSError:
         return
-    groups = {}
     for fn in names:
         m = _MS_RX.match(fn)
         if not m:
@@ -627,6 +626,16 @@ def collect_data():
                 mpas_shield["shield"][f_] = got
         except Exception:  # noqa: BLE001
             pass
+        # Surface a SHiELD-server outage honestly: when NOAA's listing has no
+        # cycles at all (shield.gfdl.noaa.gov unreachable, 2026-09-26), no
+        # rotation can ever fill the products, so the page says so instead of
+        # showing "queued" forever. The probe shares the module's 15-min
+        # endpoint cache, so this costs no extra network round.
+        try:
+            from data.shield_mpas import _shield_inits as _shield_inits_probe
+            mpas_shield["shieldOutage"] = not _shield_inits_probe()
+        except Exception:  # noqa: BLE001
+            mpas_shield["shieldOutage"] = False
         _cache_mpas_shield_from_disk(mpas_shield)
     except Exception:  # noqa: BLE001
         pass
@@ -5014,7 +5023,9 @@ function msStop() { msPlaying = false; msPlay.textContent = "\u25b6"; if (msTime
 function msShow() {
   if (!msFrames.length) {
     msImg.removeAttribute("src"); msFrame.textContent = "--";
-    msCap.textContent = "This product downloads on a coming update cycle - the viewer fills itself in.";
+    msCap.textContent = (msSrc.value === "shield" && MS.shieldOutage)
+      ? "NOAA GFDL's SHiELD server (shield.gfdl.noaa.gov) is unreachable right now, so no frames can download - not even the older cycles. MPAS keeps updating from NCAR, and SHiELD fills in automatically the moment NOAA's server returns (checked every update cycle)."
+      : "This product downloads on a coming update cycle - the viewer fills itself in.";
     return;
   }
   const f = msFrames[msIdx];
