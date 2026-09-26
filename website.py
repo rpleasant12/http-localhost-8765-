@@ -5029,9 +5029,14 @@ _MPROG_JS = """
    Boot counts the combos shipped in this build's data.json; a 5-min poll
    re-counts from fresh data so the bar fills live as the updater renders. */
 const mprogBar = document.getElementById("mprogBar"), mprogTxt = document.getElementById("mprogTxt");
+let UP = window.UPSTREAM || {};
+const _fmtCyc = s => s.slice(4,6) + "/" + s.slice(6,8) + " " + s.slice(8,10) + "Z";
+const _cycAge = s => (Date.now() - Date.parse(s.slice(0,4) + "-" + s.slice(4,6) + "-" +
+                      s.slice(6,8) + "T" + s.slice(8,10) + ":00:00Z")) / 36e5;
 function mprogFrom(data) {
   const cat = (data && data.modelCatalog) || CAT;
   const rend = (data && data.renderIndex) || REND;
+  UP = (data && data.upstream) || window.UPSTREAM || UP;
   let total = 0, have = 0;
   const rows = [];
   for (const m of Object.keys(cat)) {
@@ -5051,32 +5056,74 @@ function mprogFrom(data) {
         if (set.has(p + "|" + r)) mh++;
       }
     }
+    /* freshness stamp: what's rendered vs what NOAA has published - the
+       same current / old / waiting-on-NOAA honesty as the HRRR page,
+       for every model (RRFS sat 4+ h at 21Z on 2026-09-25 with no hint) */
+    let fsev = 0, fhtml = "", ftip = "";
+    if (m === "MPAS" || m.indexOf("FV3") === 0) {
+      fhtml = '<span style="color:#8fa3bf">●</span> official frames';
+      ftip = m + ": official pre-rendered frames - not a NOAA NOMADS feed";
+    } else {
+      const cycles = rend.filter(c => c.model === m && c.cycle).map(c => c.cycle);
+      const rCyc = cycles.length ? cycles.reduce((a, b) => a > b ? a : b) : null;
+      const u = (UP || {})[m];
+      const uCyc = u && u.cycle;
+      if (!rCyc) {
+        fsev = 1;
+        fhtml = '<span style="color:#ef6c00">●</span> renders pending';
+        ftip = m + ": nothing rendered yet - the updater fills missing combos first";
+      } else {
+        const rAge = _cycAge(rCyc);
+        const rAgeTxt = (rAge < 1 ? rAge.toFixed(1) : Math.round(rAge)) + " h";
+        if (uCyc && rCyc < uCyc) {
+          fsev = 1;
+          fhtml = '<span style="color:#ef6c00">●</span> catching up · NOAA ' + _fmtCyc(uCyc);
+          ftip = m + ": rendered init " + _fmtCyc(rCyc) + " (" + rAgeTxt + " old) · NOAA published " +
+                 _fmtCyc(uCyc) + " - the updater is rendering the newer cycle";
+        } else if (uCyc && rAge > (u.maxAge || 2)) {
+          fsev = 2;
+          fhtml = '<span style="color:#c62828">●</span> waiting on NOAA · ' + _fmtCyc(rCyc) + ", " + Math.round(rAge) + " h";
+          ftip = m + ": newest published cycle " + _fmtCyc(rCyc) + " is " + rAgeTxt +
+                 " old (normal ≤ " + (u.maxAge || 2) + " h) - rendering resumes when NOAA uploads";
+        } else if (uCyc) {
+          fhtml = '<span style="color:#2e7d32">●</span> current · ' + _fmtCyc(rCyc);
+          ftip = m + ": rendered init " + _fmtCyc(rCyc) + " (" + rAgeTxt + " old) · matches NOAA newest " + _fmtCyc(uCyc);
+        } else {
+          fhtml = 'init ' + _fmtCyc(rCyc);
+          ftip = m + ": rendered init " + _fmtCyc(rCyc) + " · NOAA feed probe unavailable this build";
+        }
+      }
+    }
     total += mt; have += mh;
     if (mt) rows.push({ label: (cat[m] && cat[m].label) || m, have: mh, total: mt,
-                        pct: Math.round(100 * mh / mt) });
+                        pct: Math.round(100 * mh / mt), fsev, fhtml, ftip });
   }
+  const waitNoaa = rows.filter(r => r.fsev === 2).length;
   const pct = total ? Math.round(100 * have / total) : 0;
   mprogBar.style.width = pct + "%";
   mprogBar.style.background = pct >= 99 ? "#2e7d32" : (pct >= 60 ? "#ef6c00" : "#c62828");
-  mprogTxt.textContent = pct >= 99
+  mprogTxt.textContent = (pct >= 99
     ? "All " + total + " model maps are rendered. Fresh cycles keep them current."
     : have + " of " + total + " model maps rendered (" + pct + "%) - " + (total - have) +
-      " pending. The updater renders about 180 more every hour, missing ones first; " +
-      "this bar refills itself every 5 minutes.";
-  /* per-model completeness strip - starving models (lowest %) float to the
-     top so a stuck downloader is visible at a glance (2026-09-14) */
+      " pending. The updater renders about 180 more every hour, missing ones first.") +
+    (waitNoaa ? " · " + waitNoaa + " model" + (waitNoaa > 1 ? "s" : "") + " waiting on NOAA." : "");
+  /* per-model strip: freshness leads the sort (waiting-on-NOAA first),
+     then completeness - a stalled feed or a starving model surfaces at
+     the top instead of hiding mid-list */
   const mbox = document.getElementById("mprogModels");
   if (mbox) {
-    rows.sort((a, b) => a.pct - b.pct);
+    rows.sort((a, b) => (b.fsev - a.fsev) || (a.pct - b.pct));
     mbox.innerHTML = rows.map(r =>
       '<div style="display:flex;align-items:center;gap:8px;margin:3px 0">' +
-        '<span title="' + r.label + '" style="width:170px;flex:none;font-size:12px;' +
+        '<span title="' + r.label + '" style="width:150px;flex:none;font-size:12px;' +
           'white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + r.label + '</span>' +
         '<div style="flex:1;background:#e5e7eb;border-radius:4px;height:10px;overflow:hidden">' +
           '<div style="width:' + r.pct + '%;height:100%;border-radius:4px;background:' +
             (r.pct >= 99 ? "#2e7d32" : (r.pct >= 50 ? "#ef6c00" : "#c62828")) + '"></div></div>' +
-        '<span style="width:84px;flex:none;text-align:right;font-size:12px;color:#555">' +
+        '<span style="width:64px;flex:none;text-align:right;font-size:12px;color:#555">' +
           r.have + '/' + r.total + '</span>' +
+        '<span title="' + r.ftip + '" style="width:220px;flex:none;text-align:right;font-size:11px;' +
+          'color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + r.fhtml + '</span>' +
       '</div>').join("");
   }
 }
@@ -5896,7 +5943,7 @@ def page_models(d):
   <div class="src" id="mprogTxt">Counting rendered maps…</div>
   <div id="mprogModels" style="margin-top:10px"></div>
   <div id="upstreamLine" class="src" style="margin-top:10px;border-top:1px solid #e5e7eb;padding-top:8px">checking NOAA upstream feeds…</div>
-  <div class="src" style="margin-top:4px">Per-model completeness - lowest first, so a starved or broken model shows at the top. Refills every 5 minutes.</div>
+  <div class="src" style="margin-top:4px">Per-model completeness + freshness - worst first, so a stalled NOAA feed or a starving model shows at the top. <span style="color:#2e7d32">●</span> current · <span style="color:#ef6c00">●</span> catching up (NOAA published a newer cycle) / renders pending · <span style="color:#c62828">●</span> waiting on NOAA. Refills every 5 minutes.</div>
 </div>
 
 <div class="card"><h2>🔍 Render any model product</h2>
