@@ -1,20 +1,23 @@
-"""GEFS North America: ensemble-mean forecast wall from NOAA's 31-member
+"""GEFS North America: ensemble mean + spread from NOAA's 31-member
 Global Ensemble Forecast System.
 
-Renders the newest COMPLETE 6-hourly cycle (00/06/12/18 UTC) of the
-geavg (ensemble mean) 0.5-degree pgrb2a files for North America:
+Renders the newest COMPLETE 6-hourly cycle (00/06/12/18 UTC) of the 0.5-
+degree pgrb2a files for North America. Every frame is TWO side-by-side
+panels - the geavg ensemble MEAN (left) and the gespr ensemble std dev,
+i.e. the spread of the 31 members (right) - so each product shows the
+forecast AND its uncertainty in one glance:
 
-- mslp:  mean sea-level pressure + 500 mb heights (the everyday weather map)
-- t2m:   2 m temperature ensemble mean (deg F)
-- wind:  10 m wind speed ensemble mean (mph)
-- qpf:   6-h accumulated precipitation ensemble mean (inches)
+- mslp:  mean sea-level pressure + 500 mb heights / MSLP spread
+- t2m:   2 m temperature ensemble mean / spread (deg F)
+- wind:  10 m wind speed ensemble mean / spread (mph)
+- qpf:   6-h accumulated precipitation ensemble mean / spread (inches)
 
 Source: noaa-gefs-pds.s3.amazonaws.com open-data mirror (no keys, no rate
-limit) - gefs.{Ymd}/{HH}/atmos/pgrb2ap5/geavg.t{HH}z.pgrb2a.0p50.f{FFF}
-(+.idx). Cycle is accepted only once the f192 idx exists, which guarantees
-the whole f000-f192 run is on disk - a cycle grabbed mid-upload renders
-torn frames (the RAP nowcast 14Z lesson, 2026-09-27). Physical-range
-sanity gates discard any corrupted decode.
+limit) - gefs.{Ymd}/{HH}/atmos/pgrb2ap5/{geavg|gespr}.t{HH}z.pgrb2a.0p50
+.f{FFF} (+.idx). Cycle is accepted only once the f192 idx exists, which
+guarantees the whole f000-f192 run is on disk - a cycle grabbed
+mid-upload renders torn frames (the RAP nowcast 14Z lesson, 2026-09-27).
+Physical-range sanity gates discard any corrupted decode.
 
 Files land in static/gefs/ as gefs_<prod>_f###_<cycle>_na.png. The bundle
 is cached 3 h and carries the last-good set for up to 24 h if the mirror
@@ -48,9 +51,9 @@ KEEP_HOURS = 48
 
 PRODUCTS = {
     "mslp": {"label": "MSLP + 500 mb heights"},
-    "t2m": {"label": "Temperature (2 m ens mean)"},
-    "wind": {"label": "Wind speed (10 m ens mean)"},
-    "qpf": {"label": "6-h QPF (ens mean)"},
+    "t2m": {"label": "Temperature (2 m)"},
+    "wind": {"label": "Wind speed (10 m)"},
+    "qpf": {"label": "6-h QPF"},
 }
 
 # product messages: (idx shortName, level substring)
@@ -79,9 +82,9 @@ _SANITY = {
 }
 
 
-def _gefs_url(cycle, fh):
+def _gefs_url(cycle, fh, stem="geavg"):
     return GEFS_BASE.format(ymd=f"{cycle:%Y%m%d}", hh=f"{cycle:%H}",
-                            fff=f"{fh:03d}")
+                            fff=f"{fh:03d}").replace("geavg", stem)
 
 
 def _get(url, timeout=30):
@@ -130,8 +133,20 @@ def _msg_range(idx_lines, short, level_sub):
     return None
 
 
-def _fields_sane(fields):
-    for k, (lo, hi) in _SANITY.items():
+# spread (std dev) fields are small deviations - the mean gates above
+# would reject a perfectly valid 2 hPa MSLP spread, so use their own
+_SANITY_SPR = {
+    "PRMSL": (0.0, 8000.0),              # Pa
+    "HGT": (0.0, 1500.0),                # m
+    "T2M": (0.0, 25.0),                  # K
+    "U10M": (0.0, 60.0),                 # m/s
+    "V10M": (0.0, 60.0),
+    "QPF": (0.0, 200.0),                 # mm per 6 h
+}
+
+
+def _fields_sane(fields, table=None):
+    for k, (lo, hi) in (table or _SANITY).items():
         if k not in fields:
             continue
         v = np.asarray(fields[k], dtype=float)
@@ -141,10 +156,13 @@ def _fields_sane(fields):
     return True
 
 
-def _fetch_product(cycle, fh, prod):
-    """{FIELD: 2-D array} + lat/lon for one product/hour (None when down)."""
+def _fetch_product(cycle, fh, prod, spread=False):
+    """{FIELD: 2-D array} + lat/lon for one product/hour (None when down).
+
+    spread=True reads the gespr (ensemble std dev) file instead of geavg.
+    """
     try:
-        base = _gefs_url(cycle, fh)
+        base = _gefs_url(cycle, fh, "gespr" if spread else "geavg")
         idx = _get(base + ".idx").text.splitlines()
         url = base
         fields = {}
@@ -165,7 +183,8 @@ def _fetch_product(cycle, fh, prod):
                     continue
                 fields[_KEY.get(sn, sn)] = v
                 lat, lon = la, lo
-        if fields and not _fields_sane(fields):
+        if fields and not _fields_sane(fields,
+                                       _SANITY_SPR if spread else _SANITY):
             return None
         return (fields, lat, lon) if fields and lat is not None else None
     except Exception:  # noqa: BLE001 - network/decode -> caller skips
@@ -186,7 +205,8 @@ def _na_crop(lat, lon, *arrays):
     return out
 
 
-def _render(fields, lat, lon, prod, cycle, fh, out_path):
+def _render(mean, spread, lat, lon, prod, cycle, fh, out_path):
+    """Two side-by-side panels: ensemble mean (left) | std dev (right)."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -200,52 +220,69 @@ def _render(fields, lat, lon, prod, cycle, fh, out_path):
                                       name="NWSQPF")
 
     valid = cycle + dt.timedelta(hours=fh)
-    fig = plt.figure(figsize=(10, 7), dpi=90)
+    fig = plt.figure(figsize=(14.5, 5.6), dpi=90)
     proj = ccrs.LambertConformal(central_longitude=-100, central_latitude=42)
-    ax = fig.add_subplot(1, 1, 1, projection=proj)
-    ax.set_extent([-170, -50, 10, 72], crs=ccrs.PlateCarree())
-    ax.coastlines("50m", linewidth=0.6)
-    ax.add_feature(cfeature.STATES, linewidth=0.4, edgecolor="gray")
-    ax.add_feature(cfeature.BORDERS, linewidth=0.6, edgecolor="dimgray")
+    ext = [-170, -50, 10, 72]
 
+    def _panel(idx):
+        ax = fig.add_subplot(1, 2, idx, projection=proj)
+        ax.set_extent(ext, crs=ccrs.PlateCarree())
+        ax.coastlines("50m", linewidth=0.5)
+        ax.add_feature(cfeature.STATES, linewidth=0.35, edgecolor="gray")
+        ax.add_feature(cfeature.BORDERS, linewidth=0.5, edgecolor="dimgray")
+        return ax
+
+    # ---- panel value transforms: mean + spread in display units ----
     if prod == "mslp":
-        pa, ha, la, lo = _na_crop(lat, lon, fields["PRMSL"], fields.get("HGT"))
-        cf = ax.contourf(lo, la, pa / 100.0, levels=np.arange(960, 1051, 2),
-                         cmap="RdYlBu_r", transform=ccrs.PlateCarree(),
-                         alpha=0.85)
-        plt.colorbar(cf, ax=ax, shrink=0.85, label="MSLP (hPa)")
-        if ha is not None:
-            cs = ax.contour(lo, la, ha / 10.0, levels=np.arange(480, 601, 6),
-                            colors="k", linewidths=0.7,
-                            transform=ccrs.PlateCarree())
-            ax.clabel(cs, fmt="%.0f", fontsize=6)
-        title = f"GEFS ens mean MSLP + 500 mb heights - valid {full(valid)}"
+        pa, ha, la, lo = _na_crop(lat, lon, mean["PRMSL"], mean.get("HGT"))
+        sa, _, _, _ = _na_crop(lat, lon, spread["PRMSL"], None)
+        mval, sval = pa / 100.0, sa / 100.0
+        mlev, slev = np.arange(960, 1051, 2), np.arange(0.5, 5.01, 0.5)
+        mcmap, mlbl, slbl = "RdYlBu_r", "MSLP (hPa)", "MSLP spread (hPa)"
     elif prod == "t2m":
-        tf, _, la, lo = _na_crop(lat, lon, fields["T2M"] * 1.8 - 459.67, None)
-        cf = ax.contourf(lo, la, tf, levels=np.arange(-20, 116, 3),
-                         cmap="turbo", transform=ccrs.PlateCarree(),
-                         alpha=0.85)
-        plt.colorbar(cf, ax=ax, shrink=0.85, label="\u00b0F")
-        title = f"GEFS ens mean 2 m temperature - valid {full(valid)}"
+        ta, _, la, lo = _na_crop(lat, lon, mean["T2M"], None)
+        sa, _, _, _ = _na_crop(lat, lon, spread["T2M"], None)
+        mval, sval = ta * 1.8 - 459.67, sa * 1.8
+        mlev, slev = np.arange(-20, 116, 3), np.arange(0.5, 6.01, 0.5)
+        mcmap, mlbl, slbl = "turbo", "\u00b0F", "\u00b0F"
     elif prod == "wind":
-        spd = np.hypot(fields["U10M"], fields["V10M"]) * 2.23694
-        sp, _, la, lo = _na_crop(lat, lon, spd, None)
-        cf = ax.contourf(lo, la, sp, levels=np.arange(5, 66, 5),
-                         cmap="YlGnBu", transform=ccrs.PlateCarree(),
-                         alpha=0.85, extend="max")
-        plt.colorbar(cf, ax=ax, shrink=0.85, label="mph")
-        title = f"GEFS ens mean 10 m wind - valid {full(valid)}"
+        ua, va, la, lo = _na_crop(lat, lon, mean["U10M"], mean["V10M"])
+        mval = np.hypot(ua, va) * 2.23694
+        sua, sva, _, _ = _na_crop(lat, lon, spread["U10M"], spread["V10M"])
+        sval = np.hypot(sua, sva) * 2.23694
+        mlev, slev = np.arange(5, 66, 5), np.arange(1, 12.1, 1)
+        mcmap, mlbl, slbl = "YlGnBu", "mph", "mph"
     else:  # qpf
-        v = fields["QPF"] / 25.4
-        v, _, la, lo = _na_crop(lat, lon, v, None)
-        v = np.where(v >= 0.02, v, np.nan)
-        cf = ax.contourf(lo, la, v, levels=np.arange(0.05, 1.31, 0.05),
-                         cmap="NWSQPF", transform=ccrs.PlateCarree(),
-                         alpha=0.85, extend="max")
-        plt.colorbar(cf, ax=ax, shrink=0.85, label="in / 6 h")
-        title = f"GEFS ens mean 6-h QPF - valid {full(valid)}"
+        va, _, la, lo = _na_crop(lat, lon, mean["QPF"], None)
+        sa, _, _, _ = _na_crop(lat, lon, spread["QPF"], None)
+        mval = np.where(va / 25.4 >= 0.02, va / 25.4, np.nan)
+        sval = sa / 25.4
+        mlev, slev = np.arange(0.05, 1.31, 0.05), np.arange(0.05, 0.81, 0.05)
+        mcmap, mlbl, slbl = "NWSQPF", "in / 6 h", "in / 6 h"
 
-    ax.set_title(title, fontsize=11)
+    # ---- left: ensemble mean ----
+    ax = _panel(1)
+    cf = ax.contourf(lo, la, mval, levels=mlev, cmap=mcmap,
+                     transform=ccrs.PlateCarree(), alpha=0.85,
+                     extend="max")
+    plt.colorbar(cf, ax=ax, shrink=0.8, label=mlbl)
+    if prod == "mslp" and mean.get("HGT") is not None:
+        cs = ax.contour(lo, la, ha / 10.0, levels=np.arange(480, 601, 6),
+                        colors="k", linewidths=0.6,
+                        transform=ccrs.PlateCarree())
+        ax.clabel(cs, fmt="%.0f", fontsize=6)
+    ax.set_title("Ensemble mean", fontsize=11)
+
+    # ---- right: ensemble spread (std dev) ----
+    ax = _panel(2)
+    cf = ax.contourf(lo, la, sval, levels=slev, cmap="cividis_r",
+                     transform=ccrs.PlateCarree(), alpha=0.9,
+                     extend="max")
+    plt.colorbar(cf, ax=ax, shrink=0.8, label=f"std dev ({slbl})")
+    ax.set_title("Ensemble spread (std dev)", fontsize=11)
+
+    fig.suptitle(f"GEFS {PRODUCTS[prod]['label']} - valid {full(valid)} - "
+                 f"mean | member disagreement", fontsize=11, y=0.98)
     tmp = out_path.replace(".png", ".tmp.png")
     fig.savefig(tmp, bbox_inches="tight")
     plt.close(fig)
@@ -275,7 +312,7 @@ def _prune_old():
 
 
 def refresh():
-    """Render every product/lead off the newest complete geavg cycle."""
+    """Render mean|spread panels for every product off the newest cycle."""
     cycle = find_gefs_cycle()
     if cycle is None:
         return None, [], 0
@@ -290,11 +327,15 @@ def refresh():
             if not got:
                 continue
             fields, lat, lon = got
+            spr = _fetch_product(cycle, fh, prod, spread=True)
+            if not spr:
+                continue                     # need both panels to draw a frame
+            sfields, _, _ = spr
             fn = f"gefs_{prod}_f{fh:03d}_{cycle:%Y%m%d%H}_na.png"
             path = os.path.join(OUT_DIR, fn)
             if not (os.path.exists(path) and os.path.getsize(path) > 10_000):
                 try:
-                    _render(fields, lat, lon, prod, cycle, fh, path)
+                    _render(fields, sfields, lat, lon, prod, cycle, fh, path)
                 except Exception:  # noqa: BLE001 - one bad frame never kills
                     continue
             frames.append({
@@ -311,7 +352,7 @@ def refresh():
 
 
 def bundle(max_age=3 * 3600):
-    """Payload for the models page: newest-cycle ensemble-mean frames."""
+    """Payload for the models page: newest-cycle mean|spread frames."""
     with CACHE_LOCK:
         now = time.time()
         if CACHE["b"] is not None and now - CACHE["t"] < max_age:
@@ -334,7 +375,8 @@ def bundle(max_age=3 * 3600):
         "items": items,
         "count": n,
         "source": "NOAA Global Ensemble Forecast System (GEFS) 31-member "
-                  "ensemble mean, 0.5 deg - AWS open data, no keys",
+                  "ensemble mean + spread (std dev), 0.5 deg - AWS open data, "
+                  "no keys",
     }
     with CACHE_LOCK:
         CACHE.update(t=time.time(), b=b)

@@ -6236,7 +6236,7 @@ def page_models(d):
     if gf_items:
         gefs_card = f"""
 <div class="card">
-  <h2>🌐 GEFS North America <span class="src" style="font-weight:400">31-member ensemble mean · init {html.escape(gf_stamp)} · 8 days at 0.5° · our MetPy render from NOAA's AWS open data</span></h2>
+  <h2>🌐 GEFS North America <span class="src" style="font-weight:400">31-member ensemble mean | spread · init {html.escape(gf_stamp)} · 8 days at 0.5° · our MetPy render from NOAA's AWS open data</span></h2>
   <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
     <label class="src" style="margin:0">Product</label>
     <select id="gfProd">{gf_opts}</select>
@@ -6249,7 +6249,7 @@ def page_models(d):
     <button id="gfPrev">◀</button><select id="gfSel"></select><button id="gfNext">▶</button>
     <select id="gfSpeed"><option value="1600">0.5x</option><option value="800" selected>1x</option><option value="400">2x</option></select>
   </div>
-  <p class="src" style="margin-top:6px">NOAA's Global Ensemble Forecast System runs 4× daily (00/06/12/18 UTC); this wall animates the 31-member <b>ensemble mean</b> - the smoothed “big picture” the individual models average into - across North America out to 192 h. Day-1 through day-8: where the MSLP ridges and troughs set up, how the temperature and wind regime evolves, and where the mean 6-hourly QPF bands land.</p>
+  <p class="src" style="margin-top:6px">NOAA's Global Ensemble Forecast System runs 4× daily (00/06/12/18 UTC). Every frame is two panels: the 31-member <b>ensemble mean</b> - the smoothed “big picture” - and the <b>ensemble spread</b> (std dev), showing where the members disagree. Mean says what is most likely; spread says how confident to be - hotspots over the tropics or a trough mean the forecast there can still flip. Out to 192 h (8 days): MSLP ridges/troughs + 500 mb heights, temperature, wind, and 6-hourly QPF.</p>
 </div>
 <script>
 const GF_FRAMES = {gf_json};
