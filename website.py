@@ -10139,6 +10139,11 @@ def page_national(d):
   <div class="ctl"><select id="wpcMapSel" style="max-width:560px"></select></div>
   <img id="wpcMapImg" class="natimg" loading="lazy" src="" alt="Analysis chart"/>
   <div class="cap src" id="wpcMapCap"></div>
+  <div class="ctl" id="wpcPlayer" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px">
+    <button class="wbtn" id="wpcPlay">▶ Play</button>
+    <input type="range" id="wpcSlider" min="0" max="0" value="0" style="flex:1;min-width:160px"/>
+    <span class="src" id="wpcT">live</span>
+  </div>
   <div class="src">Surface analysis &amp; 500 mb analyses (WPC) · QPF days 2-5 · SPC Day 4-8 severe outlooks · OPC North Atlantic/Pacific surface + 500 mb analyses · NOHRSC national snow model (depth / SWE / melt / blowing snow). Mirrored from NOAA each refresh - free, no keys · updated {html.escape(wpcm.get("generated") or "")} · {wpcm.get("count") or 0} charts live.</div>
   {"" if wpc_groups else '<div class="src">Chart mirror unavailable right now - NOAA sources unreachable; the next refresh retries automatically.</div>'}
 </div>
@@ -10187,7 +10192,7 @@ function wpcFill() {{
   [...wpcGrpBtns.children].forEach(b => b.classList.toggle("on", !!g && b.dataset.g === g.id));
   if (!g) {{ wpcMapSel.innerHTML = ""; return; }}
   wpcMapSel.innerHTML = g.charts.map((c, i) => `<option value="${{i}}">${{c.label}}</option>`).join("");
-  wpcShow();
+  if (typeof wpcShowPlayer === "function") wpcShowPlayer(); else wpcShow();
 }}
 function wpcShow() {{
   const g = wpcGroup(); if (!g) return;
@@ -10199,7 +10204,54 @@ wpcGrpBtns.addEventListener("click", ev => {{
   const b = ev.target.closest("button.wbtn"); if (!b) return;
   wpcCurG = b.dataset.g; wpcFill();
 }});
-wpcMapSel.onchange = wpcShow;
+wpcMapSel.onchange = wpcShowPlayer;
+
+// archive replay: each chart's payload carries `frames` (timestamped past
+// versions mirrored from NOAA). Slider 0..N-1 replays history, N = live.
+let wpcTimer = null;
+const wpcPlayBtn = document.getElementById("wpcPlay");
+const wpcSlider = document.getElementById("wpcSlider");
+const wpcTEl = document.getElementById("wpcT");
+function wpcFrames() {{
+  const g = wpcGroup(); if (!g) return [];
+  const c = g.charts[+wpcMapSel.value || 0];
+  return (c && c.frames) || [];
+}}
+function wpcShowPos() {{
+  const g = wpcGroup(); if (!g) return;
+  const c = g.charts[+wpcMapSel.value || 0]; if (!c) return;
+  const fr = c.frames || [];
+  const i = +wpcSlider.value;
+  const img = document.getElementById("wpcMapImg");
+  if (!fr.length || i >= fr.length) {{
+    img.src = c.url; wpcTEl.textContent = "live";
+  }} else {{
+    img.src = fr[i].url; wpcTEl.textContent = fr[i].label;
+  }}
+}}
+function wpcShowPlayer() {{
+  const fr = wpcFrames();
+  document.getElementById("wpcPlayer").style.display = fr.length ? "flex" : "none";
+  wpcSlider.max = fr.length;   // last position = live
+  wpcSlider.value = fr.length;
+  wpcShowPos();
+}}
+function wpcStop() {{
+  if (wpcTimer) {{ clearInterval(wpcTimer); wpcTimer = null; }}
+  wpcPlayBtn.textContent = "▶ Play";
+}}
+wpcPlayBtn.onclick = () => {{
+  if (wpcTimer) {{ wpcStop(); return; }}
+  const fr = wpcFrames(); if (fr.length < 2) return;
+  if (+wpcSlider.value >= fr.length) wpcSlider.value = 0;  // restart from oldest
+  wpcPlayBtn.textContent = "⏸ Pause";
+  wpcTimer = setInterval(() => {{
+    let i = +wpcSlider.value + 1;
+    if (i > fr.length) {{ wpcStop(); return; }}   // reached live
+    wpcSlider.value = i; wpcShowPos();
+  }}, 700);
+}};
+wpcSlider.oninput = () => {{ wpcStop(); wpcShowPos(); }};
 wpcFill();
 </script>
 """

@@ -129,15 +129,30 @@ def _get(url, timeout=30):
 
 
 def _fetch_graphic(url, dst_path):
-    """Mirror one graphic if changed (size fast-path, atomic write)."""
+    """Mirror one graphic if changed (size fast-path, atomic write).
+
+    Returns (path, changed) so the caller can archive new snapshots.
+    """
     r = _get(url, timeout=40)
     if os.path.isfile(dst_path) and os.path.getsize(dst_path) == len(r.content):
-        return dst_path
+        return dst_path, False
     tmp = dst_path + ".tmp"
     with open(tmp, "wb") as f:
         f.write(r.content)
     os.replace(tmp, dst_path)
-    return dst_path
+    return dst_path, True
+
+
+# Archive: every time a mirror CHANGES, the replaced image is kept under
+# archive/<chart>/<YYYYMMDDHHMM>.<ext> so the page can replay the last day
+# of analyses like a radar loop. Analysis charts rotate on NOAA's schedule
+# (hourly-ish for surface/QPF, ~6-hourly for OPC, sub-daily for snow), so a
+# 30 h window catches 1-2 full source cycles for the slow families. Frames
+# beyond the window self-prune here; site_updater's wire/prune windows treat
+# the whole wpcmaps dir on the same 30 h clock.
+ARCHIVE_HOURS = 30
+_MAX_FRAMES = 40          # payload cap per chart (~90 bytes/frame)
+_FRAME_RE = re.compile(r"^(\d{12})\.(?:gif|jpg|jpeg|png)$", re.I)
 
 
 def _nohrsc_urls():
@@ -190,9 +205,82 @@ def _nohrsc_urls():
     return found
 
 
+def _archive_dir(flat):
+    return os.path.join(OUT_DIR, "archive", flat.rsplit(".", 1)[0])
+
+
+def _archive_changed(flat, src_path, now=None):
+    """Snapshot a just-updated mirror into the archive (dedup per minute)."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    stamp = now.strftime("%Y%m%d%H%M")
+    try:
+        adir = _archive_dir(flat)
+        os.makedirs(adir, exist_ok=True)
+        dst = os.path.join(adir, stamp + os.path.splitext(flat)[1])
+        if os.path.isfile(dst) and os.path.getsize(dst) == os.path.getsize(src_path):
+            return   # same-minute re-refresh with identical bytes
+        tmp = dst + ".tmp"
+        with open(src_path, "rb") as src, open(tmp, "wb") as out:
+            out.write(src.read())
+        os.replace(tmp, dst)
+    except OSError:
+        pass   # archive is best-effort; the live mirror is the load-bearing copy
+
+
+def _prune_archive(flat):
+    """Drop archived stamps older than ARCHIVE_HOURS."""
+    cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=ARCHIVE_HOURS)
+    try:
+        for fn in os.listdir(_archive_dir(flat)):
+            m = _FRAME_RE.match(fn)
+            if not m:
+                continue
+            try:
+                tv = dt.datetime.strptime(m.group(1), "%Y%m%d%H%M")\
+                    .replace(tzinfo=dt.timezone.utc)
+            except ValueError:
+                continue
+            if tv < cutoff:
+                try:
+                    os.remove(os.path.join(_archive_dir(flat), fn))
+                except OSError:
+                    pass
+    except OSError:
+        pass
+
+
+def _archive_frames(flat):
+    """Payload frame list for one chart: stamps oldest-first, capped."""
+    out = []
+    try:
+        for fn in os.listdir(_archive_dir(flat)):
+            m = _FRAME_RE.match(fn)
+            if not m:
+                continue
+            try:
+                tv = dt.datetime.strptime(m.group(1), "%Y%m%d%H%M")\
+                    .replace(tzinfo=dt.timezone.utc)
+            except ValueError:
+                continue
+            out.append({
+                "url": f"../wpcmaps/archive/{flat.rsplit('.', 1)[0]}/{fn}",
+                "t": m.group(1),
+                "label": tv.strftime("%m-%d %H:%M UTC"),
+            })
+    except OSError:
+        return []
+    out.sort(key=lambda f: f["t"])
+    return out[-_MAX_FRAMES:]
+
+
 def refresh():
-    """Mirror every reachable chart into static/wpcmaps/ (idempotent)."""
+    """Mirror every reachable chart into static/wpcmaps/ (idempotent),
+
+    archiving each change into a timestamped loop and self-pruning old
+    stamps. Chart entries carry `frames` (archive) + `url` (live mirror).
+    """
     os.makedirs(OUT_DIR, exist_ok=True)
+    now = dt.datetime.now(dt.timezone.utc)
     nohrsc = _nohrsc_urls()
     groups = []
     ok_count = 0
@@ -204,11 +292,15 @@ def refresh():
             if not url:
                 continue
             try:
-                _fetch_graphic(url, os.path.join(OUT_DIR, flat))
+                path, changed = _fetch_graphic(url, os.path.join(OUT_DIR, flat))
             except Exception:  # noqa: BLE001 - one dead chart never blocks the group
                 continue
+            if changed:
+                _archive_changed(flat, path, now)
+            _prune_archive(flat)
             charts.append({"file": flat, "label": human,
-                           "url": f"../wpcmaps/{flat}"})
+                           "url": f"../wpcmaps/{flat}",
+                           "frames": _archive_frames(flat)})
         if charts:
             ok_count += len(charts)
             groups.append({"id": gid, "label": label, "charts": charts})
@@ -225,9 +317,20 @@ def bundle(max_age=3600):
         now = time.time()
         if CACHE["b"] is not None and now - CACHE["t"] < max_age:
             cached = CACHE["b"]
-            refs_ok = all(
-                os.path.isfile(os.path.join(OUT_DIR, c["file"]))
-                for g in cached.get("groups", []) for c in g.get("charts", []))
+            refs_ok = True
+            for g in cached.get("groups", []):
+                for c in g.get("charts", []):
+                    if not os.path.isfile(os.path.join(OUT_DIR, c["file"])):
+                        refs_ok = False
+                        break
+                    frames = c.get("frames") or []
+                    if frames:
+                        fn = os.path.basename(frames[0]["url"])
+                        if not os.path.isfile(os.path.join(_archive_dir(c["file"]), fn)):
+                            refs_ok = False
+                            break
+                if not refs_ok:
+                    break
             if refs_ok:
                 return cached
             CACHE.update(t=0.0, b=None)   # stale refs -> re-mirror below
