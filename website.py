@@ -1551,7 +1551,7 @@ def page_fronts(d):
     """
     body = r"""
 <header class="hero"><h1>🗺️ <span style="color:var(--acc)">Surface fronts</span></h1>
-<div class="sub">WPC surface analysis (Day 1) + forecast fronts (Days 2-3) · free, no keys</div></header>
+<div class="sub">WPC surface analysis (Day 1) + forecast fronts (Days 2-3) · OPC ocean analyses · free, no keys</div></header>
 
 <div class="card">
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -1563,6 +1563,14 @@ def page_fronts(d):
   <div id="fmap" style="height:460px;border-radius:10px;margin-top:10px"></div>
   <div id="flegend" style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;align-items:center"></div>
   <p class="src" style="margin-top:6px">Standard NWS symbology · click a legend entry to toggle that front type · chart rebuilt by WPC roughly every 6 hours</p>
+</div>
+
+<div class="card">
+  <h2>🌊 OPC ocean analyses - North Atlantic surface</h2>
+  <div id="opcPanels" style="display:flex;gap:14px;flex-wrap:wrap;align-items:stretch">
+    <div class="src">Waiting for chart data...</div>
+  </div>
+  <p class="src" style="margin-top:6px">Ocean Prediction Center surface charts (polar-stereographic projection, so they show as chart panels instead of draping onto the map): the analyzed surface and the day-2 forecast prog, plus archived versions replayable with the Loop button when history exists. Click a chart to open it full-size.</p>
 </div>
 
 <script>
@@ -1687,6 +1695,71 @@ window.onDataRefresh = function (d) {
   FDAYS = d.fronts.days || [];
   legend();
   drawFronts();
+};
+
+/* OPC North Atlantic surface panels: chart images from SITE_DATA.wpcMaps
+   (opc group), with optional replay of the mirrored archive frames. */
+const OPC_TIMERS = {};
+const OPC_POS = {};
+function opcCharts(d) {
+  const root = d || (typeof SITE_DATA !== "undefined" && SITE_DATA) || {};
+  const g = ((root.wpcMaps || {}).groups || []).find(x => x.id === "opc");
+  return g ? (g.charts || []).filter(c => /^opc_atl_sfc/.test(c.file)) : [];
+}
+function opcStep(i, fr, live) {
+  const img = document.getElementById("opcImg" + i);
+  if (!img) return;
+  const p = (OPC_POS[i] || 0) % (fr.length + 1);
+  img.src = p < fr.length ? fr[p].url : live;
+  const t = document.getElementById("opcT" + i);
+  if (t) t.textContent = p < fr.length ? fr[p].label : "latest";
+  OPC_POS[i] = p + 1;
+}
+function opcLoop(i) {
+  const btn = document.getElementById("opcBtn" + i);
+  if (OPC_TIMERS[i]) {
+    clearInterval(OPC_TIMERS[i]); OPC_TIMERS[i] = null;
+    if (btn) btn.textContent = "\u25b6 Loop";
+    return;
+  }
+  const root = (typeof SITE_DATA !== "undefined" && SITE_DATA) || {};
+  const c = opcCharts(root)[i];
+  if (!c || !(c.frames || []).length) return;
+  OPC_POS[i] = 0;
+  OPC_TIMERS[i] = setInterval(() => opcStep(i, c.frames, c.url), 900);
+  if (btn) btn.textContent = "\u23f8 Stop";
+}
+function opcPanel(c, i) {
+  const hasFr = (c.frames || []).length > 1;
+  return '<figure style="flex:1 1 300px;max-width:47%;min-width:260px;margin:0;'
+    + 'background:#10151f;border:1px solid var(--line);border-radius:10px;padding:8px">'
+    + '<a href="' + c.url + '" target="_blank" rel="noopener">'
+    + '<img id="opcImg' + i + '" loading="lazy" src="' + c.url + '" alt="' + c.label + '" '
+    + 'style="width:100%;height:auto;display:block;border-radius:8px"/></a>'
+    + '<figcaption style="font-size:12px;opacity:.75;margin-top:6px;display:flex;'
+    + 'gap:8px;align-items:center;flex-wrap:wrap">'
+    + '<span style="margin-right:auto">OPC ' + c.label + '</span>'
+    + (hasFr ? '<button class="fday" id="opcBtn' + i + '" onclick="opcLoop(' + i + ')" '
+        + 'style="background:#1d2432;color:#cdd7e4;border:1px solid var(--line);'
+        + 'border-radius:8px;padding:4px 10px;cursor:pointer;font-size:12px">\u25b6 Loop</button>' : '')
+    + '<span id="opcT' + i + '" style="opacity:.8">latest</span>'
+    + '</figcaption></figure>';
+}
+function opcUpdate(d) {
+  const box = document.getElementById("opcPanels");
+  if (!box) return;
+  const cs = opcCharts(d);
+  if (!cs.length) {
+    box.innerHTML = '<div class="src">OPC charts unavailable right now - '
+      + 'the next refresh retries automatically.</div>';
+    return;
+  }
+  box.innerHTML = cs.map((c, i) => opcPanel(c, i)).join("");
+}
+const _frontsODR = window.onDataRefresh;
+window.onDataRefresh = function (d) {
+  if (_frontsODR) try { _frontsODR(d); } catch (e) {}
+  opcUpdate(d);
 };
 </script>
 """
