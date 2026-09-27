@@ -835,6 +835,7 @@ def collect_data():
         "upstream": _upstream_status(),
         "nbmPct": _nbm_pct_safe(),
         "rapNowcast": _rap_nowcast_safe(),
+        "gefs": _gefs_safe(),
         "pivotUs": _pivot_us(),
         "pivotEtn": _pivot_us("etn"),
         "sevTowns": _sev_towns_safe(),
@@ -3168,6 +3169,19 @@ def _rap_nowcast_safe():
         return v
     except Exception as exc:                           # noqa: BLE001
         print(f"rapNowcast bundle failed ({type(exc).__name__}: {exc})", flush=True)
+        return {"ok": False, "items": []}
+
+
+def _gefs_safe():
+    """GEFS ensemble-mean wall (never breaks the site build)."""
+    try:
+        from data.gefs import bundle
+        v = bundle()
+        if not (v and v.get("ok")):
+            raise RuntimeError("bundle came back empty")
+        return v
+    except Exception as exc:                           # noqa: BLE001
+        print(f"GEFS bundle failed ({type(exc).__name__}: {exc})", flush=True)
         return {"ok": False, "items": []}
 
 
@@ -6209,6 +6223,90 @@ def page_models(d):
                         "<div class='src'>Percentile maps unavailable this cycle - the QMD "
                         "feed is throttled or unreachable; the next refresh retries "
                         "automatically.</div></div>")
+    # --- GEFS North America: 31-member ensemble mean, 8-day wall ---
+    gf = d.get("gefs") or {}
+    gf_items = gf.get("items") or []
+    gf_json = json.dumps({it["key"]: [f["url"] for f in it["frames"]]
+                          for it in gf_items})
+    gf_lbls = json.dumps({it["key"]: [f["label"] for f in it["frames"]]
+                          for it in gf_items})
+    gf_opts = "".join(f'<option value="{html.escape(it["key"])}">'
+                      f'{html.escape(it["label"])}</option>' for it in gf_items)
+    gf_stamp = gf.get("cycle") or ""
+    if gf_items:
+        gefs_card = f"""
+<div class="card">
+  <h2>🌐 GEFS North America <span class="src" style="font-weight:400">31-member ensemble mean · init {html.escape(gf_stamp)} · 8 days at 0.5° · our MetPy render from NOAA's AWS open data</span></h2>
+  <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <label class="src" style="margin:0">Product</label>
+    <select id="gfProd">{gf_opts}</select>
+    <span class="src" style="margin:0" id="gfCap"></span>
+  </div>
+  <img id="gfFrame" loading="lazy" alt="GEFS North America"
+       style="width:100%;max-width:950px;border-radius:10px;border:1px solid #333c46;margin-top:10px"/>
+  <div class="ctl" style="margin-top:8px">
+    <button id="gfPlay">▶</button><span class="frame" id="gfFh">--</span>
+    <button id="gfPrev">◀</button><select id="gfSel"></select><button id="gfNext">▶</button>
+    <select id="gfSpeed"><option value="1600">0.5x</option><option value="800" selected>1x</option><option value="400">2x</option></select>
+  </div>
+  <p class="src" style="margin-top:6px">NOAA's Global Ensemble Forecast System runs 4× daily (00/06/12/18 UTC); this wall animates the 31-member <b>ensemble mean</b> - the smoothed “big picture” the individual models average into - across North America out to 192 h. Day-1 through day-8: where the MSLP ridges and troughs set up, how the temperature and wind regime evolves, and where the mean 6-hourly QPF bands land.</p>
+</div>
+<script>
+const GF_FRAMES = {gf_json};
+const GF_LBLS = {gf_lbls};
+let gfTimer = null;
+function gfKey() {{ return document.getElementById("gfProd").value; }}
+function gfFill() {{
+  const k = gfKey();
+  const fr = GF_FRAMES[k] || [];
+  const sel = document.getElementById("gfSel");
+  sel.innerHTML = fr.map((u, i) => `<option value="${{i}}">${{GF_LBLS[k][i]}}</option>`).join("");
+  sel.value = String(fr.length - 1);
+  gfShow();
+}}
+function gfShow() {{
+  const k = gfKey();
+  const fr = GF_FRAMES[k] || [];
+  const i = +document.getElementById("gfSel").value || 0;
+  if (!fr.length) return;
+  document.getElementById("gfFrame").src = fr[i];
+  document.getElementById("gfFh").textContent = GF_LBLS[k][i];
+}}
+function gfStep(d) {{
+  const sel = document.getElementById("gfSel");
+  const n = (GF_FRAMES[gfKey()] || []).length;
+  sel.value = String(Math.max(0, Math.min(n - 1, +sel.value + d)));
+  gfShow();
+}}
+function gfStop() {{
+  if (gfTimer) {{ clearInterval(gfTimer); gfTimer = null; }}
+  document.getElementById("gfPlay").textContent = "\u25b6";
+}}
+document.getElementById("gfProd").onchange = () => {{ gfStop(); gfFill(); }};
+document.getElementById("gfSel").onchange = () => {{ gfStop(); gfShow(); }};
+document.getElementById("gfPrev").onclick = () => gfStep(-1);
+document.getElementById("gfNext").onclick = () => gfStep(1);
+document.getElementById("gfPlay").onclick = () => {{
+  if (gfTimer) {{ gfStop(); return; }}
+  const sel = document.getElementById("gfSel");
+  const ms = +document.getElementById("gfSpeed").value || 800;
+  if ((GF_FRAMES[gfKey()] || []).length < 2) return;
+  if (+sel.value >= (GF_FRAMES[gfKey()] || []).length - 1) sel.value = "0";
+  document.getElementById("gfPlay").textContent = "\u23f8";
+  gfTimer = setInterval(() => {{
+    const n = (GF_FRAMES[gfKey()] || []).length;
+    if (+sel.value + 1 >= n) {{ gfStop(); return; }}
+    sel.value = String(+sel.value + 1); gfShow();
+  }}, ms);
+}};
+if (GF_FRAMES && Object.keys(GF_FRAMES).length) gfFill();
+</script>"""
+    else:
+        gefs_card = ("<div class='card'><h2>\U0001f310 GEFS North America</h2>"
+                     "<div class='src'>GEFS ensemble-mean wall unavailable right "
+                     "now - the next refresh retries automatically (new 6-hourly "
+                     "cycle every ~5 h).</div></div>")
+
     gal = d.get("models") or []
     cards = []
     for i, g in enumerate(gal[:36]):
@@ -6267,6 +6365,8 @@ def page_models(d):
 </div>
 
 {nbm_pct_card}
+
+{gefs_card}
 
 <div class="card"><h2>🔍 Render any model product</h2>
   <div class="ctl">

@@ -29,7 +29,7 @@ DOCS_DIR = "docs"
 ASSET_DIRS = ["model_maps", "hrrr", "nam", "mrms", "nws", "goes",
               "star", "psu_hrrr", "satellite", "meso", "nowcast", "aimodels",
               "sevmaps", "winter", "wbgt", "tropics", "climate", "fire",
-              "space", "hail_ed", "wpcmaps", "nbm_pct", "rapnow"]
+              "space", "hail_ed", "wpcmaps", "nbm_pct", "rapnow", "gefs"]
 COPY_EXT = (".png", ".gif", ".jpg", ".jpeg", ".webp")
 
 # ../hrrr/x.png  ../../hrrr/x.png  /app/static/hrrr/x.png  static/hrrr/x.png

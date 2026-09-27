@@ -84,20 +84,52 @@ def _get(url, timeout=30):
     return r
 
 
+def _file_size(url, timeout=12):
+    """Total file size via a 1-byte range GET (NOMADS 403s HEAD requests)."""
+    try:
+        r = _SESSION.get(url, headers={**UA, "Range": "bytes=0-0"},
+                         timeout=timeout)
+        cr = r.headers.get("Content-Range") or ""
+        if r.status_code in (200, 206) and "/" in cr:
+            return int(cr.rsplit("/", 1)[1])
+        if r.status_code == 200:
+            return int(r.headers.get("Content-Length") or 0)
+    except (requests.RequestException, ValueError):
+        pass
+    return None
+
+
 def find_rap_cycle():
-    """Newest cycle whose pressure-file f00 idx is live (probes 8 h back)."""
+    """Newest cycle whose pressure-file f00 idx is live (probes 8 h back).
+
+    A cycle is accepted only when the f00 GRIB has finished uploading:
+    the file must hold its size across a 5 s stability window. Rendering
+    fields grabbed mid-upload produces torn images (hard-edged data wedges
+    + straight contour lines) - seen live on the 2026-09-27 14Z cycle at
+    59 min after init.
+    """
     now = dt.datetime.now(dt.timezone.utc)
     for back in range(0, 8):
         c = (now - dt.timedelta(hours=back)).replace(minute=0, second=0,
                                                      microsecond=0)
+        url = _rap_url(c, "awp130pgrbf{fh:02d}".format(fh=0), 0)
         try:
-            r = _get(_rap_url(c, "awp130pgrbf{fh:02d}".format(fh=0), 0)
-                     + ".idx", timeout=12)
-            if r.ok and "REFC" in r.text:
-                return c
+            r = _get(url + ".idx", timeout=12)
+            ok = r.ok and "REFC" in r.text
         except requests.RequestException:
-            pass
-        time.sleep(0.5)
+            ok = False
+        if not ok:
+            time.sleep(0.5)
+            continue
+        n1 = _file_size(url)
+        if not n1:
+            time.sleep(0.5)
+            continue
+        time.sleep(5)                          # upload-stability window
+        if _file_size(url) != n1:              # grew between probes
+            time.sleep(0.5)
+            continue
+        return c
     return None
 
 
@@ -128,6 +160,30 @@ def _msg_ranges(idx_lines, short, level_sub, fh, hourly_acc=False):
     return out
 
 
+# Physical-range gates per field - a torn mid-upload decode yields
+# absurd values (e.g. 2 m temps of thousands of K) and must be discarded.
+_SANITY = {
+    "REFC": (-35.0, 80.0),
+    "CAPE": (0.0, 20000.0),
+    "WIND_U": (-160.0, 160.0),
+    "WIND_V": (-160.0, 160.0),
+    "QPF": (0.0, 250.0),                  # mm per 1 h bucket
+    "TMP2M": (193.0, 333.0),              # -80..+60 C
+    "DPT2M": (193.0, 333.0),
+}
+
+
+def _fields_sane(fields):
+    for k, (lo, hi) in _SANITY.items():
+        if k not in fields:
+            continue
+        v = np.asarray(fields[k], dtype=float)
+        fin = v[np.isfinite(v)]
+        if fin.size and (fin.min() < lo or fin.max() > hi):
+            return False
+    return True
+
+
 def _fetch_product(cycle, fh, prod):
     """{'VAR': 2-D array} + lat/lon for one product/hour (None when down)."""
     spec = PRODUCTS[prod]
@@ -155,6 +211,8 @@ def _fetch_product(cycle, fh, prod):
                            "DPT": "DPT2M", "2D": "DPT2M"}.get(sn, sn)
                     fields[key] = v
                     lat, lon = la, lo
+        if fields and not _fields_sane(fields):
+            return None
         return (fields, lat, lon) if fields and lat is not None else None
     except Exception:  # noqa: BLE001 - network/decode -> caller skips
         return None
@@ -206,16 +264,16 @@ def _render(fields, lat, lon, prod, cycle, fh, out_path):
         tk = np.asarray(fields["TMP2M"], dtype=float)[::dec, ::dec]
         td = np.asarray(fields["DPT2M"], dtype=float)[::dec, ::dec]
         tf, tdf = tk * 1.8 - 459.67, td * 1.8 - 459.67
+        # guard the fill: anything outside the palette range drops out
+        tf = np.where((tf > 25) & (tf < 110), tf, np.nan)
         lv = np.arange(30, 106, 3)
         cf = ax.contourf(lo, la, tf, levels=lv, cmap="turbo",
                          transform=ccrs.PlateCarree(), alpha=0.8)
         plt.colorbar(cf, ax=ax, shrink=0.85, label="\u00b0F")
-        ax.contour(lo, la, tdf, levels=lv[::2], colors="k", linewidths=0.5,
-                   linestyles="dashed", transform=ccrs.PlateCarree())
-        ax.clabel(ax.contour(lo, la, tdf, levels=lv[::4], colors="k",
-                             linewidths=0.7, linestyles="dashed",
-                             transform=ccrs.PlateCarree()),
-                  fmt="%.0f", fontsize=6)
+        cs = ax.contour(lo, la, tdf, levels=lv[::2], colors="k",
+                        linewidths=0.6, linestyles="dashed",
+                        transform=ccrs.PlateCarree())
+        ax.clabel(cs, fmt="%.0f", fontsize=6)
         title = f"RAP 2 m temp (fill) / dew point (dashed) - valid {full(valid)}"
     else:
         cape = np.asarray(fields.get("CAPE", np.nan), dtype=float)[::dec, ::dec]
