@@ -4049,7 +4049,7 @@ window.onDataRefresh = function (d) {{ refresh(d); }};   /* soft auto-refresh: t
 
 def _page(title, active, body, extra_head=""):
     pages = [("index.html", "Home"), ("radar.html", "Radar"), ("satellite.html", "Satellite"),
-             ("models.html", "Models"), ("hrrr.html", "HRRR · RRFS"),
+             ("models.html", "Models"), ("gefs.html", "GEFS"), ("hrrr.html", "HRRR · RRFS"),
              ("tropical.html", "NHC"),             ("storms.html", "Storms"), ("fronts.html", "Fronts"),
              ("history.html", "History"),
              ("tropmodels.html", "Trop Models"), ("climate.html", "Climate"),
@@ -6671,6 +6671,157 @@ const MS = {json.dumps(d.get("mpasShield") or {})};
 </script>
 """
     return _page("Models", "models.html", body)
+
+
+def page_gefs(d):
+    """GEFS wall: 2x3 grid of synced products + day high/low + towns."""
+    gf = d.get("gefs") or {}
+    gf_items = gf.get("items") or []
+    if not gf_items:
+        return _page("GEFS Ensemble", "gefs.html", """
+<header class="hero"><h1>🌐 GEFS Ensemble</h1>
+<div class="sub">NOAA's 31-member Global Ensemble Forecast System - unavailable this cycle, the next refresh retries automatically.</div></header>""")
+
+    # frames keyed per product: [{fh, url, label, towns?}]
+    gf_data = json.dumps({it["key"]: it["frames"] for it in gf_items})
+    gf_labels = json.dumps({it["key"]: it["label"] for it in gf_items})
+    gf_stamp = gf.get("cycle") or ""
+    # grid order: synoptic | thermal | moisture | jet | convection | winter
+    GRID = ["mslp", "t2m", "pwat", "jet", "cape", "ptype"]
+    _prod_labels = {i["key"]: i["label"] for i in gf_items}
+    cells = "".join(
+        f'<figure class="gfCell">'
+        f'<figcaption>{html.escape(_prod_labels.get(k, k))}</figcaption>'
+        f'<img id="gfGrid_{k}" loading="lazy" alt="GEFS {k}"/>'
+        f'</figure>'
+        for k in GRID if k in _prod_labels)
+    hi_lo = next((i for i in gf_items if i["key"] == "tmaxtmin"), None)
+    hl_frames_json = json.dumps((hi_lo or {}).get("frames") or [])
+
+    body = f"""
+<header class="hero"><h1>🌐 GEFS Ensemble</h1>
+<div class="sub">NOAA's 31-member Global Ensemble Forecast System · init {html.escape(gf_stamp)} · 8 days at 0.5° · mean | spread, rendered locally from NOAA's AWS open data</div></header>
+
+<div class="card" id="gefsGridCard">
+  <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <button id="ggPlay">⏸</button>
+    <span class="frame" id="ggFh">--</span>
+    <button id="ggPrev">◀</button>
+    <select id="ggSel"></select>
+    <button id="ggNext">▶</button>
+    <select id="ggSpeed"><option value="2400">0.5x</option><option value="1200" selected>1x</option><option value="600">2x</option></select>
+    <span class="src" id="ggDay"></span>
+  </div>
+  <div class="gfGrid">{cells}</div>
+  <div class="src" style="margin-top:8px">All six products advance together through the shared lead times - one clock, six maps: synoptic pattern, temperature, moisture, jet, instability, winter precip. Thin annotations follow each map; the mean field is what most members show, spread panels (where drawn) show where they disagree.</div>
+</div>
+
+<script>
+const GG_FRAMES = {gf_data};
+const GG_LABELS = {gf_labels};
+const GG_ORDER = {json.dumps([k for k in GRID if any(i['key'] == k for i in gf_items)])};
+let ggT = null;
+function ggLeads() {{
+  // leads every grid product shares (f000-only products drop f000)
+  const sets = GG_ORDER.map(k => GG_FRAMES[k].map(f => f.fh));
+  if (!sets.length) return [];
+  return sets.reduce((a, b) => a.filter(x => b.includes(x)));
+}}
+let GG_LEADS = ggLeads();
+let ggI = GG_LEADS.length ? GG_LEADS.length - 1 : -1;
+function ggShow() {{
+  if (ggI < 0 || !GG_LEADS.length) return;
+  const fh = GG_LEADS[ggI];
+  for (const k of GG_ORDER) {{
+    const fr = GG_FRAMES[k] || [];
+    const hit = fr.find(f => f.fh === fh) || fr[fr.length - 1];
+    const img = document.getElementById("gfGrid_" + k);
+    if (img && hit) img.src = hit.url;
+  }}
+  document.getElementById("ggFh").textContent = "F" + String(fh).padStart(3, "0");
+  const hi = GG_FRAMES["tmaxtmin"] || [];
+  const h = hi.find(f => Math.abs(f.fh - fh) <= 12);
+  document.getElementById("ggDay").textContent = h ? (h.label || "") : "";
+}}
+function ggStop() {{ if (ggT) {{ clearInterval(ggT); ggT = null; document.getElementById("ggPlay").textContent = "\\u23f8"; }} }}
+function ggPlay() {{
+  ggStop();
+  if (GG_LEADS.length < 2) return;
+  const ms = +document.getElementById("ggSpeed").value || 1200;
+  document.getElementById("ggPlay").textContent = "\\u25b6";
+  ggT = setInterval(() => {{ ggI = (ggI + 1) % GG_LEADS.length; ggShow(); }}, ms);
+}}
+document.getElementById("ggPlay").onclick = () => ggT ? ggStop() : ggPlay();
+document.getElementById("ggPrev").onclick = () => {{ ggI = Math.max(0, ggI - 1); ggShow(); }};
+document.getElementById("ggNext").onclick = () => {{ ggI = Math.min(GG_LEADS.length - 1, ggI + 1); ggShow(); }};
+document.getElementById("ggSel").onchange = (e) => {{ ggI = +e.target.value; ggShow(); }};
+if (GG_LEADS.length) {{
+  document.getElementById("ggSel").innerHTML = GG_LEADS.map((fh, i) =>
+    `<option value="${{i}}"${{i === ggI ? " selected" : ""}}>F${{String(fh).padStart(3, "0")}}</option>`).join("");
+  ggShow();
+}}
+</script>
+
+<div class="card" id="gefsCard">
+  <h2>📅 Day high / low <span class="src" style="font-weight:400">TMAX | TMIN ensemble means · East TN town table · init {html.escape(gf_stamp)}</span></h2>
+  <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <button id="hlPlay">▶</button><span class="frame" id="hlFh">--</span>
+    <button id="hlPrev">◀</button><select id="hlSel"></select><button id="hlNext">▶</button>
+  </div>
+  <img id="hlFrame" loading="lazy" alt="GEFS day high/low"
+       style="width:100%;max-width:1600px;border-radius:10px;border:1px solid #333c46;margin-top:10px"/>
+  <div id="hlTowns" style="margin-top:8px"></div>
+</div>
+<script>
+const HL_FRAMES = {hl_frames_json};
+let hlT = null, hlI = HL_FRAMES.length - 1;
+function hlShow() {{
+  const f = HL_FRAMES[hlI];
+  if (!f) return;
+  document.getElementById("hlFrame").src = f.url;
+  document.getElementById("hlFh").textContent = f.label || ("F" + f.fh);
+  const rows = f.towns || [];
+  const el = document.getElementById("hlTowns");
+  if (!rows.length) {{ el.style.display = "none"; return; }}
+  const hottest = [...rows].sort((a, b) => b.tmaxF - a.tmaxF)[0];
+  el.style.display = "block";
+  el.innerHTML = '<b class="src">East TN this day \u00b7 ' + rows.length +
+    ' towns \u00b7 warmest: ' + hottest.town + ' (' + hottest.tmaxF + '\u00b0F)</b>' +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:5px;margin-top:5px">' +
+    rows.map(t => `<span class="src" style="background:#1c242e;border-radius:7px;padding:3px 8px">${{t.town}}: <b>${{t.tmaxF}}\u00b0</b> / ${{t.tminF}}\u00b0</span>`).join("") +
+    '</div>';
+}}
+function hlStop() {{ if (hlT) {{ clearInterval(hlT); hlT = null; document.getElementById("hlPlay").textContent = "\\u25b6"; }} }}
+document.getElementById("hlPlay").onclick = () => {{
+  if (hlT) {{ hlStop(); return; }}
+  if (HL_FRAMES.length < 2) return;
+  if (hlI >= HL_FRAMES.length - 1) hlI = 0;
+  document.getElementById("hlPlay").textContent = "\\u23f8";
+  hlT = setInterval(() => {{ hlI = (hlI + 1) % HL_FRAMES.length; hlShow(); }}, 1400);
+}};
+document.getElementById("hlPrev").onclick = () => {{ hlI = Math.max(0, hlI - 1); hlShow(); }};
+document.getElementById("hlNext").onclick = () => {{ hlI = Math.min(HL_FRAMES.length - 1, hlI + 1); hlShow(); }};
+document.getElementById("hlSel").onchange = (e) => {{ hlI = +e.target.value; hlShow(); }};
+if (HL_FRAMES.length) {{
+  document.getElementById("hlSel").innerHTML = HL_FRAMES.map((f, i) =>
+    `<option value="${{i}}"${{i === hlI ? " selected" : ""}}>${{f.label || ("F" + f.fh)}}</option>`).join("");
+  hlShow();
+}}
+</script>
+
+<div class="card">
+  <h2>🧭 Deep dives</h2>
+  <div class="src">Full-screen animated panels with ensemble spread and (on the jet) 16-member axis spaghetti live on the <a href="models.html">Models page GEFS card</a>. Storm tracks from these same members are on the <a href="tropical.html">NHC Tropical page</a>.</div>
+</div>
+<style>
+  .gfGrid {{ display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:12px; margin-top:10px; }}
+  .gfCell {{ margin:0; }}
+  .gfCell figcaption {{ font-size:12.5px; color:#8fa3bf; margin-bottom:4px; }}
+  .gfCell img {{ width:100%; border-radius:10px; border:1px solid #333c46; }}
+  @media (max-width: 900px) {{ .gfGrid {{ grid-template-columns:1fr; }} }}
+</style>
+"""
+    return _page("GEFS Ensemble", "gefs.html", body)
 
 
 def page_tropical(d):
@@ -11222,6 +11373,7 @@ def generate_site():
             "radar.html": page_radar(d),
             "satellite.html": page_satellite(d),
             "models.html": page_models(d),
+            "gefs.html": page_gefs(d),
             "tropical.html": page_tropical(d),
             "storms.html": page_storms(d),
             "history.html": page_history(d),
