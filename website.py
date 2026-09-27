@@ -762,6 +762,7 @@ def collect_data():
         "climate": _climate_safe(),
         "elNino": _enso_safe(),
         "wpcMaps": _wpc_maps_safe(),
+        "wpcText": _wpc_text_safe(),
         "mrmsProducts": {k: v.get("label", k) for k, v in MRMS_CATALOG.items()},
         # per-product MRMS loops for the radar page's level picker (disk reads;
         # the shared background renderer fills each over time) - pre-filtered
@@ -799,6 +800,7 @@ def collect_data():
         "climate": _climate_safe(),
         "elNino": _enso_safe(),
         "wpcMaps": _wpc_maps_safe(),
+        "wpcText": _wpc_text_safe(),
         "mrmsProducts": {k: v.get("label", k) for k, v in MRMS_CATALOG.items()},
         # per-product MRMS loops for the radar page's level picker (disk reads;
         # the shared background renderer fills each over time) - pre-filtered
@@ -3045,6 +3047,19 @@ def _wpc_maps_safe():
                   f"carrying forward last good ({age} min old)", flush=True)
             return last
         return {"ok": False, "groups": []}
+
+
+def _wpc_text_safe():
+    """WPC discussion texts (never breaks the site build)."""
+    try:
+        from data.wpctext import bundle
+        v = bundle()
+        if not (v and v.get("products")):
+            raise RuntimeError("bundle came back empty")
+        return v
+    except Exception as exc:                           # noqa: BLE001
+        print(f"wpcText bundle failed ({type(exc).__name__}: {exc})", flush=True)
+        return {"ok": False, "products": {}}
 
 
 def _afd_safe():
@@ -10169,6 +10184,45 @@ def page_national(d):
     wpc_grp_btns = "".join(
         f'<button class="wbtn" data-g="{html.escape(g["id"])}">'
         f'{html.escape(g["label"])}</button>' for g in wpc_groups)
+    wtxt = d.get("wpcText") or {}
+    wpc_prods = wtxt.get("products") or {}
+    _DISC_META = [
+        ("shortrange", "📝 Short Range (Days 1-2)",
+         "WPC forecaster narrative for the next two days: surface systems, "
+         "QPF reasoning, severe potential."),
+        ("ero", "🌧️ Excessive Rainfall - Days 1-2", ""),
+        ("eroDay3", "🌧️ Excessive Rainfall - Day 3", ""),
+        ("eroDay45", "🌧️ Excessive Rainfall - Days 4-5", ""),
+        ("snowicing", "❄️ Heavy Snow & Icing", ""),
+    ]
+    disc_cards = ""
+    for key, heading, blurb in _DISC_META:
+        p = wpc_prods.get(key)
+        if not p:
+            continue
+        his = "".join(
+            f'<div style="background:#1a2230;border-left:3px solid var(--acc);'
+            f'border-radius:6px;padding:6px 10px;margin:4px 0;font-weight:600;'
+            f'letter-spacing:.02em">{html.escape(h)}</div>' for h in p.get("highlights", []))
+        paras = "".join(f"<p style='margin:6px 0;line-height:1.55'>{html.escape(x)}</p>"
+                        for x in p.get("body", []))
+        fcst = f' &middot; {html.escape(p["forecaster"])}' if p.get("forecaster") else ""
+        disc_cards += f"""
+<div class="card"><h2>{heading}</h2>
+  <div class="src">{html.escape(p.get("valid") or "")}{" &middot; issued " + html.escape(p["issued"]) if p.get("issued") else ""}{fcst}</div>
+  {his}
+  {f'<div class="src" style="margin:4px 0">{html.escape(blurb)}</div>' if blurb else ""}
+  <div style="font-size:13.5px">{paras}</div>
+</div>"""
+    if disc_cards:
+        disc_cards = ("<div class='card'><h2>🗣️ WPC forecast discussions</h2>"
+                      "<div class='src'>Raw text products parsed from WPC's free "
+                      f"feed &middot; updated {html.escape(wtxt.get('generated') or '')}</div></div>") \
+            + disc_cards
+    else:
+        disc_cards = ("<div class='card'><h2>🗣️ WPC forecast discussions</h2>"
+                      "<div class='src'>Discussion texts unavailable right now - "
+                      "the next refresh retries automatically.</div></div>")
     sp = d.get("space") or {}
     kp_rows = sp.get("kp") or []
     kp_vals = [k.get("kp") for k in kp_rows[-16:] if isinstance(k.get("kp"), (int, float))]
@@ -10206,6 +10260,8 @@ def page_national(d):
   <img id="wpcImg" class="natimg" loading="lazy" src="{wpc[0]["url"] if wpc else ""}" alt="WPC chart"/>
   <div class="cap src" id="wpcCap">{html.escape(wpc[0]["title"] + " - " + wpc[0]["desc"]) if wpc else "WPC charts unavailable."}</div>
 </div>
+
+{disc_cards}
 
 <div class="card"><h2>🛰️ WPC / OPC / SPC analysis charts - extended set</h2>
   <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px" id="wpcGrpBtns">{wpc_grp_btns}</div>
