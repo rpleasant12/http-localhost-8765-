@@ -6250,22 +6250,31 @@ def page_models(d):
     gf_stamp = gf.get("cycle") or ""
     if gf_items:
         gefs_card = f"""
-<div class="card">
+<div class="card" id="gefsCard">
   <h2>🌐 GEFS North America <span class="src" style="font-weight:400">31-member ensemble mean | spread · init {html.escape(gf_stamp)} · 8 days at 0.5° · our MetPy render from NOAA's AWS open data</span></h2>
   <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
     <label class="src" style="margin:0">Product</label>
     <select id="gfProd">{gf_opts}</select>
     <span class="src" style="margin:0" id="gfCap"></span>
   </div>
+  <style>
+    /* GEFS wall: break out of .wrap's 1100 px for the map only */
+    @media (min-width: 1240px) {{
+      #gefsCard .ctl, #gefsCard h2, #gefsCard > p {{
+        max-width: 1072px; margin-left: auto; margin-right: auto; }}
+      #gefsCard {{ margin-left: calc((min(1100px, 100vw - 28px) - 100vw) / 2 + 14px);
+                   margin-right: calc((min(1100px, 100vw - 28px) - 100vw) / 2 + 14px); }}
+    }}
+  </style>
   <img id="gfFrame" loading="lazy" alt="GEFS North America"
-       style="width:100%;max-width:950px;border-radius:10px;border:1px solid #333c46;margin-top:10px"/>
+       style="width:100%;max-width:1600px;border-radius:10px;border:1px solid #333c46;margin-top:10px"/>
   <div id="gfTowns" style="display:none;margin-top:8px"></div>
   <div class="ctl" style="margin-top:8px">
     <button id="gfPlay">▶</button><span class="frame" id="gfFh">--</span>
     <button id="gfPrev">◀</button><select id="gfSel"></select><button id="gfNext">▶</button>
     <select id="gfSpeed"><option value="1600">0.5x</option><option value="800" selected>1x</option><option value="400">2x</option></select>
   </div>
-  <p class="src" style="margin-top:6px">NOAA's Global Ensemble Forecast System runs 4× daily (00/06/12/18 UTC). Most frames are two panels: the 31-member <b>ensemble mean</b> - the smoothed “big picture” - and the <b>ensemble spread</b> (std dev), showing where the members disagree. The <b>Day high / low</b> product instead pairs each day's TMAX and TMIN ensemble means, with a town-by-town East TN table under the map. Mean says what is most likely; spread says how confident to be. Out to 192 h (8 days): MSLP ridges/troughs + 500 mb heights, temperature, wind, 6-hourly QPF, and daily highs/lows.</p>
+  <p class="src" style="margin-top:6px">NOAA's Global Ensemble Forecast System runs 4× daily (00/06/12/18 UTC). Most frames are two panels: the 31-member <b>ensemble mean</b> - the smoothed “big picture” - and the <b>ensemble spread</b> (std dev), showing where the members disagree. The <b>Day high / low</b> product pairs each day's TMAX and TMIN means with a town-by-town East TN table; <b>Winter precip type</b> shades the probability a member produced snow (blue), ice (purple) or freezing rain (orange). Out to 192 h (8 days): MSLP + 500 mb heights, temperature, wind, QPF, daily highs/lows, CAPE, PWAT moisture, the 250-mb jet, and winter precip type.</p>
 </div>
 <script>
 const GF_FRAMES = {gf_json};

@@ -46,7 +46,8 @@ GEFS_BASE = ("https://noaa-gefs-pds.s3.amazonaws.com/"
              "gefs.{ymd}/{hh}/atmos/pgrb2ap5/geavg.t{hh}z.pgrb2a.0p50.f{fff}")
 
 FHS = (0, 24, 48, 72, 96, 120, 144, 168, 192)     # daily steps, 8 days
-FHS_BY_PROD = {"qpf": FHS[1:]}                     # f000 acc window is 0-0
+FHS_BY_PROD = {"qpf": FHS[1:],                     # f000 acc window is 0-0
+               "ptype": FHS[1:]}                   # same: 6-h ave windows
 KEEP_HOURS = 48
 
 # daily TMAX/TMIN leads per cycle hour: the geavg 6-h max/min windows are
@@ -66,24 +67,40 @@ PRODUCTS = {
     "wind": {"label": "Wind speed (10 m)"},
     "qpf": {"label": "6-h QPF"},
     "tmaxtmin": {"label": "Day high / low (TMAX-TMIN)"},
+    "cape": {"label": "CAPE (instability)"},
+    "pwat": {"label": "PWAT (moisture)"},
+    "jet": {"label": "Jet stream (250 mb)"},
+    "ptype": {"label": "Winter precip type"},
 }
 
 # product messages: (idx shortName, level substring)
+# product messages: (idx shortName, level substring, output field key)
+# out_key is level-aware on purpose: UGRD appears at 10 m AND 250 mb, so
+# keying by shortName alone would collide (the 10-m-only key map bug).
 _MSGS = {
-    "mslp": [("PRMSL", "mean sea level"), ("HGT", "500 mb")],
-    "t2m": [("TMP", "2 m above ground")],
-    "wind": [("UGRD", "10 m above ground"), ("VGRD", "10 m above ground")],
-    "qpf": [("APCP", "acc")],
-    "tmaxtmin": [("TMAX", "2 m above ground"), ("TMIN", "2 m above ground")],
+    "mslp": [("PRMSL", "mean sea level", "PRMSL"), ("HGT", "500 mb", "HGT")],
+    "t2m": [("TMP", "2 m above ground", "T2M")],
+    "wind": [("UGRD", "10 m above ground", "U10M"),
+             ("VGRD", "10 m above ground", "V10M")],
+    "qpf": [("APCP", "acc", "QPF")],
+    "tmaxtmin": [("TMAX", "2 m above ground", "TMAX"),
+                 ("TMIN", "2 m above ground", "TMIN")],
+    "cape": [("CAPE", "180-0 mb", "CAPE")],
+    "pwat": [("PWAT", "entire atmosphere", "PWAT")],
+    "jet": [("UGRD", "250 mb", "U250"), ("VGRD", "250 mb", "V250")],
+    "ptype": [("CSNOW", "surface", "CSNOW"), ("CICEP", "surface", "CICEP"),
+              ("CFRZR", "surface", "CFRZR")],
 }
 
 # idx shortName -> canonical field key (cfgrib may ship either spelling)
+# idx shortName -> canonical field key (legacy; superseded by out_key)
 _KEY = {"PRMSL": "PRMSL", "GH": "HGT", "HGT": "HGT",
         "TMP": "T2M", "2T": "T2M",
         "UGRD": "U10M", "10U": "U10M",
         "VGRD": "V10M", "10V": "V10M",
         "APCP": "QPF", "TP": "QPF",
-        "TMAX": "TMAX", "TMIN": "TMIN"}
+        "TMAX": "TMAX", "TMIN": "TMIN",
+        "CAPE": "CAPE", "PWAT": "PWAT"}
 
 # physical-range gates per field (a torn decode yields absurd values)
 _SANITY = {
@@ -95,6 +112,13 @@ _SANITY = {
     "QPF": (0.0, 400.0),                 # mm per 6 h
     "TMAX": (193.0, 333.0),              # K
     "TMIN": (193.0, 333.0),
+    "CAPE": (0.0, 20000.0),              # J/kg
+    "PWAT": (0.0, 120.0),                # mm
+    "U250": (-150.0, 150.0),             # m/s
+    "V250": (-150.0, 150.0),
+    "CSNOW": (0.0, 1.001),               # member fraction of occurrence
+    "CICEP": (0.0, 1.001),
+    "CFRZR": (0.0, 1.001),
 }
 
 
@@ -160,6 +184,13 @@ _SANITY_SPR = {
     "QPF": (0.0, 200.0),                 # mm per 6 h
     "TMAX": (0.0, 25.0),                 # spread, K
     "TMIN": (0.0, 25.0),
+    "CAPE": (0.0, 8000.0),               # spread, J/kg
+    "PWAT": (0.0, 40.0),                 # spread, mm
+    "U250": (0.0, 80.0),
+    "V250": (0.0, 80.0),
+    "CSNOW": (0.0, 1.001),               # gespr ships the SAME 0..1 flags,
+    "CICEP": (0.0, 1.001),               # not std devs - keep permissive
+    "CFRZR": (0.0, 1.001),
 }
 
 
@@ -185,7 +216,7 @@ def _fetch_product(cycle, fh, prod, spread=False):
         url = base
         fields = {}
         lat = lon = None
-        for short, level in _MSGS[prod]:
+        for short, level, out_key in _MSGS[prod]:
             rng = _msg_range(idx, short, level)
             if not rng:
                 continue
@@ -199,7 +230,8 @@ def _fetch_product(cycle, fh, prod, spread=False):
                 v = np.asarray(vals, dtype=float)
                 if v.ndim != 2:
                     continue
-                fields[_KEY.get(sn, sn)] = v
+                fields[out_key if sn in (short, _KEY.get(sn, sn))
+                       else _KEY.get(sn, sn)] = v
                 lat, lon = la, lo
         if fields and not _fields_sane(fields,
                                        _SANITY_SPR if spread else _SANITY):
@@ -238,7 +270,7 @@ def _render(mean, spread, lat, lon, prod, cycle, fh, out_path):
                                       name="NWSQPF")
 
     valid = cycle + dt.timedelta(hours=fh)
-    fig = plt.figure(figsize=(14.5, 5.6), dpi=90)
+    fig = plt.figure(figsize=(16.5, 6.6), dpi=100)
     proj = ccrs.LambertConformal(central_longitude=-100, central_latitude=42)
     ext = [-170, -50, 10, 72]
 
@@ -278,6 +310,44 @@ def _render(mean, spread, lat, lon, prod, cycle, fh, out_path):
         sval = None
         mlev = np.arange(10, 116, 3)
         mcmap, mlbl = "turbo", "\u00b0F"
+    elif prod == "cape":
+        va, _, la, lo = _na_crop(lat, lon, mean["CAPE"], None)
+        sa, _, _, _ = _na_crop(lat, lon, spread["CAPE"], None)
+        mval = np.where(va >= 100, va, np.nan)     # J/kg
+        sval = sa
+        mlev = np.arange(100, 5001, 250)
+        slev = np.arange(100, 2001, 100)
+        mcmap, mlbl, slbl = "YlOrRd", "J/kg", "J/kg"
+    elif prod == "pwat":
+        va, _, la, lo = _na_crop(lat, lon, mean["PWAT"], None)
+        sa, _, _, _ = _na_crop(lat, lon, spread["PWAT"], None)
+        mval = va / 25.4                           # mm -> inches
+        sval = sa / 25.4
+        mlev = np.arange(0.1, 2.61, 0.1)
+        slev = np.arange(0.05, 1.01, 0.05)
+        mcmap, mlbl, slbl = "PuBuGn", "in", "in"
+    elif prod == "jet":
+        ua, va2, la, lo = _na_crop(lat, lon, mean["U250"], mean["V250"])
+        mval = np.hypot(ua, va2) * 1.94384         # m/s -> kt
+        sua, sva, _, _ = _na_crop(lat, lon, spread["U250"], spread["V250"])
+        sval = np.hypot(sua, sva) * 1.94384
+        mlev = np.arange(20, 181, 10)
+        slev = np.arange(5, 61, 5)
+        mcmap, mlbl, slbl = "viridis", "kt", "kt"
+    elif prod == "ptype":
+        # geavg flags are the ensemble-mean occurrence (0..1) = probability
+        # a member had that type in the 6-h window; snow fills the left
+        # panel, freezing rain / ice ride along as warm overlays; the right
+        # panel shows the total frozen-precip probability
+        na, _, la, lo = _na_crop(lat, lon, mean["CSNOW"], None)
+        ia, _, _, _ = _na_crop(lat, lon, mean["CICEP"], None)
+        fa, _, _, _ = _na_crop(lat, lon, mean["CFRZR"], None)
+        mval = np.where(na >= 0.05, na, np.nan)
+        nval = np.clip(na + ia + fa, 0.0, 1.0)
+        sval = None
+        mlev = np.arange(0.1, 1.01, 0.1)
+        mcmap, mlbl = "PuBu", "P(snow), ens occurrence"
+        _ptype_extra = (ia, fa)                    # for the overlay below
     else:  # qpf
         va, _, la, lo = _na_crop(lat, lon, mean["QPF"], None)
         sa, _, _, _ = _na_crop(lat, lon, spread["QPF"], None)
@@ -297,6 +367,19 @@ def _render(mean, spread, lat, lon, prod, cycle, fh, out_path):
                         colors="k", linewidths=0.6,
                         transform=ccrs.PlateCarree())
         ax.clabel(cs, fmt="%.0f", fontsize=6)
+    if prod == "ptype":
+        ia, fa = _ptype_extra
+        for arr, colr, lab in ((fa, "#ff8c00", "frz-r"), (ia, "#e040fb", "ice")):
+            ov = np.where(arr >= 0.05, arr, np.nan)
+            if np.isfinite(ov).any():
+                ax.contourf(lo, la, ov, levels=np.arange(0.1, 1.01, 0.1),
+                            colors=[colr], alpha=0.55,
+                            transform=ccrs.PlateCarree())
+    if prod == "jet":
+        cs = ax.contour(lo, la, mval, levels=np.arange(60, 181, 20),
+                        colors="w", linewidths=0.7,
+                        transform=ccrs.PlateCarree())
+        ax.clabel(cs, fmt="%.0f", fontsize=6)
     ax.set_title("Ensemble mean", fontsize=11)
 
     # ---- right panel ----
@@ -307,6 +390,13 @@ def _render(mean, spread, lat, lon, prod, cycle, fh, out_path):
                          extend="max")
         plt.colorbar(cf, ax=ax, shrink=0.8, label="\u00b0F")
         ax.set_title("Day's low (TMIN ens mean)", fontsize=11)
+    elif prod == "ptype":
+        cf = ax.contourf(lo, la, nval, levels=mlev, cmap="PuBu",
+                         transform=ccrs.PlateCarree(), alpha=0.85,
+                         extend="max")
+        plt.colorbar(cf, ax=ax, shrink=0.8,
+                     label="P(any frozen precip)")
+        ax.set_title("Any frozen precip (snow+ice+frz)", fontsize=11)
     else:
         cf = ax.contourf(lo, la, sval, levels=slev, cmap="cividis_r",
                          transform=ccrs.PlateCarree(), alpha=0.9,
@@ -314,11 +404,18 @@ def _render(mean, spread, lat, lon, prod, cycle, fh, out_path):
         plt.colorbar(cf, ax=ax, shrink=0.8, label=f"std dev ({slbl})")
         ax.set_title("Ensemble spread (std dev)", fontsize=11)
 
-    left_lbl = ("Day's high (TMAX ens mean)" if prod == "tmaxtmin"
-                else "Ensemble mean")
+    left_lbl = ({"tmaxtmin": "Day's high (TMAX ens mean)",
+                 "cape": "CAPE ens mean",
+                 "pwat": "PWAT ens mean",
+                 "jet": "250 mb wind ens mean",
+                 "ptype": "Snow occurrence probability"}.get(prod)
+                or "Ensemble mean")
     if prod == "tmaxtmin":
         fig.suptitle(f"GEFS day {int(fh // 24) + 1} high / low - valid day of "
                      f"{full(valid)} - ensemble means", fontsize=11, y=0.98)
+    elif prod == "ptype":
+        fig.suptitle(f"GEFS winter precip type - 6 h ending {full(valid)} - "
+                     f"snow | any frozen", fontsize=11, y=0.98)
     else:
         fig.suptitle(f"GEFS {PRODUCTS[prod]['label']} - valid {full(valid)} - "
                      f"mean | member disagreement", fontsize=11, y=0.98)
@@ -398,6 +495,9 @@ def refresh():
             if prod == "tmaxtmin":
                 spr = None          # right panel is TMIN, not spread
                 sfields = fields
+            elif prod == "ptype":
+                spr = None          # gespr repeats the flags, not a spread;
+                sfields = fields    # the right panel re-plots snow prob.
             else:
                 spr = _fetch_product(cycle, fh, prod, spread=True)
                 if not spr:
