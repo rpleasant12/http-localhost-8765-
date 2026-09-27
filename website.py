@@ -1099,7 +1099,7 @@ def page_hrrr(d):
     if rn_items:
         rap_card = f"""
 <div class="card">
-  <h2>⏱️ RAP nowcast <span class="src" style="font-weight:400">newest hourly Rapid Refresh init {html.escape(rn_stamp)} · next 3 h at 13 km · updates every hour · our MetPy render from NOAA open data</span></h2>
+  <h2>⏱️ RAP nowcast <span class="src" style="font-weight:400">newest hourly Rapid Refresh init {html.escape(rn_stamp)} · radar / CAPE + wind / hourly QPF / temp + dew point · next 3 h at 13 km · updates every hour · our MetPy render from NOAA open data</span></h2>
   <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
     <label class="src" style="margin:0">Product</label>
     <select id="rnProd">{rn_opts}</select>

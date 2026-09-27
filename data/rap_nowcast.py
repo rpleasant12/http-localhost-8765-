@@ -49,14 +49,24 @@ PRODUCTS = {
     "refc": {"stem": "awp130pgrbf{fh:02d}",
              "label": "Simulated radar (composite reflectivity)"},
     "cape_wind": {"stem": "awp130pgrbf{fh:02d}", "label": "SBCAPE + 10 m wind"},
+    "qpf": {"stem": "awp130pgrbf{fh:02d}", "label": "Hourly QPF"},
+    "tmpdew": {"stem": "awp130pgrbf{fh:02d}", "label": "Temperature / dew point"},
 }
 
-# product messages: (shortName, level substring, acc-window or None)
+# product messages: (shortName, level substring, hourly-accumulation filter)
 _MSGS = {
     "refc": [("REFC", "entire atmosphere", None)],
     "cape_wind": [("CAPE", "surface", None), ("UGRD", "10 m above ground", None),
                   ("VGRD", "10 m above ground", None)],
+    # APCP ships 0-N storm totals AND N-1-N hourly buckets (0-1, 1-2, 2-3
+    # - verified in the live 2026-09-27 11Z idx); keep only the hourly
+    # buckets so the loop animates rain rate, not a growing total.
+    "qpf": [("APCP", "surface", True)],
+    "tmpdew": [("TMP", "2 m above ground", None),
+               ("DPT", "2 m above ground", None)],
 }
+# f01 quirk: the only 1 h bucket at f01 is "0-1 hour acc" (no "1-1"), so the
+# hourly filter accepts any (end-start) == 1 window, not just N-1-N.
 # RAP idx level strings carry "anl"/"N hour fcst" - CAPE@surface is the
 # pressure file's name for what the native file calls CAPE@255-0 mb; both
 # are the most-unstable-ish surface-based field the model ships. The plain
@@ -91,15 +101,22 @@ def find_rap_cycle():
     return None
 
 
-def _msg_ranges(idx_lines, short, level_sub, fh):
+def _msg_ranges(idx_lines, short, level_sub, fh, hourly_acc=False):
     """[(start, end)] byte ranges for all matches (RAP dedupes per file)."""
     out = []
     for i, l in enumerate(idx_lines):
         f = l.split(":")
         if len(f) < 7 or f[3] != short:
             continue
-        if level_sub.lower() not in ":".join(f[4:]).lower():
+        lvl = ":".join(f[4:]).lower()
+        if level_sub.lower() not in lvl:
             continue
+        if hourly_acc:
+            # keep only 1 h accumulation windows ("0-1", "1-2", "2-3",
+            # ..." hour acc fcst") - skip the 0-N storm totals
+            m = re.search(r"(\d+)-(\d+) hour acc", lvl)
+            if not m or int(m.group(2)) - int(m.group(1)) != 1:
+                continue
         start = int(f[1])
         end = start
         for j in range(i + 1, len(idx_lines)):
@@ -120,8 +137,8 @@ def _fetch_product(cycle, fh, prod):
         url = _rap_url(cycle, stem, fh)
         fields = {}
         lat = lon = None
-        for short, level, _acc in _MSGS[prod]:
-            for (s, e) in _msg_ranges(idx, short, level, fh):
+        for short, level, hourly_acc in _MSGS[prod]:
+            for (s, e) in _msg_ranges(idx, short, level, fh, hourly_acc):
                 blob = _fetch_range(url, s, e)
                 if blob is None:
                     continue
@@ -132,9 +149,10 @@ def _fetch_product(cycle, fh, prod):
                     v = np.asarray(vals, dtype=float)
                     if v.ndim != 2:
                         continue
-                    key = "WIND_U" if sn == "UGRD" else \
-                          "WIND_V" if sn == "VGRD" else \
-                          "CAPE" if sn == "CAPE" else sn
+                    key = {"UGRD": "WIND_U", "VGRD": "WIND_V",
+                           "CAPE": "CAPE", "APCP": "QPF", "TP": "QPF",
+                           "TMP": "TMP2M", "2T": "TMP2M",
+                           "DPT": "DPT2M", "2D": "DPT2M"}.get(sn, sn)
                     fields[key] = v
                     lat, lon = la, lo
         return (fields, lat, lon) if fields and lat is not None else None
@@ -154,6 +172,9 @@ def _render(fields, lat, lon, prod, cycle, fh, out_path):
     if "NWSRef" not in matplotlib.colormaps:
         cmap_ref = registry.get_colortable("NWSReflectivity")
         matplotlib.colormaps.register(cmap_ref, name="NWSRef")
+    if "NWSQPF" not in matplotlib.colormaps:
+        matplotlib.colormaps.register(registry.get_colortable("precipitation"),
+                                      name="NWSQPF")
 
     dec = 2
     la, lo = lat[::dec, ::dec], lon[::dec, ::dec]
@@ -172,6 +193,30 @@ def _render(fields, lat, lon, prod, cycle, fh, out_path):
                          transform=ccrs.PlateCarree(), alpha=0.85, extend="max")
         plt.colorbar(cf, ax=ax, shrink=0.85, label="dBZ")
         title = f"RAP simulated radar - valid {full(valid)}"
+    elif prod == "qpf":
+        v = np.asarray(fields["QPF"], dtype=float)[::dec, ::dec]
+        v = np.where(v <= 0.05, np.nan, v)      # mm - hide the trace speckle
+        v = v / 25.4                            # -> inches
+        cf = ax.contourf(lo, la, v, levels=np.arange(0.05, 1.31, 0.05),
+                         cmap="NWSQPF", transform=ccrs.PlateCarree(),
+                         alpha=0.85, extend="max")
+        plt.colorbar(cf, ax=ax, shrink=0.85, label="in/hr")
+        title = f"RAP hourly QPF - valid {full(valid)}"
+    elif prod == "tmpdew":
+        tk = np.asarray(fields["TMP2M"], dtype=float)[::dec, ::dec]
+        td = np.asarray(fields["DPT2M"], dtype=float)[::dec, ::dec]
+        tf, tdf = tk * 1.8 - 459.67, td * 1.8 - 459.67
+        lv = np.arange(30, 106, 3)
+        cf = ax.contourf(lo, la, tf, levels=lv, cmap="turbo",
+                         transform=ccrs.PlateCarree(), alpha=0.8)
+        plt.colorbar(cf, ax=ax, shrink=0.85, label="\u00b0F")
+        ax.contour(lo, la, tdf, levels=lv[::2], colors="k", linewidths=0.5,
+                   linestyles="dashed", transform=ccrs.PlateCarree())
+        ax.clabel(ax.contour(lo, la, tdf, levels=lv[::4], colors="k",
+                             linewidths=0.7, linestyles="dashed",
+                             transform=ccrs.PlateCarree()),
+                  fmt="%.0f", fontsize=6)
+        title = f"RAP 2 m temp (fill) / dew point (dashed) - valid {full(valid)}"
     else:
         cape = np.asarray(fields.get("CAPE", np.nan), dtype=float)[::dec, ::dec]
         cf = ax.contourf(lo, la, cape, levels=np.arange(100, 5001, 250),
