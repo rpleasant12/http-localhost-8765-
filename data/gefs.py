@@ -241,6 +241,87 @@ def _fetch_product(cycle, fh, prod, spread=False):
         return None
 
 
+# ---- jet-axis spaghetti ------------------------------------------------
+# 16 perturbed members (every other one) - 16 members x 2 fields x ~200 KB
+# x (1 + JET_AXIS_FHS) requests per cycle, all grib-cached. Enough to show
+# streak scatter without doubling the walk.
+JET_MEMBERS = [f"gep{i:02d}" for i in range(1, 32, 2)]
+JET_AXIS_FHS = (24, 72, 120, 168)   # leads that get the overlay
+JET_MIN_KT = 50.0                   # an axis point must sit on >= 50 kt
+
+
+def _member_jet_axis(u, v, lat, lon, min_kt=JET_MIN_KT):
+    """[(lon, lat)] jet axis: per longitude column, the latitude of that
+    column's 250-mb wind maximum (kt), kept only where >= min_kt.
+    smoothed with a 3-point moving average to kill grid noise."""
+    spd = np.hypot(u, v) * 1.94384
+    lonc = np.where(lon > 180, lon - 360.0, lon)
+    rows = (lat[:, 0] >= 15.0) & (lat[:, 0] <= 72.0)
+    cols = (lonc[0, :] >= -165.0) & (lonc[0, :] <= -55.0)
+    sub = spd[np.ix_(rows, cols)]
+    las = lat[np.ix_(rows, cols)][:, 0]
+    los = lonc[np.ix_(rows, cols)][0, :]
+    if not sub.size:
+        return []
+    j_rows = np.nanargmax(sub, axis=0)
+    j_vals = sub[j_rows, np.arange(sub.shape[1])]
+    pts = [(float(los[j]), float(las[r]))
+           for j, (r, val) in enumerate(zip(j_rows, j_vals))
+           if val >= min_kt]
+    # drop isolated axis points (3-pt lon window must hold >=2)
+    keep = []
+    for k, (x, y) in enumerate(pts):
+        lo_w = [p[1] for p in pts[max(0, k - 1):k + 2]
+                if abs(p[0] - x) <= 6.0]
+        if len(lo_w) >= 2:
+            keep.append((x, y))
+    # light smoothing along the kept axis
+    if len(keep) >= 5:
+        ys = [p[1] for p in keep]
+        sm = [ys[0]] + [0.25 * ys[k - 1] + 0.5 * ys[k] + 0.25 * ys[k + 1]
+                        for k in range(1, len(ys) - 1)] + [ys[-1]]
+        keep = [(p[0], round(s, 2)) for p, s in zip(keep, sm)]
+    return keep
+
+
+def _jet_member_axes(cycle, fh):
+    """{member: [(lon, lat)]} jet axes for one lead (disk/network).
+
+    U250 and V250 sit in separate messages (not adjacent) - one idx plus
+    one exact range per field, cached via gefs_tracks' grib cache.
+    """
+    from data.gefs_tracks import _disk_get, _disk_put
+    out = {}
+    for member in JET_MEMBERS:
+        base = _gefs_url(cycle, fh, member)
+        got = {}
+        try:
+            for short, level, out_key in _MSGS["jet"]:
+                ckey = f"{base}#{short}"
+                blob = _disk_get(ckey)
+                if blob is None:
+                    idx = _get(base + ".idx").text.splitlines()
+                    rng = _msg_range(idx, short, level)
+                    if not rng:
+                        break
+                    blob = _fetch_range(base, rng[0], rng[1])
+                    _disk_put(ckey, blob)
+                decoded, la, lo = _decode_grib_bytes(blob)
+                if not decoded or la is None:
+                    break
+                for sn, vals in decoded.items():
+                    vv = np.asarray(vals, dtype=float)
+                    if vv.ndim == 2:
+                        got[out_key] = vv
+            if "U250" in got and "V250" in got:
+                axis = _member_jet_axis(got["U250"], got["V250"], la, lo)
+                if len(axis) >= 10:
+                    out[member] = axis
+        except Exception:  # noqa: BLE001 - one member missing is fine
+            continue
+    return out
+
+
 def _na_crop(lat, lon, *arrays):
     """Crop global 0.5-deg fields to North America (10-75 N, 170-50 W).
 
@@ -255,7 +336,7 @@ def _na_crop(lat, lon, *arrays):
     return out
 
 
-def _render(mean, spread, lat, lon, prod, cycle, fh, out_path):
+def _render(mean, spread, lat, lon, prod, cycle, fh, out_path, axes=None):
     """Two side-by-side panels: ensemble mean (left) | std dev (right)."""
     import matplotlib
     matplotlib.use("Agg")
@@ -380,6 +461,27 @@ def _render(mean, spread, lat, lon, prod, cycle, fh, out_path):
                         colors="w", linewidths=0.7,
                         transform=ccrs.PlateCarree())
         ax.clabel(cs, fmt="%.0f", fontsize=6)
+        if axes:
+            for k, (_m, axis) in enumerate(sorted(axes.items())):
+                ax.plot([p[0] for p in axis], [p[1] for p in axis],
+                        color="#ff5252", linewidth=0.7, alpha=0.45,
+                        transform=ccrs.PlateCarree())
+            # consensus: the mean latitude per longitude across members
+            by_lon = {}
+            for axis in axes.values():
+                for x, y in axis:
+                    by_lon.setdefault(round(x), []).append(y)
+            cons = [(x, float(np.mean(ys))) for x, ys in sorted(by_lon.items())
+                    if len(ys) >= len(axes) // 3]
+            if len(cons) >= 5:
+                ax.plot([p[0] for p in cons], [p[1] for p in cons],
+                        color="#ff1744", linewidth=2.2, alpha=0.95,
+                        transform=ccrs.PlateCarree(), zorder=6)
+                ax.annotate("member axes", (cons[len(cons) // 2][0],
+                                            cons[len(cons) // 2][1]),
+                            textcoords="offset points", xytext=(6, 8),
+                            fontsize=7, color="#ff8a80", weight="bold",
+                            transform=ccrs.PlateCarree(), zorder=7)
     ax.set_title("Ensemble mean", fontsize=11)
 
     # ---- right panel ----
@@ -507,7 +609,10 @@ def refresh():
             path = os.path.join(OUT_DIR, fn)
             if not (os.path.exists(path) and os.path.getsize(path) > 10_000):
                 try:
-                    _render(fields, sfields, lat, lon, prod, cycle, fh, path)
+                    axes = (_jet_member_axes(cycle, fh)
+                            if prod == "jet" and fh in JET_AXIS_FHS else None)
+                    _render(fields, sfields, lat, lon, prod, cycle, fh,
+                            path, axes=axes)
                 except Exception:  # noqa: BLE001 - one bad frame never kills
                     continue
             frame = {
