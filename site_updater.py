@@ -205,6 +205,9 @@ PRUNE_KEEP_SECONDS = {
     "wbgt": 8 * 3600,
     "tropics": 24 * 3600,
     "climate": 24 * 3600,
+    # WPC/OPC analysis charts mirror: hours-scale source cadence, ~40 small
+    # GIF/JPGs (each well under 400 KB) - a full day of them is a few MB
+    "wpcmaps": 24 * 3600,
     # herbie/ is the raw GRIB + index download cache: NEVER served (not in
     # ASSET_DIRS), consumed within the cycle that fetched it, and always
     # re-downloadable - so keep it only 1 h. It sat unpruned and grew to
@@ -227,6 +230,7 @@ PRUNE_KEEP_SECONDS = {
 # nexrad_sites 100 min = the player's 15 x 6-min frames + margin.
 WIRE_KEEP_SECONDS = {
     "model_maps": 21 * 3600,
+    "wpcmaps": 8 * 3600,
     "aimodels": 14 * 3600,
     "nexrad_sites": 100 * 60,
     "meso": 3 * 3600,

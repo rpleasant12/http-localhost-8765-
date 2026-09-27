@@ -761,6 +761,7 @@ def collect_data():
         "tropModels": _trop_models_safe(),
         "climate": _climate_safe(),
         "elNino": _enso_safe(),
+        "wpcMaps": _wpc_maps_safe(),
         "mrmsProducts": {k: v.get("label", k) for k, v in MRMS_CATALOG.items()},
         # per-product MRMS loops for the radar page's level picker (disk reads;
         # the shared background renderer fills each over time) - pre-filtered
@@ -797,6 +798,7 @@ def collect_data():
         "tropModels": _trop_models_safe(),
         "climate": _climate_safe(),
         "elNino": _enso_safe(),
+        "wpcMaps": _wpc_maps_safe(),
         "mrmsProducts": {k: v.get("label", k) for k, v in MRMS_CATALOG.items()},
         # per-product MRMS loops for the radar page's level picker (disk reads;
         # the shared background renderer fills each over time) - pre-filtered
@@ -2945,6 +2947,33 @@ def _wbgt_bundle_safe():
         return {"ok": False, "frames": []}
 
 
+# WPC/OPC/SPC analysis-chart mirror (data/wpc.py): graphics rotate on the
+# source pages, so they are mirrored to static/wpcmaps/ every refresh and
+# served locally. Last-good carry-forward keeps a transient NOAA outage from
+# blanking the section (same pattern as climate/ENSO above).
+_WPCMAPS_LAST_GOOD = {"t": 0.0, "v": None}
+_WPCMAPS_GOOD_TTL = 24 * 3600.0
+
+
+def _wpc_maps_safe():
+    """WPC/OPC analysis charts + SPC Day 4-8 outlooks (never regresses)."""
+    try:
+        from data.wpc import bundle
+        v = bundle(max_age=3600)
+        if not (v and v.get("groups")):
+            raise RuntimeError("bundle came back empty")
+        _WPCMAPS_LAST_GOOD.update(t=time.time(), v=v)
+        return v
+    except Exception as exc:                           # noqa: BLE001
+        last = _WPCMAPS_LAST_GOOD.get("v")
+        if last and time.time() - _WPCMAPS_LAST_GOOD["t"] < _WPCMAPS_GOOD_TTL:
+            age = int((time.time() - _WPCMAPS_LAST_GOOD["t"]) / 60)
+            print(f"wpcMaps bundle failed ({type(exc).__name__}: {exc}); "
+                  f"carrying forward last good ({age} min old)", flush=True)
+            return last
+        return {"ok": False, "groups": []}
+
+
 def _afd_safe():
     """NWS Area Forecast Discussion (never breaks the site build)."""
     try:
@@ -3317,6 +3346,9 @@ _CSS = """
   .wpcfig { flex:1 1 300px; max-width:49%; min-width:260px; margin:0; }
   .wpcfig img { width:100%; height:auto; display:block; border-radius:10px; }
   .wpcfig figcaption { font-size:12px; opacity:.75; margin-top:4px; }
+  .wbtn { background:#1d2432; color:#cdd7e4; border:1px solid var(--line); border-radius:8px;
+          padding:6px 11px; font-size:12.5px; cursor:pointer; }
+  .wbtn.on { background:#2a3a55; color:#fff; font-weight:700; }
   .ltg-cell { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px 10px; min-width:130px; flex:0 0 auto; }
   .ltg-cell b { display:block; font-size:15px; }
   .ltg-cell .h { color:var(--dim); font-size:11px; }
@@ -10059,6 +10091,11 @@ def page_national(d):
     nat = _national_payload()
     wpc = nat["wpc"]
     upper = nat["upperAir"]
+    wpcm = d.get("wpcMaps") or {}
+    wpc_groups = wpcm.get("groups") or []
+    wpc_grp_btns = "".join(
+        f'<button class="wbtn" data-g="{html.escape(g["id"])}">'
+        f'{html.escape(g["label"])}</button>' for g in wpc_groups)
     sp = d.get("space") or {}
     kp_rows = sp.get("kp") or []
     kp_vals = [k.get("kp") for k in kp_rows[-16:] if isinstance(k.get("kp"), (int, float))]
@@ -10097,6 +10134,15 @@ def page_national(d):
   <div class="cap src" id="wpcCap">{html.escape(wpc[0]["title"] + " - " + wpc[0]["desc"]) if wpc else "WPC charts unavailable."}</div>
 </div>
 
+<div class="card"><h2>🛰️ WPC / OPC / SPC analysis charts - extended set</h2>
+  <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px" id="wpcGrpBtns">{wpc_grp_btns}</div>
+  <div class="ctl"><select id="wpcMapSel" style="max-width:560px"></select></div>
+  <img id="wpcMapImg" class="natimg" loading="lazy" src="" alt="Analysis chart"/>
+  <div class="cap src" id="wpcMapCap"></div>
+  <div class="src">Surface analysis &amp; 500 mb analyses (WPC) · QPF days 2-5 · SPC Day 4-8 severe outlooks · OPC North Atlantic/Pacific surface + 500 mb analyses · NOHRSC national snow model (depth / SWE / melt / blowing snow). Mirrored from NOAA each refresh - free, no keys · updated {html.escape(wpcm.get("generated") or "")} · {wpcm.get("count") or 0} charts live.</div>
+  {"" if wpc_groups else '<div class="src">Chart mirror unavailable right now - NOAA sources unreachable; the next refresh retries automatically.</div>'}
+</div>
+
 <div class="card"><h2>🎈 Upper-air analyses (SPC obswx)</h2>
   <div class="ctl">
     <select id="uaLevel">{upper_opts}</select>
@@ -10130,6 +10176,31 @@ function showUa() {{
 }}
 uaLevel.onchange = fillUaTimes; uaTime.onchange = showUa;
 if (UA.length) fillUaTimes();
+
+const WPCGROUPS = {json.dumps(wpc_groups)};
+const wpcGrpBtns = document.getElementById("wpcGrpBtns");
+const wpcMapSel = document.getElementById("wpcMapSel");
+let wpcCurG = null;
+function wpcGroup() {{ return WPCGROUPS.find(x => x.id === wpcCurG) || WPCGROUPS[0] || null; }}
+function wpcFill() {{
+  const g = wpcGroup();
+  [...wpcGrpBtns.children].forEach(b => b.classList.toggle("on", !!g && b.dataset.g === g.id));
+  if (!g) {{ wpcMapSel.innerHTML = ""; return; }}
+  wpcMapSel.innerHTML = g.charts.map((c, i) => `<option value="${{i}}">${{c.label}}</option>`).join("");
+  wpcShow();
+}}
+function wpcShow() {{
+  const g = wpcGroup(); if (!g) return;
+  const c = g.charts[+wpcMapSel.value || 0]; if (!c) return;
+  document.getElementById("wpcMapImg").src = c.url;
+  document.getElementById("wpcMapCap").textContent = c.label;
+}}
+wpcGrpBtns.addEventListener("click", ev => {{
+  const b = ev.target.closest("button.wbtn"); if (!b) return;
+  wpcCurG = b.dataset.g; wpcFill();
+}});
+wpcMapSel.onchange = wpcShow;
+wpcFill();
 </script>
 """
     return _page("National", "national.html", body)
