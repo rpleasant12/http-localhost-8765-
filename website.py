@@ -759,6 +759,7 @@ def collect_data():
         "sun": _sun_safe(),
         "roadCams": _roadcams_safe(),
         "tropModels": _trop_models_safe(),
+        "gefsTracks": _gefs_tracks_safe(),
         "climate": _climate_safe(),
         "elNino": _enso_safe(),
         "wpcMaps": _wpc_maps_safe(),
@@ -797,6 +798,7 @@ def collect_data():
         "sun": _sun_safe(),
         "roadCams": _roadcams_safe(),
         "tropModels": _trop_models_safe(),
+        "gefsTracks": _gefs_tracks_safe(),
         "climate": _climate_safe(),
         "elNino": _enso_safe(),
         "wpcMaps": _wpc_maps_safe(),
@@ -3042,6 +3044,19 @@ def _trop_models_safe():
             print(f"tropical-models: carrying forward last good guidance "
                   f"({age} min old)", flush=True)
             return last
+        return {"ok": False, "storms": []}
+
+
+def _gefs_tracks_safe():
+    """GEFS 32-member storm-track spaghetti (never breaks the build)."""
+    try:
+        from data.gefs_tracks import bundle
+        v = bundle()
+        if not v:
+            raise RuntimeError("bundle came back empty")
+        return v
+    except Exception as exc:                           # noqa: BLE001
+        print(f"gefsTracks bundle failed ({type(exc).__name__}: {exc})", flush=True)
         return {"ok": False, "storms": []}
 
 
@@ -6634,6 +6649,28 @@ const MS = {json.dumps(d.get("mpasShield") or {})};
 def page_tropical(d):
     trop = d.get("tropical") or {}
     storms = trop.get("storms") or []
+    gt = d.get("gefsTracks") or {}
+    gt_storms = gt.get("storms") or []
+    gt_cards = ""
+    if gt_storms:
+        rows = "".join(
+            f'<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">'
+            f'<img loading="lazy" src="{html.escape(e["img"])}" alt="GEFS tracks {html.escape(e["name"])}" '
+            f'style="width:100%;max-width:760px;border-radius:10px;border:1px solid #333c46"/>'
+            f'<div class="src">{html.escape(e["name"])} ({html.escape(e["id"].upper())}, {html.escape(e["class"])}) '
+            f'&middot; {e["members"]}/32 members develop it &middot; mean-track spread {e["spreadDeg"]:.1f}&deg; '
+            f'&middot; members reaching F060: {max((m["n"] for m in e["mean"]), default=0)}</div></div>'
+            for e in gt_storms)
+        gt_cards = f"""
+<div class="card">
+  <h2>🌀 GEFS ensemble tracks <span class="src" style="font-weight:400">32 members (control + 31 perturbed) · init {html.escape(gt.get("cycle") or "")} · our 850-mb-vorticity tracker from NOAA's AWS open data</span></h2>
+  {rows}
+  <p class="src" style="margin-top:6px">Each thin line is one GEFS member's vortex track, followed automatically through the lead files by its <b>850-mb vorticity maximum</b> - the standard center-finder that resolves even minimal depressions the pressure field smears away. The heavy white line is the <b>ensemble mean</b>; yellow dots mark +24/48/72/120 h. Wide fan = uncertain forecast; tight bundle = high confidence. Members whose vortex dissipates simply stop - the loop count tells you how many keep the storm alive.</p>
+</div>"""
+    elif gt.get("ok") and gt.get("note"):
+        gt_cards = ("<div class='card'><h2>🌀 GEFS ensemble tracks</h2>"
+                    f"<div class='src'>{html.escape(gt['note'])} - GEFS member tracks will appear here "
+                    "automatically when the next system forms.</div></div>")
 
     storm_html = ""
     for s in storms:
@@ -6659,6 +6696,8 @@ def page_tropical(d):
 </div>
 
 <div class="card"><h2>🌀 Active storms</h2><div id="stormCards">{storm_html}</div></div>
+
+{gt_cards}
 
 <script>
 const TROP = {json.dumps(trop)};
