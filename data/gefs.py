@@ -49,11 +49,23 @@ FHS = (0, 24, 48, 72, 96, 120, 144, 168, 192)     # daily steps, 8 days
 FHS_BY_PROD = {"qpf": FHS[1:]}                     # f000 acc window is 0-0
 KEEP_HOURS = 48
 
+# daily TMAX/TMIN leads per cycle hour: the geavg 6-h max/min windows are
+# (fh-6)->fh, so "the day's high" sits at the lead ending near local
+# evening. East TN = UTC-4 (EDT); a 12Z init's day-1 max ends 00Z d2
+# (8 pm ET) at f012, so day-N extremes live at f((N-1)*24+12); 00/06Z
+# inits shift +12 h, 18Z shifts -6. Each frame is labeled with its own
+# valid date so nothing lies regardless of the shift.
+_TMAX_LEADS = {0: [36, 60, 84, 108, 132, 156, 180],
+               6: [36, 60, 84, 108, 132, 156, 180],
+               12: [12, 36, 60, 84, 108, 132, 156],
+               18: [6, 30, 54, 78, 102, 126, 150]}
+
 PRODUCTS = {
     "mslp": {"label": "MSLP + 500 mb heights"},
     "t2m": {"label": "Temperature (2 m)"},
     "wind": {"label": "Wind speed (10 m)"},
     "qpf": {"label": "6-h QPF"},
+    "tmaxtmin": {"label": "Day high / low (TMAX-TMIN)"},
 }
 
 # product messages: (idx shortName, level substring)
@@ -62,6 +74,7 @@ _MSGS = {
     "t2m": [("TMP", "2 m above ground")],
     "wind": [("UGRD", "10 m above ground"), ("VGRD", "10 m above ground")],
     "qpf": [("APCP", "acc")],
+    "tmaxtmin": [("TMAX", "2 m above ground"), ("TMIN", "2 m above ground")],
 }
 
 # idx shortName -> canonical field key (cfgrib may ship either spelling)
@@ -69,7 +82,8 @@ _KEY = {"PRMSL": "PRMSL", "GH": "HGT", "HGT": "HGT",
         "TMP": "T2M", "2T": "T2M",
         "UGRD": "U10M", "10U": "U10M",
         "VGRD": "V10M", "10V": "V10M",
-        "APCP": "QPF", "TP": "QPF"}
+        "APCP": "QPF", "TP": "QPF",
+        "TMAX": "TMAX", "TMIN": "TMIN"}
 
 # physical-range gates per field (a torn decode yields absurd values)
 _SANITY = {
@@ -79,6 +93,8 @@ _SANITY = {
     "U10M": (-75.0, 75.0),               # m/s
     "V10M": (-75.0, 75.0),
     "QPF": (0.0, 400.0),                 # mm per 6 h
+    "TMAX": (193.0, 333.0),              # K
+    "TMIN": (193.0, 333.0),
 }
 
 
@@ -142,6 +158,8 @@ _SANITY_SPR = {
     "U10M": (0.0, 60.0),                 # m/s
     "V10M": (0.0, 60.0),
     "QPF": (0.0, 200.0),                 # mm per 6 h
+    "TMAX": (0.0, 25.0),                 # spread, K
+    "TMIN": (0.0, 25.0),
 }
 
 
@@ -252,6 +270,14 @@ def _render(mean, spread, lat, lon, prod, cycle, fh, out_path):
         sval = np.hypot(sua, sva) * 2.23694
         mlev, slev = np.arange(5, 66, 5), np.arange(1, 12.1, 1)
         mcmap, mlbl, slbl = "YlGnBu", "mph", "mph"
+    elif prod == "tmaxtmin":
+        # LEFT = day's HIGH (TMAX), RIGHT = day's LOW (TMIN), same palette
+        xa, na, la, lo = _na_crop(lat, lon, mean["TMAX"], mean["TMIN"])
+        mval = xa * 1.8 - 459.67
+        nval = na * 1.8 - 459.67
+        sval = None
+        mlev = np.arange(10, 116, 3)
+        mcmap, mlbl = "turbo", "\u00b0F"
     else:  # qpf
         va, _, la, lo = _na_crop(lat, lon, mean["QPF"], None)
         sa, _, _, _ = _na_crop(lat, lon, spread["QPF"], None)
@@ -273,16 +299,29 @@ def _render(mean, spread, lat, lon, prod, cycle, fh, out_path):
         ax.clabel(cs, fmt="%.0f", fontsize=6)
     ax.set_title("Ensemble mean", fontsize=11)
 
-    # ---- right: ensemble spread (std dev) ----
+    # ---- right panel ----
     ax = _panel(2)
-    cf = ax.contourf(lo, la, sval, levels=slev, cmap="cividis_r",
-                     transform=ccrs.PlateCarree(), alpha=0.9,
-                     extend="max")
-    plt.colorbar(cf, ax=ax, shrink=0.8, label=f"std dev ({slbl})")
-    ax.set_title("Ensemble spread (std dev)", fontsize=11)
+    if prod == "tmaxtmin":
+        cf = ax.contourf(lo, la, nval, levels=mlev, cmap=mcmap,
+                         transform=ccrs.PlateCarree(), alpha=0.85,
+                         extend="max")
+        plt.colorbar(cf, ax=ax, shrink=0.8, label="\u00b0F")
+        ax.set_title("Day's low (TMIN ens mean)", fontsize=11)
+    else:
+        cf = ax.contourf(lo, la, sval, levels=slev, cmap="cividis_r",
+                         transform=ccrs.PlateCarree(), alpha=0.9,
+                         extend="max")
+        plt.colorbar(cf, ax=ax, shrink=0.8, label=f"std dev ({slbl})")
+        ax.set_title("Ensemble spread (std dev)", fontsize=11)
 
-    fig.suptitle(f"GEFS {PRODUCTS[prod]['label']} - valid {full(valid)} - "
-                 f"mean | member disagreement", fontsize=11, y=0.98)
+    left_lbl = ("Day's high (TMAX ens mean)" if prod == "tmaxtmin"
+                else "Ensemble mean")
+    if prod == "tmaxtmin":
+        fig.suptitle(f"GEFS day {int(fh // 24) + 1} high / low - valid day of "
+                     f"{full(valid)} - ensemble means", fontsize=11, y=0.98)
+    else:
+        fig.suptitle(f"GEFS {PRODUCTS[prod]['label']} - valid {full(valid)} - "
+                     f"mean | member disagreement", fontsize=11, y=0.98)
     tmp = out_path.replace(".png", ".tmp.png")
     fig.savefig(tmp, bbox_inches="tight")
     plt.close(fig)
@@ -311,6 +350,31 @@ def _prune_old():
         pass
 
 
+def _etn_towns(fields, lat, lon):
+    """Sample the TMAX/TMIN fields at East TN town gridpoints.
+
+    Nearest-gridpoint lookup on the global 0.5-deg field (a town is well
+    inside one cell at this resolution).
+    """
+    try:
+        from data.observations import EAST_TN_CITIES
+    except Exception:  # noqa: BLE001 - table unavailable -> no table
+        return []
+    lonc = np.where(lon > 180, lon - 360.0, lon)
+    latv, lonv = lat[:, 0], lonc[0, :]
+    out = []
+    for name, (tlat, tlon) in EAST_TN_CITIES.items():
+        i = int(np.argmin(np.abs(latv - tlat)))
+        j = int(np.argmin(np.abs(lonv - tlon)))
+        try:
+            tf = float(fields["TMAX"][i, j]) * 1.8 - 459.67
+            tn = float(fields["TMIN"][i, j]) * 1.8 - 459.67
+        except (KeyError, IndexError, TypeError, ValueError):
+            continue
+        out.append({"town": name, "tmaxF": round(tf), "tminF": round(tn)})
+    return out
+
+
 def refresh():
     """Render mean|spread panels for every product off the newest cycle."""
     cycle = find_gefs_cycle()
@@ -322,15 +386,23 @@ def refresh():
     rendered = 0
     for prod, spec in PRODUCTS.items():
         frames = []
-        for fh in FHS_BY_PROD.get(prod, FHS):
+        if prod == "tmaxtmin":
+            leads = _TMAX_LEADS.get(cycle.hour, FHS[1:])
+        else:
+            leads = FHS_BY_PROD.get(prod, FHS)
+        for fh in leads:
             got = _fetch_product(cycle, fh, prod)
             if not got:
                 continue
             fields, lat, lon = got
-            spr = _fetch_product(cycle, fh, prod, spread=True)
-            if not spr:
-                continue                     # need both panels to draw a frame
-            sfields, _, _ = spr
+            if prod == "tmaxtmin":
+                spr = None          # right panel is TMIN, not spread
+                sfields = fields
+            else:
+                spr = _fetch_product(cycle, fh, prod, spread=True)
+                if not spr:
+                    continue             # need both panels to draw a frame
+                sfields, _, _ = spr
             fn = f"gefs_{prod}_f{fh:03d}_{cycle:%Y%m%d%H}_na.png"
             path = os.path.join(OUT_DIR, fn)
             if not (os.path.exists(path) and os.path.getsize(path) > 10_000):
@@ -338,11 +410,14 @@ def refresh():
                     _render(fields, sfields, lat, lon, prod, cycle, fh, path)
                 except Exception:  # noqa: BLE001 - one bad frame never kills
                     continue
-            frames.append({
+            frame = {
                 "fh": fh,
                 "url": f"../gefs/{fn}",
                 "label": f"F{fh:03d} \u00b7 {full(cycle + dt.timedelta(hours=fh))}",
-            })
+            }
+            if prod == "tmaxtmin":
+                frame["towns"] = _etn_towns(fields, lat, lon)
+            frames.append(frame)
             rendered += 1
         if frames:
             items.append({"key": prod, "label": spec["label"],

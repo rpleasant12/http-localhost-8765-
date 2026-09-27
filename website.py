@@ -6259,17 +6259,34 @@ def page_models(d):
   </div>
   <img id="gfFrame" loading="lazy" alt="GEFS North America"
        style="width:100%;max-width:950px;border-radius:10px;border:1px solid #333c46;margin-top:10px"/>
+  <div id="gfTowns" style="display:none;margin-top:8px"></div>
   <div class="ctl" style="margin-top:8px">
     <button id="gfPlay">▶</button><span class="frame" id="gfFh">--</span>
     <button id="gfPrev">◀</button><select id="gfSel"></select><button id="gfNext">▶</button>
     <select id="gfSpeed"><option value="1600">0.5x</option><option value="800" selected>1x</option><option value="400">2x</option></select>
   </div>
-  <p class="src" style="margin-top:6px">NOAA's Global Ensemble Forecast System runs 4× daily (00/06/12/18 UTC). Every frame is two panels: the 31-member <b>ensemble mean</b> - the smoothed “big picture” - and the <b>ensemble spread</b> (std dev), showing where the members disagree. Mean says what is most likely; spread says how confident to be - hotspots over the tropics or a trough mean the forecast there can still flip. Out to 192 h (8 days): MSLP ridges/troughs + 500 mb heights, temperature, wind, and 6-hourly QPF.</p>
+  <p class="src" style="margin-top:6px">NOAA's Global Ensemble Forecast System runs 4× daily (00/06/12/18 UTC). Most frames are two panels: the 31-member <b>ensemble mean</b> - the smoothed “big picture” - and the <b>ensemble spread</b> (std dev), showing where the members disagree. The <b>Day high / low</b> product instead pairs each day's TMAX and TMIN ensemble means, with a town-by-town East TN table under the map. Mean says what is most likely; spread says how confident to be. Out to 192 h (8 days): MSLP ridges/troughs + 500 mb heights, temperature, wind, 6-hourly QPF, and daily highs/lows.</p>
 </div>
 <script>
 const GF_FRAMES = {gf_json};
 const GF_LBLS = {gf_lbls};
+const GF_TOWNS = {json.dumps({it['key']: [f.get('towns') for f in it['frames']]
+                              for it in gf_items if it['key'] == 'tmaxtmin'})};
 let gfTimer = null;
+function gfTowns() {{
+  const wrap = document.getElementById("gfTowns");
+  if (!wrap) return;
+  const k = gfKey(), i = +document.getElementById("gfSel").value || 0;
+  const rows = (GF_TOWNS[k] || [])[i];
+  if (!rows || !rows.length) {{ wrap.style.display = "none"; return; }}
+  const hottest = [...rows].sort((a, b) => b.tmaxF - a.tmaxF)[0];
+  wrap.style.display = "block";
+  wrap.innerHTML = '<b class="src">East TN this day \u00b7 ' + rows.length +
+    ' towns \u00b7 warmest: ' + hottest.town + ' (' + hottest.tmaxF + '\u00b0F)</b>' +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:5px;margin-top:5px">' +
+    rows.map(t => `<span class="src" style="background:#1c242e;border-radius:7px;padding:3px 8px">${{t.town}}: <b>${{t.tmaxF}}\u00b0</b> / ${{t.tminF}}\u00b0</span>`).join("") +
+    '</div>';
+}}
 function gfKey() {{ return document.getElementById("gfProd").value; }}
 function gfFill() {{
   const k = gfKey();
@@ -6286,6 +6303,7 @@ function gfShow() {{
   if (!fr.length) return;
   document.getElementById("gfFrame").src = fr[i];
   document.getElementById("gfFh").textContent = GF_LBLS[k][i];
+  gfTowns();
 }}
 function gfStep(d) {{
   const sel = document.getElementById("gfSel");
