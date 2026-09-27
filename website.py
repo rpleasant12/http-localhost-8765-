@@ -834,6 +834,7 @@ def collect_data():
         "cmpCam": _cmp_cam_index(),
         "upstream": _upstream_status(),
         "nbmPct": _nbm_pct_safe(),
+        "rapNowcast": _rap_nowcast_safe(),
         "pivotUs": _pivot_us(),
         "pivotEtn": _pivot_us("etn"),
         "sevTowns": _sev_towns_safe(),
@@ -1085,6 +1086,85 @@ def page_hrrr(d):
     _CAM_AGES = (f"{_lag_lbl('HRRR')} \u00b7 {_lag_lbl('RRFS')} \u00b7 "
                  f"updated {_NOW_ET:%m/%d %I:%M %p} ET")
 
+    # --- RAP nowcast: newest hourly RAP cycle, f000-f003, self-rendered ---
+    rn = d.get("rapNowcast") or {}
+    rn_items = rn.get("items") or []
+    rn_json = json.dumps({it["key"]: [f["url"] for f in it["frames"]]
+                          for it in rn_items})
+    rn_lbls = json.dumps({it["key"]: [f["label"] for f in it["frames"]]
+                          for it in rn_items})
+    rn_opts = "".join(f'<option value="{html.escape(it["key"])}">'
+                      f'{html.escape(it["label"])}</option>' for it in rn_items)
+    rn_stamp = rn.get("cycle") or ""
+    if rn_items:
+        rap_card = f"""
+<div class="card">
+  <h2>⏱️ RAP nowcast <span class="src" style="font-weight:400">newest hourly Rapid Refresh init {html.escape(rn_stamp)} · next 3 h at 13 km · updates every hour · our MetPy render from NOAA open data</span></h2>
+  <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <label class="src" style="margin:0">Product</label>
+    <select id="rnProd">{rn_opts}</select>
+    <span class="src" style="margin:0" id="rnCap"></span>
+  </div>
+  <img id="rnFrame" loading="lazy" alt="RAP nowcast"
+       style="width:100%;max-width:900px;border-radius:10px;border:1px solid #333c46;margin-top:10px"/>
+  <div class="ctl" style="margin-top:8px">
+    <button id="rnPlay">▶</button><span class="frame" id="rnFh">--</span>
+    <button id="rnPrev">◀</button><select id="rnSel"></select><button id="rnNext">▶</button>
+  </div>
+  <p class="src" style="margin-top:6px">RAP publishes every hour, ~45 min after init - the freshest model guidance on this page for the next 3 hours. When HRRR/RRFS are holding on an old cycle during NOAA lag, this card still rolls.</p>
+</div>
+<script>
+const RN_FRAMES = {rn_json};
+const RN_LBLS = {rn_lbls};
+let rnTimer = null;
+function rnKey() {{ return document.getElementById("rnProd").value; }}
+function rnFill() {{
+  const k = rnKey();
+  const fr = RN_FRAMES[k] || [];
+  const sel = document.getElementById("rnSel");
+  sel.innerHTML = fr.map((u, i) => `<option value="${{i}}">${{RN_LBLS[k][i]}}</option>`).join("");
+  sel.value = String(fr.length - 1);
+  rnShow();
+}}
+function rnShow() {{
+  const k = rnKey();
+  const fr = RN_FRAMES[k] || [];
+  const i = +document.getElementById("rnSel").value || 0;
+  if (!fr.length) return;
+  document.getElementById("rnFrame").src = fr[i];
+  document.getElementById("rnFh").textContent = RN_LBLS[k][i];
+}}
+function rnStep(d) {{
+  const sel = document.getElementById("rnSel");
+  const n = (RN_FRAMES[rnKey()] || []).length;
+  sel.value = String(Math.max(0, Math.min(n - 1, +sel.value + d)));
+  rnShow();
+}}
+function rnStop() {{
+  if (rnTimer) {{ clearInterval(rnTimer); rnTimer = null; }}
+  document.getElementById("rnPlay").textContent = "\u25b6";
+}}
+document.getElementById("rnProd").onchange = () => {{ rnStop(); rnFill(); }};
+document.getElementById("rnSel").onchange = () => {{ rnStop(); rnShow(); }};
+document.getElementById("rnPrev").onclick = () => rnStep(-1);
+document.getElementById("rnNext").onclick = () => rnStep(1);
+document.getElementById("rnPlay").onclick = () => {{
+  if (rnTimer) {{ rnStop(); return; }}
+  const sel = document.getElementById("rnSel");
+  if ((RN_FRAMES[rnKey()] || []).length < 2) return;
+  if (+sel.value >= (RN_FRAMES[rnKey()] || []).length - 1) sel.value = "0";
+  document.getElementById("rnPlay").textContent = "\u23f8";
+  rnTimer = setInterval(() => {{
+    const n = (RN_FRAMES[rnKey()] || []).length;
+    if (+sel.value + 1 >= n) {{ rnStop(); return; }}
+    sel.value = String(+sel.value + 1); rnShow();
+  }}, 900);
+}};
+if (RN_FRAMES && Object.keys(RN_FRAMES).length) rnFill();
+</script>"""
+    else:
+        rap_card = """<div class="card"><h2>\u23f1 RAP nowcast</h2><div class="src">RAP nowcast unavailable right now - the next refresh retries automatically (new hourly cycle every ~45 min).</div></div>"""
+
     def _opts(lst, val_key, lbl_key):
         return "".join(f'<option value="{html.escape(str(o[val_key]))}">'
                        f'{html.escape(str(o[lbl_key]))}</option>' for o in lst)
@@ -1109,6 +1189,8 @@ def page_hrrr(d):
   </div>
   <p class="src" id="zMeta" style="margin-top:6px">RRFS renders hourly F001-F018 as NOAA publishes each cycle · valid times in ET on each map</p>
 </div>
+
+{rap_card}
 
 <div class="card">
   <h2>⚔️ HRRR vs RRFS <span class="src" style="font-weight:400">side-by-side · same valid time · where the two 3-km CAMs disagree · <span id="cAge">{_CAM_AGES}</span></span></h2>
@@ -3074,6 +3156,19 @@ def _nbm_pct_safe():
     except Exception as exc:                           # noqa: BLE001
         print(f"nbmPct bundle failed ({type(exc).__name__}: {exc})", flush=True)
         return {"ok": False, "elements": []}
+
+
+def _rap_nowcast_safe():
+    """RAP newest-cycle nowcast frames (never breaks the site build)."""
+    try:
+        from data.rap_nowcast import bundle
+        v = bundle()
+        if not (v and v.get("ok")):
+            raise RuntimeError("bundle came back empty")
+        return v
+    except Exception as exc:                           # noqa: BLE001
+        print(f"rapNowcast bundle failed ({type(exc).__name__}: {exc})", flush=True)
+        return {"ok": False, "items": []}
 
 
 def _afd_safe():

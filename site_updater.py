@@ -211,6 +211,9 @@ PRUNE_KEEP_SECONDS = {
     # NBM percentile-uncertainty maps: 6-hourly QMD renders (15 PNGs/cycle,
     # ~80 KB each) - data/nbm_percentiles.py self-prunes at 30 h too
     "nbm_pct": 30 * 3600,
+    # RAP nowcast: hourly cycle x 4 hours x 2 products, small ET-crop PNGs
+    # - data/rap_nowcast.py self-prunes at 12 h (RAP rolls hourly)
+    "rapnow": 12 * 3600,
     # herbie/ is the raw GRIB + index download cache: NEVER served (not in
     # ASSET_DIRS), consumed within the cycle that fetched it, and always
     # re-downloadable - so keep it only 1 h. It sat unpruned and grew to
@@ -235,6 +238,7 @@ WIRE_KEEP_SECONDS = {
     "model_maps": 21 * 3600,
     "wpcmaps": 30 * 3600,   # matches data/wpc.py's archive replay window
     "nbm_pct": 30 * 3600,   # matches data/nbm_percentiles.py's self-prune
+    "rapnow": 6 * 3600,     # RAP nowcast: hourly cycles roll fast
     "aimodels": 14 * 3600,
     "nexrad_sites": 100 * 60,
     "meso": 3 * 3600,
