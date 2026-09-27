@@ -833,6 +833,7 @@ def collect_data():
         "renderIndex": _render_index(),
         "cmpCam": _cmp_cam_index(),
         "upstream": _upstream_status(),
+        "nbmPct": _nbm_pct_safe(),
         "pivotUs": _pivot_us(),
         "pivotEtn": _pivot_us("etn"),
         "sevTowns": _sev_towns_safe(),
@@ -3062,6 +3063,19 @@ def _wpc_text_safe():
         return {"ok": False, "products": {}}
 
 
+def _nbm_pct_safe():
+    """NBM percentile-uncertainty maps (never breaks the site build)."""
+    try:
+        from data.nbm_percentiles import bundle
+        v = bundle(max_age=6 * 3600)
+        if not (v and v.get("ok")):
+            raise RuntimeError("bundle came back empty")
+        return v
+    except Exception as exc:                           # noqa: BLE001
+        print(f"nbmPct bundle failed ({type(exc).__name__}: {exc})", flush=True)
+        return {"ok": False, "elements": []}
+
+
 def _afd_safe():
     """NWS Area Forecast Discussion (never breaks the site build)."""
     try:
@@ -3437,6 +3451,9 @@ _CSS = """
   .wbtn { background:#1d2432; color:#cdd7e4; border:1px solid var(--line); border-radius:8px;
           padding:6px 11px; font-size:12.5px; cursor:pointer; }
   .wbtn.on { background:#2a3a55; color:#fff; font-weight:700; }
+  .npTab { background:#1d2432; color:#cdd7e4; border:1px solid var(--line); border-radius:8px;
+           padding:6px 11px; font-size:12.5px; cursor:pointer; }
+  .npTab.on { background:#2a3a55; color:#fff; font-weight:700; }
   .ltg-cell { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px 10px; min-width:130px; flex:0 0 auto; }
   .ltg-cell b { display:block; font-size:15px; }
   .ltg-cell .h { color:var(--dim); font-size:11px; }
@@ -6054,6 +6071,49 @@ def _upstream_status():
 
 
 def page_models(d):
+    np_ = d.get("nbmPct") or {}
+    if np_.get("ok") and np_.get("elements"):
+        _pct_tabs = "".join(
+            f'<button class="npTab" data-e="{e["key"]}" data-p="{p}">{lbl}</button>'
+            for e in np_["elements"]
+            for p, lbl in (("10", "10th"), ("25", "25th"), ("75", "75th"),
+                           ("90", "90th"), ("spread", "Spread")))
+        _pct_imgs = "".join(
+            "".join(f'<img class="npImg" data-e="{e["key"]}" data-p="{p}" '
+                    f'loading="lazy" src="{u}" alt="NBM {e["label"]} {p}" '
+                    f'style="display:none;width:100%;border-radius:10px"/>'
+                    for p, u in e["urls"].items())
+            for e in np_["elements"])
+        nbm_pct_card = f"""
+<div class="card"><h2>🎯 NBM uncertainty - percentile spread (QMD)</h2>
+  <div class="src">The regular NBM walls show the pre-blended median. These maps slice the NBM's full forecast <i>distribution</i>: the 10th percentile is the floor almost nothing gets colder/lighter than, the 90th the ceiling, and the Spread panel (90th-10th) shows where guidance itself is least certain. 2 m temperature, 10 m wind and 6-h QPF &middot; valid {html.escape(np_.get("valid") or "")} (init {html.escape(np_.get("cycle") or "")}, f{np_.get("fh", 12):03d}) &middot; decoded from NOAA's open-data QMD files.</div>
+  <div style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0" id="npTabs">{_pct_tabs}</div>
+  <div id="npStage">{_pct_imgs}</div>
+  <div class="src" id="npCap"></div>
+</div>
+<script>
+(function () {{
+  const tabs = document.querySelectorAll("#npTabs .npTab");
+  const imgs = document.querySelectorAll("#npStage .npImg");
+  const cap = document.getElementById("npCap");
+  function show(e, p) {{
+    tabs.forEach(t => t.classList.toggle("on", t.dataset.e === e && t.dataset.p === p));
+    imgs.forEach(i => i.style.display = (i.dataset.e === e && i.dataset.p === p) ? "block" : "none");
+    const t = [...tabs].find(t => t.dataset.e === e && t.dataset.p === p);
+    const odds = {{"10": 10, "25": 4, "75": 1.33, "90": 1.11}}[p] || "?";
+    const kind = p === "spread" ? "90th-10th percentile spread - forecast uncertainty"
+      : p + "th percentile - 1 in " + odds + " observations stay below this";
+    cap.textContent = t ? (t.textContent + " \u00b7 " + kind) : "";
+  }}
+  tabs.forEach(t => t.onclick = () => show(t.dataset.e, t.dataset.p));
+  if (tabs.length) show(tabs[0].dataset.e, tabs[0].dataset.p);
+}})();
+</script>"""
+    else:
+        nbm_pct_card = ("<div class='card'><h2>\U0001f3af NBM uncertainty - percentile spread (QMD)</h2>"
+                        "<div class='src'>Percentile maps unavailable this cycle - the QMD "
+                        "feed is throttled or unreachable; the next refresh retries "
+                        "automatically.</div></div>")
     gal = d.get("models") or []
     cards = []
     for i, g in enumerate(gal[:36]):
@@ -6110,6 +6170,8 @@ def page_models(d):
   <div id="upstreamLine" class="src" style="margin-top:10px;border-top:1px solid #e5e7eb;padding-top:8px">checking NOAA upstream feeds…</div>
   <div class="src" style="margin-top:4px">Per-model completeness + freshness - worst first, so a stalled NOAA feed or a starving model shows at the top. <span style="color:#2e7d32">●</span> current · <span style="color:#ef6c00">●</span> catching up (NOAA published a newer cycle) / renders pending · <span style="color:#c62828">●</span> waiting on NOAA. Refills every 5 minutes.</div>
 </div>
+
+{nbm_pct_card}
 
 <div class="card"><h2>🔍 Render any model product</h2>
   <div class="ctl">
