@@ -6790,10 +6790,15 @@ def page_gefs(d):
             _now = _dt.datetime.now(_dt.timezone.utc)
             hist_cards = ("<div class=\"gvHist\" id=\"gvHist\">"
                           "<h3>Skill vs lead time - last "
-                          f"{len(hist_days)} days</h3>"
+                          f"{len(hist_days)} days (r &amp; ACC)</h3>"
                           "<img loading=\"lazy\" "
                           "src=\"../gefs_verify/gefsver_skill_history.png\" "
-                          "alt=\"Pattern correlation by valid day and lead\"/>")
+                          "alt=\"Pattern correlation by valid day and lead\"/>"
+                          "<img loading=\"lazy\" "
+                          "src=\"../gefs_verify/gefsver_acc_history.png\" "
+                          "alt=\"Anomaly correlation by valid day and lead\" "
+                          "title=\"ACC: below the red 0-line the forecast "
+                          "did worse than just predicting climatology\"/>")
             per = {}                 # lead -> {"vals": [r...], "days": set}
             for k in hist_days:
                 for lk, scv in (hist[k] or {}).items():
@@ -6820,11 +6825,13 @@ def page_gefs(d):
                            "gap between the lines is the skill lost with "
                            "lead time; the slope is day-to-day pattern "
                            "variability. Scores are recomputed nightly from "
-                           "the archive and kept 90 days. ACC is the anomaly "
-                           "correlation - fcst and obs vs the same-day "
-                           "climatology (mean of the last 5 years of GFS "
-                           "analyses): positive means the forecast beat "
-                           "climatology, the standard skill test. S/S is the "
+                           "the archive and kept 90 days. ACC (second chart, "
+                           "red 0-line) is the anomaly correlation - fcst "
+                           "and obs vs the same-day climatology (mean of "
+                           "the last 5 years of GFS analyses): positive "
+                           "means the forecast beat climatology, the "
+                           "standard skill test, and points below the line "
+                           "are busts. S/S is the "
                            "ensemble spread-skill ratio (spread / actual "
                            "RMSE): ~1.0 means the 31 members know when "
                            "they are uncertain, &lt;1 means overconfident, "

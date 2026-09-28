@@ -598,7 +598,8 @@ def _build():
         _extend_history(scores)
         _prune_history()
     _prune_old()
-    _history_chart()
+    _history_chart("r")
+    _history_chart("acc")
     return {
         "ok": bool(rows),
         "valid": _tz.stamp(v),
@@ -708,13 +709,18 @@ def _load_history():
         return {}
 
 
-def _history_chart(path=None):
+def _history_chart(metric="r", path=None):
     """Static skill-vs-lead chart over the kept history, or None.
 
-    2x2 panels (one per product) of pattern correlation r vs valid time,
-    one colored line per lead - the spread between the lines IS the
-    skill decay with lead time, and the rightward slope of each line is
-    how that lead's skill changes day to day.
+    metric "r"   -> pattern correlation vs the GFS analysis (0..1).
+    metric "acc" -> anomaly correlation vs same-day climatology; its
+    0-line ("no better than climatology") is drawn highlighted, since
+    points at or below zero are forecast busts.
+
+    2x2 panels (one per product), one colored line per lead - the
+    spread between the lines IS the skill decay with lead time, and the
+    rightward slope of each line is how that lead's skill changes day
+    to day.
     """
     hist = _load_history()
     if not hist:
@@ -737,27 +743,35 @@ def _history_chart(path=None):
                 continue
             if prod not in series or lead not in series[prod]:
                 continue
-            r = (sc or {}).get("r")
-            if r is None:
+            y = (sc or {}).get(metric)
+            if y is None:
                 continue
             age = (now - vts).total_seconds() / 86400.0
             series[prod][lead][0].append(-age)
-            series[prod][lead][1].append(r)
+            series[prod][lead][1].append(y)
             any_pt = True
     if not any_pt:
         return None
-    path = path or os.path.join(OUT_DIR, "gefsver_skill_history.png")
+    path = path or os.path.join(
+        OUT_DIR, "gefsver_skill_history.png" if metric == "r"
+        else "gefsver_acc_history.png")
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         fig, axes = plt.subplots(2, 2, figsize=(9.6, 6.8), dpi=100,
                                  sharex=True)
-        fig.suptitle("GEFS forecast skill vs lead time - last "
-                     f"{HIST_DAYS} days (pattern correlation r vs GFS "
-                     "analysis)", fontsize=11)
+        if metric == "acc":
+            fig.suptitle("GEFS forecast skill vs lead time - last "
+                         f"{HIST_DAYS} days (anomaly correlation ACC - "
+                         "below 0 = worse than climatology)", fontsize=11)
+        else:
+            fig.suptitle("GEFS forecast skill vs lead time - last "
+                         f"{HIST_DAYS} days (pattern correlation r vs GFS "
+                         "analysis)", fontsize=11)
         for ax, prod in zip(axes.ravel(), _TRIPLES):
-            ax.set_title(f"{PRODUCTS[prod]['label']}  (r)", fontsize=10)
+            ax.set_title(f"{PRODUCTS[prod]['label']}  ({metric})",
+                         fontsize=10)
             for L, color in zip(leads_avail,
                                 ("#4ea1ff", "#39d98a", "#ffb020", "#ff6b6b")):
                 xs, ys = series[prod][L]
@@ -767,9 +781,12 @@ def _history_chart(path=None):
                 ax.plot([xs[i] for i in order], [ys[i] for i in order],
                         "o-", ms=2.6, lw=1.3, color=color,
                         label=f"Day {L // 24}")
-            ax.set_ylim(0, 1.02)
+            ax.set_ylim((-1.02, 1.02) if metric == "acc" else (0, 1.02))
             ax.grid(alpha=0.25, lw=0.4)
             ax.legend(fontsize=7, loc="lower left")
+            if metric == "acc":
+                ax.axhline(0.0, color="#ff6b6b", lw=1.4, alpha=0.9,
+                           zorder=5)
             ax.axhline(0.6, color="gray", lw=0.6, ls=":")
         for ax in axes[1]:
             ax.set_xlabel("valid time (days ago)", fontsize=8)
