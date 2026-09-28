@@ -7140,6 +7140,7 @@ if (HL_FRAMES.length) {{
   .gfCell img {{ width:100%; border-radius:10px; border:1px solid #333c46; cursor:zoom-in; }}
   #gfLb {{ display:flex; }}
   #gfLb[hidden] {{ display:none; }}
+  .gfGrid[hidden] {{ display:none; }}   /* author display:grid beats [hidden] otherwise */
   #gfSprGrid {{ grid-template-columns:repeat(2, 1fr); }}
   .gfVer {{ display:flex; flex-direction:column; gap:18px; margin-top:10px; }}
   .gvBtn[aria-pressed="true"] {{ outline:2px solid #4ea1ff; outline-offset:-2px; }}
