@@ -6815,6 +6815,78 @@ if (GG_LEADS.length) {{
 ggSetMode("mean");
 </script>
 
+<div id="gfLb" hidden style="position:fixed;inset:0;background:rgba(4,8,12,.94);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:14px">
+  <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:center;width:100%;max-width:1650px">
+    <b id="gfLbTitle" style="color:#dfe8f4;margin-right:6px"></b>
+    <button id="gfLbPrev">◀</button><span class="frame" id="gfLbFh">--</span><button id="gfLbNext">▶</button>
+    <select id="gfLbSel"></select>
+    <button id="gfLbPlay">▶</button>
+    <select id="gfLbSpeed"><option value="2400">0.5x</option><option value="1200" selected>1x</option><option value="600">2x</option></select>
+    <button id="gfLbClose" title="Close (Esc)">✕</button>
+  </div>
+  <img id="gfLbImg" alt="GEFS panel expanded" style="max-width:min(96vw,1650px);max-height:calc(100vh - 130px);border-radius:10px;border:1px solid #333c46;margin-top:8px"/>
+  <div class="src" style="margin-top:6px">Esc or ✕ closes · ←/→ steps · space plays</div>
+</div>
+<script>
+const Lb = {{ k:null, mode:'mean', frames:[], i:0, t:null }};
+function lbOpen(k, mode) {{
+  const frames = (mode === 'spr' ? (GG_SPR[k] || []) : (GG_FRAMES[k] || []));
+  if (!frames.length) return;
+  Lb.k = k; Lb.mode = mode; Lb.frames = frames;
+  const lead = GG_LEADS.length ? GG_LEADS[ggI] : frames[frames.length - 1].fh;
+  Lb.i = frames.reduce((b, f, ix) =>
+    Math.abs(f.fh - lead) < Math.abs(frames[b].fh - lead) ? ix : b, 0);
+  document.getElementById('gfLbSel').innerHTML = frames.map((f, ix) =>
+    `<option value="${{ix}}">${{f.label || ('F' + String(f.fh).padStart(3, '0'))}}</option>`).join('');
+  document.getElementById('gfLb').hidden = false;
+  document.body.style.overflow = 'hidden';
+  lbShow();
+}}
+function lbShow() {{
+  const f = Lb.frames[Lb.i];
+  if (!f) return;
+  document.getElementById('gfLbImg').src = f.url;
+  document.getElementById('gfLbFh').textContent = 'F' + String(f.fh).padStart(3, '0');
+  document.getElementById('gfLbSel').value = String(Lb.i);
+  document.getElementById('gfLbTitle').textContent =
+    (GG_LABELS[Lb.k] || Lb.k) + (Lb.mode === 'spr' ? ' \u00b7 spread (std dev)' : '');
+}}
+function lbStep(d) {{ Lb.i = Math.min(Lb.frames.length - 1, Math.max(0, Lb.i + d)); lbShow(); }}
+function lbStop() {{ if (Lb.t) {{ clearInterval(Lb.t); Lb.t = null; document.getElementById('gfLbPlay').textContent = '\\u25b6'; }} }}
+function lbPlay() {{
+  lbStop();
+  if (Lb.frames.length < 2) return;
+  document.getElementById('gfLbPlay').textContent = '\\u23f8';
+  const ms = +document.getElementById('gfLbSpeed').value || 1200;
+  Lb.t = setInterval(() => {{ Lb.i = (Lb.i + 1) % Lb.frames.length; lbShow(); }}, ms);
+}}
+function lbClose() {{
+  lbStop();
+  document.getElementById('gfLb').hidden = true;
+  document.body.style.overflow = '';
+}}
+document.getElementById('gfLbPrev').onclick = () => {{ lbStop(); lbStep(-1); }};
+document.getElementById('gfLbNext').onclick = () => {{ lbStop(); lbStep(1); }};
+document.getElementById('gfLbPlay').onclick = () => Lb.t ? lbStop() : lbPlay();
+document.getElementById('gfLbClose').onclick = lbClose;
+document.getElementById('gfLbSel').onchange = (e) => {{ Lb.i = +e.target.value; lbShow(); }};
+document.addEventListener('keydown', (e) => {{
+  if (document.getElementById('gfLb').hidden) return;
+  if (e.key === 'Escape') lbClose();
+  else if (e.key === 'ArrowLeft') {{ lbStop(); lbStep(-1); }}
+  else if (e.key === 'ArrowRight') {{ lbStop(); lbStep(1); }}
+  else if (e.key === ' ') {{ e.preventDefault(); Lb.t ? lbStop() : lbPlay(); }}
+}});
+for (const k of GG_ORDER) {{
+  const el = document.getElementById('gfGrid_' + k);
+  if (el) el.onclick = () => lbOpen(k, 'mean');
+}}
+for (const k of Object.keys(GG_SPR)) {{
+  const el = document.getElementById('gfSpr_' + k);
+  if (el) el.onclick = () => lbOpen(k, 'spr');
+}}
+</script>
+
 <div class="card" id="gefsCard">
   <h2>📅 Day high / low <span class="src" style="font-weight:400">TMAX | TMIN ensemble means · East TN town table · init {html.escape(gf_stamp)}</span></h2>
   <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
@@ -6871,7 +6943,8 @@ if (HL_FRAMES.length) {{
   .gfCell {{ margin:0; }}
   .gfCap {{ display:block; font-size:12.5px; color:#8fa3bf; margin-bottom:4px; }}
   .gfCell figcaption {{ font-size:12.5px; color:#8fa3bf; margin-bottom:4px; }}
-  .gfCell img {{ width:100%; border-radius:10px; border:1px solid #333c46; }}
+  .gfCell img {{ width:100%; border-radius:10px; border:1px solid #333c46; cursor:zoom-in; }}
+  #gfLb[hidden] {{ display:none; }}
   #gfSprGrid {{ grid-template-columns:repeat(2, 1fr); }}
   .ctl button[aria-pressed="true"] {{ outline:2px solid #4ea1ff; outline-offset:-2px; }}
   @media (max-width: 900px) {{ .gfGrid {{ grid-template-columns:1fr; }} #gfSprGrid {{ grid-template-columns:1fr; }} }}
