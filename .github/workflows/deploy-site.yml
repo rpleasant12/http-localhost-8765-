@@ -10,7 +10,7 @@ on:
     branches: [main]
   workflow_dispatch:
   schedule:
-    - cron: "*/30 * * * *"   # mirror the continuously updated gh-pages branch
+    - cron: "*/10 * * * *"   # fallback mirror; publishes also dispatch this workflow directly
 
 permissions:
   contents: read
