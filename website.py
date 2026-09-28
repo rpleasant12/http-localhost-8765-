@@ -6947,6 +6947,17 @@ if (HL_FRAMES.length) {{
   #gfLb[hidden] {{ display:none; }}
   #gfSprGrid {{ grid-template-columns:repeat(2, 1fr); }}
   .ctl button[aria-pressed="true"] {{ outline:2px solid #4ea1ff; outline-offset:-2px; }}
+  /* big-map breakout: cards span the viewport, controls stay centered */
+  @media (min-width: 1240px) {{
+    #gefsGridCard, #gefsCard {{
+      margin-left: calc((min(1100px, 100vw - 28px) - 100vw) / 2 + 14px);
+      margin-right: calc((min(1100px, 100vw - 28px) - 100vw) / 2 + 14px); }}
+    #gefsGridCard .ctl, #gefsGridCard > .src,
+    #gefsCard h2, #gefsCard .ctl {{
+      max-width: 1072px; margin-left: auto; margin-right: auto; }}
+    .gfGrid {{ max-width: 1800px; margin-left: auto; margin-right: auto;
+               grid-template-columns:repeat(auto-fit, minmax(560px, 1fr)); }}
+  }}
   @media (max-width: 900px) {{ .gfGrid {{ grid-template-columns:1fr; }} #gfSprGrid {{ grid-template-columns:1fr; }} }}
 </style>
 """
