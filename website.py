@@ -6688,6 +6688,14 @@ const MS = {json.dumps(d.get("mpasShield") or {})};
     return _page("Models", "models.html", body)
 
 
+def _minmax(vals):
+    """Compact min-max range string for the verification summary chips."""
+    try:
+        return f"{min(vals):.2f}–{max(vals):.2f}"
+    except (TypeError, ValueError):
+        return "–"
+
+
 def page_gefs(d):
     """GEFS wall: 2x3 grid of synced products + day high/low + towns."""
     gf = d.get("gefs") or {}
@@ -6763,6 +6771,40 @@ def page_gefs(d):
             pairs_html += (f'<div class="gvLead" id="gvLead_{lead}"{hid}>'
             + "".join(_gv_pair_html(r) for r in gv_pairs[lead])
             + "</div>")
+        hist = gv.get("history") or {}
+        hist_days = sorted(hist)
+        hist_cards = ""
+        if hist_days:
+            import datetime as _dt
+            _now = _dt.datetime.now(_dt.timezone.utc)
+            hist_cards = ("<div class=\"gvHist\" id=\"gvHist\">"
+                          "<h3>Skill vs lead time - last "
+                          f"{len(hist_days)} days</h3>"
+                          "<img loading=\"lazy\" "
+                          "src=\"../gefs_verify/gefsver_skill_history.png\" "
+                          "alt=\"Pattern correlation by valid day and lead\"/>")
+            per = {}
+            for k in hist_days:
+                for lk, scv in (hist[k] or {}).items():
+                    per.setdefault(lk.split(":")[0], []).append(
+                        (scv or {}).get("r"))
+            _lsc = {"72": "Day 3", "120": "Day 5", "168": "Day 7",
+                    "240": "Day 10"}
+            for lead_s in sorted(per, key=lambda s: int(s)):
+                _rs = [x for x in per[lead_s] if x is not None]
+                if not _rs:
+                    continue
+                hist_cards += (f"<span class=\"gvHistStat\">"
+                               f"{_lsc.get(lead_s, lead_s)}: "
+                               f"r {_minmax(_rs)} over "
+                               f"{len(_rs)} days</span>")
+            hist_cards += ("<div class=\"src\" style=\"margin-top:6px\">"
+                           "Pattern correlation r vs the GFS analysis, one "
+                           "point per valid day, one color per lead - the "
+                           "gap between the lines is the skill lost with "
+                           "lead time; the slope is day-to-day pattern "
+                           "variability. Scores are recomputed nightly from "
+                           "the archive and kept 3 weeks.</div></div>")
         btns = ""
         for lead, lbl in gv_sel:
             p = "true" if lead == first_lead else "false"
@@ -6773,6 +6815,7 @@ def page_gefs(d):
   <h2>📆 Forecast verification <span class="src" style="font-weight:400">lead-time picker · all leads vs the same observed hour · valid {html.escape(gv.get("valid") or "")}</span></h2>
   <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">{btns}</div>
   <div class="gfVer">{pairs_html}</div>
+  {hist_cards}
   <div class="src" style="margin-top:8px">Each pair sets a lead's ensemble-mean forecast beside the observed analysis for the SAME valid hour - pick a lead to see how much skill the forecast loses with range (the grid frames above only survive 48 h, so these are re-fetches from NOAA's archive). Same levels and palette as the grid above, so the differences you see are the forecast's, not the map's. Truth: {html.escape(gv.get("obsSource") or "analysis")}.</div>
 </div>
 <script>
@@ -7034,6 +7077,10 @@ if (HL_FRAMES.length) {{
   .gfVerPair {{ margin:0; }}
   .gfVerPair figcaption {{ font-size:12.5px; color:#8fa3bf; margin-bottom:4px; }}
   .gvScore {{ font-size:12px; color:#9fb4d0; background:#1c242e; border-radius:7px; padding:3px 8px; display:inline-block; margin-bottom:5px; }}
+  .gvHist {{ background:#141b23; border:1px solid #232e3a; border-radius:10px; padding:14px 16px; margin-top:14px; }}
+  .gvHist h3 {{ margin:0 0 10px; font-size:15px; }}
+  .gvHist img {{ max-width:100%; height:auto; border-radius:6px; display:block; }}
+  .gvHistStat {{ font-size:12px; color:#9fb4d0; background:#1c242e; border-radius:7px; padding:3px 8px; display:inline-block; margin:6px 6px 0 0; }}
   .gfVerPair img {{ width:calc(50% - 3px); border-radius:10px; border:1px solid #333c46; vertical-align:top; }}
   @media (max-width: 640px) {{ .gfVerPair img {{ width:100%; }} }}
   .ctl button[aria-pressed="true"] {{ outline:2px solid #4ea1ff; outline-offset:-2px; }}

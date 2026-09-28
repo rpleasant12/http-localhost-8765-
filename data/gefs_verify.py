@@ -14,6 +14,11 @@ f240 (day 10) is attempted opportunistically - if the archive cycle
 lacks it the lead simply drops out of the payload and the page disables
 that picker button. Payload cached 6 h; panels kept ~3 weeks. Never
 raises.
+
+Scores are also accumulated per valid hour in scores_history.json (kept
+HIST_DAYS days) and rendered into a skill-vs-lead chart: pattern
+correlation r vs the GFS analysis, one panel per product, one point per
+day. backfill_history() seeds the chart from the archive for past days.
 """
 import datetime as dt
 import os
@@ -35,6 +40,8 @@ KEEP_HOURS = 21 * 24          # keep ~3 weeks of verification pairs
 CACHE = {"t": 0.0, "b": None}
 CACHE_LOCK = threading.Lock()
 SCORE_FILE = os.path.join(OUT_DIR, "scores.json")   # pair -> {rms, r, bias}
+HIST_FILE = os.path.join(OUT_DIR, "scores_history.json")  # vYYYYMMDDHH -> lead:prod -> score
+HIST_DAYS = 21               # chart window: skill vs lead over ~3 weeks
 
 # display units per product for the score caption
 _UNITS = {"mslp": "hPa", "t2m": "\u00b0F", "cape": "J/kg", "pwat": "in"}
@@ -200,6 +207,39 @@ def _save_scores(scores):
         os.replace(tmp, SCORE_FILE)
     except OSError:
         pass
+
+
+def _decode_gefs_mean(ts, fh):
+    """(fields, lat, lon) of the geavg ensemble mean at hour ts + fh hours.
+
+    Same byte-range/decoder helpers as the GFS truth fetch - the pgrb2ap5
+    geavg file carries the same standard shortNames, so scores need no
+    render pass at all.
+    """
+    url = ("https://noaa-gefs-pds.s3.amazonaws.com/gefs.{ymd}/{hh}/atmos/"
+           "pgrb2ap5/geavg.t{hh}z.pgrb2a.0p50.f{fff:03d}").format(
+        ymd=f"{ts:%Y%m%d}", hh=f"{ts:%H}", fff=fh)
+    idx = _get_idx(url + ".idx")
+    if not idx:
+        return None
+    fields, lat, lon = {}, None, None
+    for prod, (short, level, out_key) in _TRIPLES.items():
+        rng = _msg_range(idx, short, level)
+        if not rng:
+            continue
+        try:
+            blob = _fetch_range(url, rng[0], rng[1])
+            decoded, la, lo = _decode_grib_bytes(blob)
+        except Exception:      # noqa: BLE001 - one bad message -> skip
+            continue
+        for sn, vals in (decoded or {}).items():
+            v = np.asarray(vals, dtype=float)
+            if v.ndim == 2:
+                fields[out_key] = v
+                lat, lon = la, lo
+    if not fields or lat is None:
+        return None
+    return fields, lat, lon
 
 
 def _pair_score(fval, flat, flon, oval, olat, olon, prod):
@@ -368,13 +408,16 @@ def _build():
                 leads.append({"lead": lead, "label": lbl, "rows": n})
     if dirty:
         _save_scores(scores)
+        _extend_history(scores)
+        _prune_history()
     _prune_old()
-    _prune_old()
+    _history_chart()
     return {
         "ok": bool(rows),
         "valid": _tz.stamp(v),
         "leads": leads,
         "rows": rows,
+        "history": _load_history(),
         "obsSource": src if rows else "",
         "source": "GEFS lead-time verification: each lead's ensemble-mean "
                   "forecast (re-fetched from the NOAA AWS open-data archive) "
@@ -402,3 +445,213 @@ def bundle(max_age=6 * 3600):
     with CACHE_LOCK:
         CACHE.update(t=time.time(), b=b)
     return b
+
+
+def _extend_history(scores):
+    """Append this build's pair scores to the per-valid-hour history file.
+
+    Keyed vYYYYMMDDHH -> "lead:prod" -> {rms, r, bias, unit, init}.
+    Re-running the same valid hour overwrites (idempotent), and only the
+    current build's valid hour is appended - past hours belong to their
+    own builds or to backfill_history().
+    """
+    import json
+    v = _valid_time()
+    vs = f"{v:%Y%m%d%H}"
+    try:
+        with open(HIST_FILE, encoding="utf-8") as f:
+            hist = json.load(f)
+    except (OSError, ValueError):
+        hist = {}
+    day = hist.get(f"v{vs}") or {}
+    for ckey, sc in (scores or {}).items():
+        try:
+            lead_s, prod, init_s, valid_s = ckey.split(":")
+        except (ValueError, AttributeError):
+            continue
+        if valid_s != vs or lead_s.startswith("v"):
+            continue
+        day.setdefault(f"{lead_s}:{prod}", {
+            "rms": sc.get("rms"), "r": sc.get("r"), "bias": sc.get("bias"),
+            "unit": sc.get("unit"), "init": init_s,
+        })
+    if not day:
+        return
+    hist[f"v{vs}"] = day
+    try:
+        tmp = HIST_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(hist, f)
+        os.replace(tmp, HIST_FILE)
+    except OSError:
+        pass
+
+
+def _prune_history(days=HIST_DAYS):
+    """Keep scores for the last `days` valid hours (fixed-width keys sort)."""
+    import json
+    try:
+        with open(HIST_FILE, encoding="utf-8") as f:
+            hist = json.load(f)
+    except (OSError, ValueError):
+        return
+    cutoff = (dt.datetime.now(dt.timezone.utc)
+              - dt.timedelta(days=days)).strftime("%Y%m%d%H")
+    kept = {k: d for k, d in hist.items()
+            if isinstance(k, str) and k.startswith("v") and k[1:] >= cutoff}
+    if len(kept) == len(hist):
+        return
+    try:
+        tmp = HIST_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(kept, f)
+        os.replace(tmp, HIST_FILE)
+    except OSError:
+        pass
+
+
+def _load_history():
+    try:
+        import json
+        with open(HIST_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _history_chart(path=None):
+    """Static skill-vs-lead chart over the kept history, or None.
+
+    2x2 panels (one per product) of pattern correlation r vs valid time,
+    one colored line per lead - the spread between the lines IS the
+    skill decay with lead time, and the rightward slope of each line is
+    how that lead's skill changes day to day.
+    """
+    hist = _load_history()
+    if not hist:
+        return None
+    leads_avail = [L for L, _lbl in LEADS]
+    series = {p: {L: ([], []) for L in leads_avail} for p in _TRIPLES}
+    any_pt = False
+    now = dt.datetime.now(dt.timezone.utc)
+    for key in sorted(hist):
+        try:
+            vts = dt.datetime.strptime(key[1:], "%Y%m%d%H").replace(
+                tzinfo=dt.timezone.utc)
+        except ValueError:
+            continue
+        for lk, sc in (hist[key] or {}).items():
+            try:
+                lead_s, prod = lk.split(":")
+                lead = int(lead_s)
+            except (ValueError, AttributeError):
+                continue
+            if prod not in series or lead not in series[prod]:
+                continue
+            r = (sc or {}).get("r")
+            if r is None:
+                continue
+            age = (now - vts).total_seconds() / 86400.0
+            series[prod][lead][0].append(-age)
+            series[prod][lead][1].append(r)
+            any_pt = True
+    if not any_pt:
+        return None
+    path = path or os.path.join(OUT_DIR, "gefsver_skill_history.png")
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        fig, axes = plt.subplots(2, 2, figsize=(9.6, 6.8), dpi=100,
+                                 sharex=True)
+        fig.suptitle("GEFS forecast skill vs lead time - last "
+                     f"{HIST_DAYS} days (pattern correlation r vs GFS "
+                     "analysis)", fontsize=11)
+        for ax, prod in zip(axes.ravel(), _TRIPLES):
+            ax.set_title(f"{PRODUCTS[prod]['label']}  (r)", fontsize=10)
+            for L, color in zip(leads_avail,
+                                ("#4ea1ff", "#39d98a", "#ffb020", "#ff6b6b")):
+                xs, ys = series[prod][L]
+                if not xs:
+                    continue
+                order = sorted(range(len(xs)), key=lambda i: xs[i])
+                ax.plot([xs[i] for i in order], [ys[i] for i in order],
+                        "o-", ms=3.5, lw=1.4, color=color,
+                        label=f"Day {L // 24}")
+            ax.set_ylim(0, 1.02)
+            ax.grid(alpha=0.25, lw=0.4)
+            ax.legend(fontsize=7, loc="lower left")
+            ax.axhline(0.6, color="gray", lw=0.6, ls=":")
+        for ax in axes[1]:
+            ax.set_xlabel("valid time (days ago)", fontsize=8)
+        for ax in axes.ravel():
+            ax.xaxis.set_major_formatter(
+                matplotlib.ticker.FuncFormatter(lambda x, _p: f"{-x:.0f}d"))
+        fig.tight_layout(rect=(0, 0, 1, 0.95))
+        tmp = path.replace(".png", ".tmp.png")
+        fig.savefig(tmp)
+        plt.close(fig)
+        os.replace(tmp, path)
+        return path
+    except Exception:          # noqa: BLE001 - chart never breaks the build
+        return None
+
+
+def backfill_history(days=HIST_DAYS):
+    """Recompute pair scores for past valid hours straight from the archive.
+
+    For each past valid hour V (00Z cycles, newest first) the GFS 0.25-deg
+    analysis at V is scored against the GEFS geavg ensemble mean at
+    f{V - init} from the V-lead init - no panels rendered, scores only.
+    Idempotent: hours already in the history file are skipped. Returns
+    the number of hours scored.
+    """
+    import json
+    os.makedirs(OUT_DIR, exist_ok=True)
+    hist = _load_history()
+    now = dt.datetime.now(dt.timezone.utc).replace(minute=0, second=0,
+                                                   microsecond=0)
+    done = 0
+    for d in range(1, days + 1):
+        v = (now - dt.timedelta(days=d)).replace(hour=0)
+        key = f"v{v:%Y%m%d%H}"
+        if hist.get(key):
+            continue
+        obs = _fetch_gfs_analysis(v)
+        if not obs:
+            print(f"backfill {v:%m-%d}: no GFS analysis, skip", flush=True)
+            continue
+        o_fields, o_lat, o_lon = obs
+        day = {}
+        for lead, _lbl in LEADS:
+            init = v - dt.timedelta(hours=lead)
+            fday = _decode_gefs_mean(init, lead)
+            if not fday:
+                print(f"backfill {v:%m-%d} lead {lead}: no GEFS mean, skip",
+                      flush=True)
+                continue
+            f_fields, f_lat, f_lon = fday
+            for prod, (_short, _level, out_key) in _TRIPLES.items():
+                if out_key not in f_fields or out_key not in o_fields:
+                    continue
+                sc = _pair_score(f_fields[out_key], f_lat, f_lon,
+                                 o_fields[out_key], o_lat, o_lon, prod)
+                if sc:
+                    day[f"{lead}:{prod}"] = {
+                        "rms": sc.get("rms"), "r": sc.get("r"),
+                        "bias": sc.get("bias"), "unit": sc.get("unit"),
+                        "init": f"{init:%Y%m%d%H}",
+                    }
+        if day:
+            hist[key] = day
+            done += 1
+            print(f"backfill {v:%m-%d}: {len(day)} scores", flush=True)
+        try:
+            tmp = HIST_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(hist, f)
+            os.replace(tmp, HIST_FILE)
+        except OSError:
+            pass
+    _prune_history()
+    return done
