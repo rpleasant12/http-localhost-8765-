@@ -34,6 +34,10 @@ OUT_DIR = os.path.join("static", "gefs_verify")
 KEEP_HOURS = 21 * 24          # keep ~3 weeks of verification pairs
 CACHE = {"t": 0.0, "b": None}
 CACHE_LOCK = threading.Lock()
+SCORE_FILE = os.path.join(OUT_DIR, "scores.json")   # pair -> {rms, r, bias}
+
+# display units per product for the score caption
+_UNITS = {"mslp": "hPa", "t2m": "\u00b0F", "cape": "J/kg", "pwat": "in"}
 
 # (forecast lead hours, picker label)
 LEADS = ((72, "Day 3"), (120, "Day 5"), (168, "Day 7"), (240, "Day 10"))
@@ -177,6 +181,69 @@ def _panel_path(kind, prod, ts, fh):
                                  f"{ts:%Y%m%d%H}_na.png")
 
 
+def _load_scores():
+    try:
+        import json
+        with open(SCORE_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_scores(scores):
+    try:
+        import json
+        os.makedirs(OUT_DIR, exist_ok=True)
+        tmp = SCORE_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(scores, f)
+        os.replace(tmp, SCORE_FILE)
+    except OSError:
+        pass
+
+
+def _pair_score(fval, flat, flon, oval, olat, olon, prod):
+    """(rms, r, bias) of forecast vs obs in display units over the map crop.
+
+    Both grids are regular lat-lon (GEFS 0.5 deg, GFS 0.25 deg): crop each
+    to the mapped domain, then bilinearly interpolate the obs onto the
+    forecast grid so the comparison is point for point. bias = fcst - obs
+    (positive = forecast too high).
+    """
+    if prod == "mslp":
+        fval, oval = fval / 100.0, oval / 100.0
+    elif prod == "t2m":
+        fval, oval = fval * 1.8 - 459.67, oval * 1.8 - 459.67
+    elif prod == "pwat":
+        fval, oval = fval / 25.4, oval / 25.4
+    fc, fla, flo = _na_crop(flat, flon, fval)
+    oc, ola, olo = _na_crop(olat, olon, oval)
+    try:
+        from scipy.interpolate import RegularGridInterpolator
+    except ImportError:
+        return None
+    lata, lona = ola[:, 0], olo[0, :]
+    if lata[0] > lata[-1]:                      # GFS ships pole-down sometimes
+        lata, oc = lata[::-1], oc[::-1, :]
+    if lona[0] > lona[-1]:
+        lona, oc = lona[::-1], oc[:, ::-1]
+    interp = RegularGridInterpolator((lata, lona), oc,
+                                     bounds_error=False, fill_value=np.nan)
+    oi = interp(np.column_stack([fla.ravel(), flo.ravel()])).reshape(fla.shape)
+    m = np.isfinite(fc) & np.isfinite(oi)
+    if m.sum() < 500:
+        return None
+    d = fc[m] - oi[m]
+    rms = float(np.sqrt(np.mean(d * d)))
+    bias = float(np.mean(d))
+    sd_f, sd_o = float(np.std(fc[m])), float(np.std(oi[m]))
+    r = None
+    if sd_f > 1e-9 and sd_o > 1e-9:
+        r = float(np.corrcoef(fc[m], oi[m])[0, 1])
+    return {"rms": round(rms, 2), "r": (round(r, 3) if r is not None else None),
+            "bias": round(bias, 2), "unit": _UNITS.get(prod, "")}
+
+
 def _ensure_fcst_panel(init, prod, lead):
     """Render (or reuse) one lead's ensemble-mean forecast panel."""
     path = _panel_path("fcst", prod, init, lead)
@@ -235,9 +302,12 @@ def _build():
         obs = _fetch_gefs_analysis(v)
         src = "GEFS initial analysis (GFS archive unavailable)"
     os.makedirs(OUT_DIR, exist_ok=True)
+    scores = _load_scores()
+    dirty = False
     rows = []
     leads = []
     if obs:
+        o_fields, o_lat, o_lon = obs
         opaths = {p: _ensure_obs_panel(v, p, obs) for p in _TRIPLES}
         for lead, lbl in LEADS:
             # f240 (day 10) only exists for some cycle hours in the archive:
@@ -254,10 +324,31 @@ def _build():
                     continue
                 fpath = iu = None
                 for cand in inits:
-                    fpath = _ensure_fcst_panel(cand, prod, lead)
-                    if fpath:
-                        iu = cand
+                    cand_path = _panel_path("fcst", prod, cand, lead)
+                    ckey = f"{lead}:{prod}:{cand:%Y%m%d%H}:{v:%Y%m%d%H}"
+                    if os.path.exists(cand_path) and ckey in scores \
+                            and os.path.getsize(cand_path) > 6_000:
+                        fpath, iu = cand_path, cand
                         break
+                    got = _fetch_product(cand, lead, prod)
+                    if not got:
+                        continue
+                    f_fields, f_lat, f_lon = got
+                    try:
+                        fpath = _render_panel(f_fields, f_lat, f_lon, prod,
+                                              cand, lead, cand_path, "fcst")
+                    except Exception:   # noqa: BLE001 - one bad frame never kills
+                        fpath = None
+                    if not fpath:
+                        continue
+                    iu = cand
+                    sc = _pair_score(f_fields[_TRIPLES[prod][2]], f_lat,
+                                     f_lon, o_fields[_TRIPLES[prod][2]],
+                                     o_lat, o_lon, prod)
+                    if sc:
+                        scores[ckey] = sc
+                        dirty = True
+                    break
                 if not fpath:
                     continue
                 rows.append({
@@ -269,10 +360,15 @@ def _build():
                     "init": _tz.stamp(iu),
                     "fcstUrl": f"../gefs_verify/{os.path.basename(fpath)}",
                     "obsUrl": f"../gefs_verify/{os.path.basename(opaths[prod])}",
+                    "score": scores.get(
+                        f"{lead}:{prod}:{iu:%Y%m%d%H}:{v:%Y%m%d%H}"),
                 })
                 n += 1
             if n:
                 leads.append({"lead": lead, "label": lbl, "rows": n})
+    if dirty:
+        _save_scores(scores)
+    _prune_old()
     _prune_old()
     return {
         "ok": bool(rows),

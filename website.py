@@ -6738,23 +6738,30 @@ def page_gefs(d):
         for lead in sorted(gv_pairs):
             lbl = gv_pairs[lead][0].get("leadLabel") or f"Day {lead // 24}"
             gv_sel.append((lead, lbl))
+        def _gv_pair_html(r):
+            cap = (f'<figcaption>{html.escape(r["label"])} &middot; '
+                   f'F{r["fh"]:03d} from init '
+                   f'{html.escape((r.get("init") or "")[5:16])} &middot; '
+                   f'valid {html.escape((gv.get("valid") or "")[5:16])}'
+                   f'</figcaption>')
+            sc = r.get("score")
+            badge = (f'<div class="gvScore">RMS {sc["rms"]}{sc["unit"]} '
+                     f'&middot; r {sc["r"]} &middot; bias '
+                     f'{sc["bias"]:+}{sc["unit"]}</div>' if sc else "")
+            imgs = (f'<img loading="lazy" src="{html.escape(r["fcstUrl"])}" '
+                    f'alt="GEFS {html.escape(r["prod"])} F{r["fh"]:03d} '
+                    f'forecast" title="F{r["fh"]:03d} ensemble-mean '
+                    f'forecast"/>'
+                    f'<img loading="lazy" src="{html.escape(r["obsUrl"])}" '
+                    f'alt="{html.escape(r["prod"])} observed analysis" '
+                    f'title="Observed analysis at the shared valid hour"/>')
+            return f'<figure class="gfVerPair">{cap}{badge}{imgs}</figure>'
+
         pairs_html = ""
         for lead in sorted(gv_pairs):
             hid = "" if lead == first_lead else " hidden"
             pairs_html += (f'<div class="gvLead" id="gvLead_{lead}"{hid}>'
-            + "".join(
-                f'<figure class="gfVerPair">'
-                f'<figcaption>{html.escape(r["label"])} &middot; '
-                f'F{r["fh"]:03d} from init {html.escape((r.get("init") or "")[5:16])}'
-                f' &middot; valid {html.escape((gv.get("valid") or "")[5:16])}</figcaption>'
-                f'<img loading="lazy" src="{html.escape(r["fcstUrl"])}" '
-                f'alt="GEFS {html.escape(r["prod"])} F{r["fh"]:03d} forecast" '
-                f'title="F{r["fh"]:03d} ensemble-mean forecast"/>'
-                f'<img loading="lazy" src="{html.escape(r["obsUrl"])}" '
-                f'alt="{html.escape(r["prod"])} observed analysis" '
-                f'title="Observed analysis at the shared valid hour"/>'
-                f'</figure>'
-                for r in gv_pairs[lead])
+            + "".join(_gv_pair_html(r) for r in gv_pairs[lead])
             + "</div>")
         btns = ""
         for lead, lbl in gv_sel:
@@ -7026,6 +7033,7 @@ if (HL_FRAMES.length) {{
   .gvLead[hidden] {{ display:none; }}
   .gfVerPair {{ margin:0; }}
   .gfVerPair figcaption {{ font-size:12.5px; color:#8fa3bf; margin-bottom:4px; }}
+  .gvScore {{ font-size:12px; color:#9fb4d0; background:#1c242e; border-radius:7px; padding:3px 8px; display:inline-block; margin-bottom:5px; }}
   .gfVerPair img {{ width:calc(50% - 3px); border-radius:10px; border:1px solid #333c46; vertical-align:top; }}
   @media (max-width: 640px) {{ .gfVerPair img {{ width:100%; }} }}
   .ctl button[aria-pressed="true"] {{ outline:2px solid #4ea1ff; outline-offset:-2px; }}
