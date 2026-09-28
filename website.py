@@ -6728,23 +6728,58 @@ def page_gefs(d):
     gv_rows = gv.get("rows") or []
     ver_cards = ""
     if gv.get("ok") and gv_rows:
-        pairs = "".join(
-            f'<figure class="gfVerPair">'
-            f'<figcaption>{html.escape(r["label"])}</figcaption>'
-            f'<img loading="lazy" src="{html.escape(r["fcstUrl"])}" '
-            f'alt="GEFS {html.escape(r["prod"])} F168 forecast" '
-            f'title="F168 ensemble-mean forecast"/>'
-            f'<img loading="lazy" src="{html.escape(r["obsUrl"])}" '
-            f'alt="{html.escape(r["prod"])} observed analysis" '
-            f'title="Observed analysis"/>'
-            f'</figure>'
-            for r in gv_rows)
+        leads = gv.get("leads") or []
+        gv_pairs, gv_sel = {}, []
+        for r in gv_rows:
+            if "lead" not in r:      # stale bundle from an older format
+                continue
+            gv_pairs.setdefault(r["lead"], []).append(r)
+        first_lead = leads[0]["lead"] if leads else None
+        for lead in sorted(gv_pairs):
+            lbl = gv_pairs[lead][0].get("leadLabel") or f"Day {lead // 24}"
+            gv_sel.append((lead, lbl))
+        pairs_html = ""
+        for lead in sorted(gv_pairs):
+            hid = "" if lead == first_lead else " hidden"
+            pairs_html += (f'<div class="gvLead" id="gvLead_{lead}"{hid}>'
+            + "".join(
+                f'<figure class="gfVerPair">'
+                f'<figcaption>{html.escape(r["label"])} &middot; '
+                f'F{r["fh"]:03d} from init {html.escape((r.get("init") or "")[5:16])}'
+                f' &middot; valid {html.escape((gv.get("valid") or "")[5:16])}</figcaption>'
+                f'<img loading="lazy" src="{html.escape(r["fcstUrl"])}" '
+                f'alt="GEFS {html.escape(r["prod"])} F{r["fh"]:03d} forecast" '
+                f'title="F{r["fh"]:03d} ensemble-mean forecast"/>'
+                f'<img loading="lazy" src="{html.escape(r["obsUrl"])}" '
+                f'alt="{html.escape(r["prod"])} observed analysis" '
+                f'title="Observed analysis at the shared valid hour"/>'
+                f'</figure>'
+                for r in gv_pairs[lead])
+            + "</div>")
+        btns = ""
+        for lead, lbl in gv_sel:
+            p = "true" if lead == first_lead else "false"
+            btns += (f'<button class="gvBtn" data-lead="{lead}" '
+                     f'aria-pressed="{p}">{html.escape(lbl)}</button>')
         ver_cards = f"""
 <div class="card" id="gefsVerifyCard">
-  <h2>📆 Day-7 verification <span class="src" style="font-weight:400">last week's F168 forecast vs the observed analysis · init {html.escape(gv.get("cycle") or "")}</span></h2>
-  <div class="gfVer">{pairs}</div>
-  <div class="src" style="margin-top:8px">Each pair re-fetches the week-old GEFS cycle from NOAA's archive (the grid frames above only survive 48 h) and sets its F168 ensemble mean beside the observed analysis for the same valid hour - same levels and palette as the grid above, so the differences you see are the forecast's, not the map's. Truth: {html.escape(gv.get("obsSource") or "analysis")}.</div>
-</div>"""
+  <h2>📆 Forecast verification <span class="src" style="font-weight:400">lead-time picker · all leads vs the same observed hour · valid {html.escape(gv.get("valid") or "")}</span></h2>
+  <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">{btns}</div>
+  <div class="gfVer">{pairs_html}</div>
+  <div class="src" style="margin-top:8px">Each pair sets a lead's ensemble-mean forecast beside the observed analysis for the SAME valid hour - pick a lead to see how much skill the forecast loses with range (the grid frames above only survive 48 h, so these are re-fetches from NOAA's archive). Same levels and palette as the grid above, so the differences you see are the forecast's, not the map's. Truth: {html.escape(gv.get("obsSource") or "analysis")}.</div>
+</div>
+<script>
+(function() {{
+  const card = document.getElementById('gefsVerifyCard');
+  if (!card) return;
+  const btns = [...card.querySelectorAll('.gvBtn')];
+  btns.forEach(b => b.onclick = () => {{
+    const lead = b.dataset.lead;
+    card.querySelectorAll('.gvLead').forEach(d => d.hidden = (d.id !== 'gvLead_' + lead));
+    btns.forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  }});
+}})();
+</script>"""
 
     body = f"""
 <header class="hero"><h1>🌐 GEFS Ensemble</h1>
@@ -6987,6 +7022,8 @@ if (HL_FRAMES.length) {{
   #gfLb[hidden] {{ display:none; }}
   #gfSprGrid {{ grid-template-columns:repeat(2, 1fr); }}
   .gfVer {{ display:flex; flex-direction:column; gap:18px; margin-top:10px; }}
+  .gvBtn[aria-pressed="true"] {{ outline:2px solid #4ea1ff; outline-offset:-2px; }}
+  .gvLead[hidden] {{ display:none; }}
   .gfVerPair {{ margin:0; }}
   .gfVerPair figcaption {{ font-size:12.5px; color:#8fa3bf; margin-bottom:4px; }}
   .gfVerPair img {{ width:calc(50% - 3px); border-radius:10px; border:1px solid #333c46; vertical-align:top; }}
@@ -6998,7 +7035,7 @@ if (HL_FRAMES.length) {{
       margin-left: calc((min(1100px, 100vw - 28px) - 100vw) / 2 + 14px);
       margin-right: calc((min(1100px, 100vw - 28px) - 100vw) / 2 + 14px); }}
     #gefsGridCard .ctl, #gefsGridCard > .src,
-    #gefsCard h2, #gefsCard .ctl, #gefsVerifyCard h2 {{
+    #gefsCard h2, #gefsCard .ctl, #gefsVerifyCard h2, #gefsVerifyCard .ctl {{
       max-width: 1072px; margin-left: auto; margin-right: auto; }}
     .gfVer {{ max-width: 1800px; margin-left: auto; margin-right: auto; }}
     .gfGrid {{ max-width: 1800px; margin-left: auto; margin-right: auto;
