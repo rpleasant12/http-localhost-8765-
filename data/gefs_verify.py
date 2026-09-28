@@ -255,6 +255,39 @@ def _decode_gefs_mean(ts, fh):
     return fields, lat, lon
 
 
+def _decode_gefs_spr(ts, fh):
+    """(fields, lat, lon) of the gespr ensemble SPREAD at hour ts + fh.
+
+    The gespr file's CAPE/PWAT/U/V messages are true standard deviations
+    (the ptype flags are not, but ptype is not verified here). PRMSL and
+    TMP @2m in gespr also carry the spread of those variables.
+    """
+    url = ("https://noaa-gefs-pds.s3.amazonaws.com/gefs.{ymd}/{hh}/atmos/"
+           "pgrb2ap5/gespr.t{hh}z.pgrb2a.0p50.f{fff:03d}").format(
+        ymd=f"{ts:%Y%m%d}", hh=f"{ts:%H}", fff=fh)
+    idx = _get_idx(url + ".idx")
+    if not idx:
+        return None
+    fields, lat, lon = {}, None, None
+    for prod, (short, level, out_key) in _TRIPLES.items():
+        rng = _msg_range(idx, short, level)
+        if not rng:
+            continue
+        try:
+            blob = _fetch_range(url, rng[0], rng[1])
+            decoded, la, lo = _decode_grib_bytes(blob)
+        except Exception:      # noqa: BLE001 - one bad message -> skip
+            continue
+        for sn, vals in (decoded or {}).items():
+            v = np.asarray(vals, dtype=float)
+            if v.ndim == 2:
+                fields[out_key] = v
+                lat, lon = la, lo
+    if not fields or lat is None:
+        return None
+    return fields, lat, lon
+
+
 def _get_climo(v):
     """(means, lat, lon) same-day climatology for valid hour v, or None.
 
@@ -305,7 +338,8 @@ def _get_climo(v):
     return _CLIMO_MEM[key]
 
 
-def _pair_score(fval, flat, flon, oval, olat, olon, prod, climo=None):
+def _pair_score(fval, flat, flon, oval, olat, olon, prod, climo=None,
+                s_fields=None):
     """(rms, r, bias) of forecast vs obs in display units over the map crop.
 
     Both grids are regular lat-lon (GEFS 0.5 deg, GFS 0.25 deg): crop each
@@ -317,16 +351,24 @@ def _pair_score(fval, flat, flon, oval, olat, olon, prod, climo=None):
     """
     if prod == "mslp":
         fval, oval = fval / 100.0, oval / 100.0
-        if climo is not None:
-            climo = climo / 100.0
+        conv = lambda x: x / 100.0
+        sconv = conv
     elif prod == "t2m":
         fval, oval = fval * 1.8 - 459.67, oval * 1.8 - 459.67
-        if climo is not None:
-            climo = climo * 1.8 - 459.67
+        conv = lambda x: x * 1.8 - 459.67
+        # spread is a DEVIATION (~K scale): scale it, never apply the
+        # -459.67 offset (that would turn 1 K of spread into -458 F)
+        sconv = lambda x: x * 1.8
     elif prod == "pwat":
         fval, oval = fval / 25.4, oval / 25.4
-        if climo is not None:
-            climo = climo / 25.4
+        conv = lambda x: x / 25.4
+        sconv = conv
+    else:
+        conv = sconv = lambda x: x
+    if climo is not None:
+        climo = conv(climo)
+    if s_fields is not None:
+        s_fields = sconv(s_fields)
     fc, fla, flo = _na_crop(flat, flon, fval)
     oc, ola, olo = _na_crop(olat, olon, oval)
     try:
@@ -374,6 +416,28 @@ def _pair_score(fval, flat, flon, oval, olat, olon, prod, climo=None):
     d = fc[m] - oi[m]
     rms = float(np.sqrt(np.mean(d * d)))
     bias = float(np.mean(d))
+    spr = None
+    if s_fields is not None:
+        # spread-skill: the gespr std-dev lives on the forecast grid, so
+        # it aligns with fc after the same crop - compare it with the
+        # mean's actual error. ratio ~ 1 is a calibrated ensemble; corr
+        # links spread to where the error actually is.
+        try:
+            scrop, _sa, _so = _na_crop(flat, flon, s_fields)
+            ms = m & np.isfinite(scrop)
+            if ms.sum() >= 500:
+                sd = float(np.sqrt(np.mean(scrop[ms] ** 2)))
+                rmse = float(np.sqrt(np.mean(d ** 2)))   # d is already masked
+                if sd > 1e-9 and rmse > 1e-9:
+                    a, b = scrop[ms], np.abs(fc[ms] - oi[ms])
+                    rc = None
+                    if a.std() > 1e-9 and b.std() > 1e-9:
+                        rc = float(np.corrcoef(a, b)[0, 1])
+                    spr = {"ratio": round(sd / rmse, 2),
+                           "corr": (round(rc, 3) if rc is not None else None),
+                           "overconf": round(100.0 * (1.0 - sd / rmse), 1)}
+        except Exception:      # noqa: BLE001 - spread is best-effort
+            spr = None
     sd_f, sd_o = float(np.std(fc[m])), float(np.std(oi[m]))
     r = None
     if sd_f > 1e-9 and sd_o > 1e-9:
@@ -381,6 +445,7 @@ def _pair_score(fval, flat, flon, oval, olat, olon, prod, climo=None):
     return {"rms": round(rms, 2), "r": (round(r, 3) if r is not None else None),
             "bias": round(bias, 2),
             "acc": (round(acc, 3) if acc is not None else None),
+            "spread": spr,
             "unit": _UNITS.get(prod, "")}
 
 
@@ -470,6 +535,8 @@ def _build():
                 if alt != init:
                     inits.append(alt)
             n = 0
+            spr_cache = None
+            spr_key = None
             for prod in _TRIPLES:
                 if not opaths.get(prod):
                     continue
@@ -479,6 +546,7 @@ def _build():
                     ckey = f"{lead}:{prod}:{cand:%Y%m%d%H}:{v:%Y%m%d%H}"
                     if os.path.exists(cand_path) and ckey in scores \
                             and scores[ckey].get("acc") is not None \
+                            and scores[ckey].get("spread") is not None \
                             and os.path.getsize(cand_path) > 6_000:
                         fpath, iu = cand_path, cand
                         break
@@ -494,10 +562,15 @@ def _build():
                     if not fpath:
                         continue
                     iu = cand
+                    if spr_key != cand:
+                        sday = _decode_gefs_spr(cand, lead)
+                        spr_cache = (sday[0] if sday else {})
+                        spr_key = cand
                     cm = (climo[0] if climo else {}).get(_TRIPLES[prod][2])
                     sc = _pair_score(f_fields[_TRIPLES[prod][2]], f_lat,
                                      f_lon, o_fields[_TRIPLES[prod][2]],
-                                     o_lat, o_lon, prod, climo=cm)
+                                     o_lat, o_lon, prod, climo=cm,
+                                     s_fields=spr_cache.get(_TRIPLES[prod][2]))
                     if sc:
                         scores[ckey] = sc
                         dirty = True
@@ -587,7 +660,8 @@ def _extend_history(scores):
         # this build's scores are authoritative for the current valid hour
         day[f"{lead_s}:{prod}"] = {
             "rms": sc.get("rms"), "r": sc.get("r"), "bias": sc.get("bias"),
-            "acc": sc.get("acc"), "unit": sc.get("unit"), "init": init_s,
+            "acc": sc.get("acc"), "spread": sc.get("spread"),
+            "unit": sc.get("unit"), "init": init_s,
         }
     if not day:
         return
@@ -731,6 +805,7 @@ def backfill_history(days=HIST_DAYS):
         key = f"v{v:%Y%m%d%H}"
         if hist.get(key) and all(
                 (sc or {}).get("acc") is not None
+                and (sc or {}).get("spread") is not None
                 for sc in hist[key].values()):
             continue
         obs = _fetch_gfs_analysis(v)
@@ -748,17 +823,20 @@ def backfill_history(days=HIST_DAYS):
                       flush=True)
                 continue
             f_fields, f_lat, f_lon = fday
+            sday = _decode_gefs_spr(init, lead)
+            s_all = sday[0] if sday else {}
             for prod, (_short, _level, out_key) in _TRIPLES.items():
                 if out_key not in f_fields or out_key not in o_fields:
                     continue
                 cm = (climo[0] if climo else {}).get(out_key)
                 sc = _pair_score(f_fields[out_key], f_lat, f_lon,
                                  o_fields[out_key], o_lat, o_lon, prod,
-                                 climo=cm)
+                                 climo=cm, s_fields=s_all.get(out_key))
                 if sc:
                     day[f"{lead}:{prod}"] = {
                         "rms": sc.get("rms"), "r": sc.get("r"),
                         "bias": sc.get("bias"), "acc": sc.get("acc"),
+                        "spread": sc.get("spread"),
                         "unit": sc.get("unit"),
                         "init": f"{init:%Y%m%d%H}",
                     }

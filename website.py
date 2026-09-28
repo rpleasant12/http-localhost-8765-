@@ -6753,16 +6753,24 @@ def page_gefs(d):
                    f'valid {html.escape((gv.get("valid") or "")[5:16])}'
                    f'</figcaption>')
             sc = r.get("score")
+            sp = (sc or {}).get("spread") or {}
+            ss = ""
+            if sp.get("ratio") is not None:
+                ss = (f' &middot; S/S {sp["ratio"]:.2f}'
+                      + (f' (r{sp["corr"]:+.2f})'
+                         if sp.get("corr") is not None else ""))
             badge = (f'<div class="gvScore">RMS {sc["rms"]}{sc["unit"]} '
                      f'&middot; r {sc["r"]}'
                      + (f' &middot; ACC {sc["acc"]:+.2f}'
                         if sc.get("acc") is not None else "")
+                     + ss
                      + f' &middot; bias {sc["bias"]:+}{sc["unit"]}</div>'
                      if sc else "")
             imgs = (f'<img loading="lazy" src="{html.escape(r["fcstUrl"])}" '
                     f'alt="GEFS {html.escape(r["prod"])} F{r["fh"]:03d} '
                     f'forecast" title="F{r["fh"]:03d} ensemble-mean '
-                    f'forecast"/>'
+                    f'forecast. S/S = ensemble spread / actual RMSE '
+                    '(1.0 = calibrated; &lt;1 overconfident)."/>'
                     f'<img loading="lazy" src="{html.escape(r["obsUrl"])}" '
                     f'alt="{html.escape(r["prod"])} observed analysis" '
                     f'title="Observed analysis at the shared valid hour"/>')
@@ -6811,7 +6819,12 @@ def page_gefs(d):
                            "correlation - fcst and obs vs the same-day "
                            "climatology (mean of the last 5 years of GFS "
                            "analyses): positive means the forecast beat "
-                           "climatology, the standard skill test.</div></div>")
+                           "climatology, the standard skill test. S/S is the "
+                           "ensemble spread-skill ratio (spread / actual "
+                           "RMSE): ~1.0 means the 31 members know when "
+                           "they are uncertain, &lt;1 means overconfident, "
+                           "and the parenthesised r links spread to where "
+                           "the error actually landed.</div></div>")
         btns = ""
         for lead, lbl in gv_sel:
             p = "true" if lead == first_lead else "false"
