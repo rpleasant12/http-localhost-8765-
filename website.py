@@ -6754,8 +6754,11 @@ def page_gefs(d):
                    f'</figcaption>')
             sc = r.get("score")
             badge = (f'<div class="gvScore">RMS {sc["rms"]}{sc["unit"]} '
-                     f'&middot; r {sc["r"]} &middot; bias '
-                     f'{sc["bias"]:+}{sc["unit"]}</div>' if sc else "")
+                     f'&middot; r {sc["r"]}'
+                     + (f' &middot; ACC {sc["acc"]:+.2f}'
+                        if sc.get("acc") is not None else "")
+                     + f' &middot; bias {sc["bias"]:+}{sc["unit"]}</div>'
+                     if sc else "")
             imgs = (f'<img loading="lazy" src="{html.escape(r["fcstUrl"])}" '
                     f'alt="GEFS {html.escape(r["prod"])} F{r["fh"]:03d} '
                     f'forecast" title="F{r["fh"]:03d} ensemble-mean '
@@ -6804,7 +6807,11 @@ def page_gefs(d):
                            "gap between the lines is the skill lost with "
                            "lead time; the slope is day-to-day pattern "
                            "variability. Scores are recomputed nightly from "
-                           "the archive and kept 3 weeks.</div></div>")
+                           "the archive and kept 3 weeks. ACC is the anomaly "
+                           "correlation - fcst and obs vs the same-day "
+                           "climatology (mean of the last 5 years of GFS "
+                           "analyses): positive means the forecast beat "
+                           "climatology, the standard skill test.</div></div>")
         btns = ""
         for lead, lbl in gv_sel:
             p = "true" if lead == first_lead else "false"

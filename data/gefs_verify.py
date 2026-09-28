@@ -19,6 +19,12 @@ Scores are also accumulated per valid hour in scores_history.json (kept
 HIST_DAYS days) and rendered into a skill-vs-lead chart: pattern
 correlation r vs the GFS analysis, one panel per product, one point per
 day. backfill_history() seeds the chart from the archive for past days.
+
+Each score also carries ACC, the anomaly correlation coefficient: fcst
+and obs are both converted to anomalies against a same-day climatology
+(the mean of the CLIMO_YEARS_BACK prior years of GFS analyses, built
+on demand and cached per MMDD+hour), then correlated. ACC > 0 means the
+forecast beat climatology - the standard yes/no skill question.
 """
 import datetime as dt
 import os
@@ -42,6 +48,13 @@ CACHE_LOCK = threading.Lock()
 SCORE_FILE = os.path.join(OUT_DIR, "scores.json")   # pair -> {rms, r, bias}
 HIST_FILE = os.path.join(OUT_DIR, "scores_history.json")  # vYYYYMMDDHH -> lead:prod -> score
 HIST_DAYS = 21               # chart window: skill vs lead over ~3 weeks
+
+# ACC climatology: same-day GFS analyses from the N prior years (bucket
+# coverage starts 2021; the window slides forward automatically).
+CLIMO_YEARS_BACK = 5
+CLIMO_MIN_YEARS = 3
+CLIMO_DIR = os.path.join(OUT_DIR, "climo")
+_CLIMO_MEM = {}              # "MMDDHH" -> (means, lat, lon)
 
 # display units per product for the score caption
 _UNITS = {"mslp": "hPa", "t2m": "\u00b0F", "cape": "J/kg", "pwat": "in"}
@@ -242,20 +255,78 @@ def _decode_gefs_mean(ts, fh):
     return fields, lat, lon
 
 
-def _pair_score(fval, flat, flon, oval, olat, olon, prod):
+def _get_climo(v):
+    """(means, lat, lon) same-day climatology for valid hour v, or None.
+
+    means: {out_key: mean field} over the CLIMO_YEARS_BACK prior years of
+    GFS 0.25-deg analyses (>= CLIMO_MIN_YEARS required), on the obs crop
+    grid - i.e. the same grid the obs panel uses, so _pair_score can
+    interpolate it once alongside the obs. Cached in memory and as an
+    npz sidecar so repeated builds/backfills never re-download.
+    """
+    key = f"{v:%m%d%H}"
+    if key in _CLIMO_MEM:
+        return _CLIMO_MEM[key]
+    os.makedirs(CLIMO_DIR, exist_ok=True)
+    npz = os.path.join(CLIMO_DIR, f"climo_{key}.npz")
+    if os.path.exists(npz) and os.path.getsize(npz) > 50_000:
+        try:
+            z = np.load(npz)
+            out = ({k: z[k] for k in z.files if k not in ("lat", "lon")},
+                   z["lat"], z["lon"])
+            _CLIMO_MEM[key] = out
+            return out
+        except Exception:      # noqa: BLE001 - corrupt sidecar -> rebuild
+            pass
+    years, lat, lon = [], None, None
+    for back in range(1, CLIMO_YEARS_BACK + 1):
+        try:
+            ts = v.replace(year=v.year - back)
+        except ValueError:     # Feb 29 has no prior-year match
+            continue
+        got = _fetch_gfs_analysis(ts)
+        if got:
+            fields, lat, lon = got
+            years.append(fields)
+    if len(years) < CLIMO_MIN_YEARS or lat is None:
+        return None
+    keys = set(years[0])
+    for f in years[1:]:
+        keys &= set(f)
+    means = {k: np.mean([f[k] for f in years], axis=0)
+             for k in keys if np.asarray(years[0][k]).ndim == 2}
+    if not means:
+        return None
+    try:
+        np.savez_compressed(npz, lat=lat, lon=lon, **means)
+    except OSError:
+        pass
+    _CLIMO_MEM[key] = (means, lat, lon)
+    return _CLIMO_MEM[key]
+
+
+def _pair_score(fval, flat, flon, oval, olat, olon, prod, climo=None):
     """(rms, r, bias) of forecast vs obs in display units over the map crop.
 
     Both grids are regular lat-lon (GEFS 0.5 deg, GFS 0.25 deg): crop each
     to the mapped domain, then bilinearly interpolate the obs onto the
     forecast grid so the comparison is point for point. bias = fcst - obs
-    (positive = forecast too high).
+    (positive = forecast too high). climo (optional) is the same-day
+    climatology mean on the obs grid; when given, ACC is also computed
+    from anomalies vs that climatology (>= 0 means it beat climatology).
     """
     if prod == "mslp":
         fval, oval = fval / 100.0, oval / 100.0
+        if climo is not None:
+            climo = climo / 100.0
     elif prod == "t2m":
         fval, oval = fval * 1.8 - 459.67, oval * 1.8 - 459.67
+        if climo is not None:
+            climo = climo * 1.8 - 459.67
     elif prod == "pwat":
         fval, oval = fval / 25.4, oval / 25.4
+        if climo is not None:
+            climo = climo / 25.4
     fc, fla, flo = _na_crop(flat, flon, fval)
     oc, ola, olo = _na_crop(olat, olon, oval)
     try:
@@ -273,6 +344,33 @@ def _pair_score(fval, flat, flon, oval, olat, olon, prod):
     m = np.isfinite(fc) & np.isfinite(oi)
     if m.sum() < 500:
         return None
+    acc = None
+    if climo is not None:
+        # climo lives on the obs grid: crop it the same way and give it
+        # its own interpolator onto the forecast grid (the one above only
+        # knows the obs array).
+        ci = None
+        try:
+            cc, cla, clo = _na_crop(olat, olon, climo)
+            clata, clona = cla[:, 0], clo[0, :]
+            if clata[0] > clata[-1]:
+                clata, cc = clata[::-1], cc[::-1, :]
+            if clona[0] > clona[-1]:
+                clona, cc = clona[::-1], cc[:, ::-1]
+            cinterp = RegularGridInterpolator((clata, clona), cc,
+                                              bounds_error=False,
+                                              fill_value=np.nan)
+            ci = cinterp(np.column_stack([fla.ravel(), flo.ravel()]))\
+                .reshape(fla.shape)
+        except Exception:      # noqa: BLE001 - degenerate climo grid
+            ci = None
+        if ci is not None:
+            m2 = m & np.isfinite(ci)
+            if m2.sum() >= 500:
+                af, ao = fc[m2] - ci[m2], oi[m2] - ci[m2]
+                den = float(np.sqrt(np.sum(af * af) * np.sum(ao * ao)))
+                if den > 1e-9:
+                    acc = float(np.sum(af * ao) / den)
     d = fc[m] - oi[m]
     rms = float(np.sqrt(np.mean(d * d)))
     bias = float(np.mean(d))
@@ -281,7 +379,9 @@ def _pair_score(fval, flat, flon, oval, olat, olon, prod):
     if sd_f > 1e-9 and sd_o > 1e-9:
         r = float(np.corrcoef(fc[m], oi[m])[0, 1])
     return {"rms": round(rms, 2), "r": (round(r, 3) if r is not None else None),
-            "bias": round(bias, 2), "unit": _UNITS.get(prod, "")}
+            "bias": round(bias, 2),
+            "acc": (round(acc, 3) if acc is not None else None),
+            "unit": _UNITS.get(prod, "")}
 
 
 def _ensure_fcst_panel(init, prod, lead):
@@ -332,6 +432,16 @@ def _prune_old():
                     pass
     except OSError:
         pass
+    try:                              # climo sidecars: keep the last ~40
+        cl = sorted((os.path.getmtime(os.path.join(CLIMO_DIR, f)), f)
+                    for f in os.listdir(CLIMO_DIR) if f.endswith(".npz"))
+        for _mt, fn in cl[:-40]:
+            try:
+                os.remove(os.path.join(CLIMO_DIR, fn))
+            except OSError:
+                pass
+    except OSError:
+        pass
 
 
 def _build():
@@ -343,6 +453,7 @@ def _build():
         src = "GEFS initial analysis (GFS archive unavailable)"
     os.makedirs(OUT_DIR, exist_ok=True)
     scores = _load_scores()
+    climo = _get_climo(v) if obs else None
     dirty = False
     rows = []
     leads = []
@@ -367,6 +478,7 @@ def _build():
                     cand_path = _panel_path("fcst", prod, cand, lead)
                     ckey = f"{lead}:{prod}:{cand:%Y%m%d%H}:{v:%Y%m%d%H}"
                     if os.path.exists(cand_path) and ckey in scores \
+                            and scores[ckey].get("acc") is not None \
                             and os.path.getsize(cand_path) > 6_000:
                         fpath, iu = cand_path, cand
                         break
@@ -382,9 +494,10 @@ def _build():
                     if not fpath:
                         continue
                     iu = cand
+                    cm = (climo[0] if climo else {}).get(_TRIPLES[prod][2])
                     sc = _pair_score(f_fields[_TRIPLES[prod][2]], f_lat,
                                      f_lon, o_fields[_TRIPLES[prod][2]],
-                                     o_lat, o_lon, prod)
+                                     o_lat, o_lon, prod, climo=cm)
                     if sc:
                         scores[ckey] = sc
                         dirty = True
@@ -471,10 +584,11 @@ def _extend_history(scores):
             continue
         if valid_s != vs or lead_s.startswith("v"):
             continue
-        day.setdefault(f"{lead_s}:{prod}", {
+        # this build's scores are authoritative for the current valid hour
+        day[f"{lead_s}:{prod}"] = {
             "rms": sc.get("rms"), "r": sc.get("r"), "bias": sc.get("bias"),
-            "unit": sc.get("unit"), "init": init_s,
-        })
+            "acc": sc.get("acc"), "unit": sc.get("unit"), "init": init_s,
+        }
     if not day:
         return
     hist[f"v{vs}"] = day
@@ -615,13 +729,16 @@ def backfill_history(days=HIST_DAYS):
     for d in range(1, days + 1):
         v = (now - dt.timedelta(days=d)).replace(hour=0)
         key = f"v{v:%Y%m%d%H}"
-        if hist.get(key):
+        if hist.get(key) and all(
+                (sc or {}).get("acc") is not None
+                for sc in hist[key].values()):
             continue
         obs = _fetch_gfs_analysis(v)
         if not obs:
             print(f"backfill {v:%m-%d}: no GFS analysis, skip", flush=True)
             continue
         o_fields, o_lat, o_lon = obs
+        climo = _get_climo(v)
         day = {}
         for lead, _lbl in LEADS:
             init = v - dt.timedelta(hours=lead)
@@ -634,12 +751,15 @@ def backfill_history(days=HIST_DAYS):
             for prod, (_short, _level, out_key) in _TRIPLES.items():
                 if out_key not in f_fields or out_key not in o_fields:
                     continue
+                cm = (climo[0] if climo else {}).get(out_key)
                 sc = _pair_score(f_fields[out_key], f_lat, f_lon,
-                                 o_fields[out_key], o_lat, o_lon, prod)
+                                 o_fields[out_key], o_lat, o_lon, prod,
+                                 climo=cm)
                 if sc:
                     day[f"{lead}:{prod}"] = {
                         "rms": sc.get("rms"), "r": sc.get("r"),
-                        "bias": sc.get("bias"), "unit": sc.get("unit"),
+                        "bias": sc.get("bias"), "acc": sc.get("acc"),
+                        "unit": sc.get("unit"),
                         "init": f"{init:%Y%m%d%H}",
                     }
         if day:
