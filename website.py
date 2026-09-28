@@ -6689,12 +6689,24 @@ def page_gefs(d):
     # grid order: synoptic | thermal | moisture | jet | convection | winter
     GRID = ["mslp", "t2m", "pwat", "jet", "cape", "ptype"]
     _prod_labels = {i["key"]: i["label"] for i in gf_items}
+    _spr_frames = {it["key"]: [f for f in (it.get("frames") or [])
+                                if f.get("surl")] for it in gf_items}
+    # dedicated spread-only 2x2: the four products that ship true std dev
+    _has_spr = [k for k in ("mslp", "t2m", "cape", "pwat")
+                if _spr_frames.get(k)]
+    gf_spr = json.dumps({k: _spr_frames[k] for k in _has_spr})
     cells = "".join(
         f'<figure class="gfCell">'
         f'<figcaption>{html.escape(_prod_labels.get(k, k))}</figcaption>'
         f'<img id="gfGrid_{k}" loading="lazy" alt="GEFS {k}"/>'
         f'</figure>'
         for k in GRID if k in _prod_labels)
+    spr_cells = "".join(
+        f'<figure class="gfCell">'
+        f'<figcaption>{html.escape(_prod_labels.get(k, k))} &middot; spread</figcaption>'
+        f'<img id="gfSpr_{k}" loading="lazy" alt="GEFS {k} spread"/>'
+        f'</figure>'
+        for k in _has_spr)
     hi_lo = next((i for i in gf_items if i["key"] == "tmaxtmin"), None)
     hl_frames_json = json.dumps((hi_lo or {}).get("frames") or [])
 
@@ -6710,15 +6722,20 @@ def page_gefs(d):
     <select id="ggSel"></select>
     <button id="ggNext">▶</button>
     <select id="ggSpeed"><option value="2400">0.5x</option><option value="1200" selected>1x</option><option value="600">2x</option></select>
+    <span style="width:1px;height:22px;background:#333c46;display:inline-block" aria-hidden="true"></span>
+    <button id="ggMean" aria-pressed="true" title="Ensemble mean view">Mean</button>
+    <button id="ggSpr" aria-pressed="false" title="Spread view - member disagreement">Spread</button>
     <span class="src" id="ggDay"></span>
   </div>
-  <div class="gfGrid">{cells}</div>
-  <div class="src" style="margin-top:8px">All six products advance together through the shared lead times - one clock, six maps: synoptic pattern, temperature, moisture, jet, instability, winter precip. Thin annotations follow each map; the mean field is what most members show, spread panels (where drawn) show where they disagree.</div>
+  <div class="gfGrid" id="gfMeanGrid">{cells}</div>
+  <div class="gfGrid" id="gfSprGrid" hidden>{spr_cells}</div>
+  <div class="src" style="margin-top:8px">All six products advance together through the shared lead times - one clock, six maps: synoptic pattern, temperature, moisture, jet, instability, winter precip. Thin annotations follow each map. <span id="ggNote"></span></div>
 </div>
 
 <script>
 const GG_FRAMES = {gf_data};
 const GG_LABELS = {gf_labels};
+const GG_SPR = {gf_spr};
 const GG_ORDER = {json.dumps([k for k in GRID if any(i['key'] == k for i in gf_items)])};
 let ggT = null;
 function ggLeads() {{
@@ -6732,11 +6749,18 @@ let ggI = GG_LEADS.length ? GG_LEADS.length - 1 : -1;
 function ggShow() {{
   if (ggI < 0 || !GG_LEADS.length) return;
   const fh = GG_LEADS[ggI];
+  const near = (fr, t) => fr.reduce((b, f) =>
+    Math.abs(f.fh - t) < Math.abs(b.fh - t) ? f : b, fr[0]);
   for (const k of GG_ORDER) {{
-    const fr = GG_FRAMES[k] || [];
-    const hit = fr.find(f => f.fh === fh) || fr[fr.length - 1];
+    const hit = near(GG_FRAMES[k] || [], fh);
     const img = document.getElementById("gfGrid_" + k);
     if (img && hit) img.src = hit.url;
+    const spr = GG_SPR[k] || [];
+    if (spr.length) {{
+      const sh = near(spr, fh);
+      const si = document.getElementById("gfSpr_" + k);
+      if (si) si.src = sh.surl || sh.url;
+    }}
   }}
   document.getElementById("ggFh").textContent = "F" + String(fh).padStart(3, "0");
   const hi = GG_FRAMES["tmaxtmin"] || [];
@@ -6755,11 +6779,40 @@ document.getElementById("ggPlay").onclick = () => ggT ? ggStop() : ggPlay();
 document.getElementById("ggPrev").onclick = () => {{ ggI = Math.max(0, ggI - 1); ggShow(); }};
 document.getElementById("ggNext").onclick = () => {{ ggI = Math.min(GG_LEADS.length - 1, ggI + 1); ggShow(); }};
 document.getElementById("ggSel").onchange = (e) => {{ ggI = +e.target.value; ggShow(); }};
+let ggMode = "mean";
+const GG_HAS_SPR = Object.keys(GG_SPR).length > 0;
+const GG_SPR_NAMES = Object.keys(GG_SPR).map(k =>
+  ({{mslp:"MSLP", t2m:"temperature", cape:"CAPE", pwat:"PWAT", jet:"jet",
+    qpf:"QPF", wind:"wind", ptype:"winter type", tmaxtmin:"day hi/lo"}})[k] || k
+).join(", ");
+function ggSetMode(m) {{
+  if (m === "spr" && !GG_HAS_SPR) return;
+  ggMode = m;
+  const mg = document.getElementById("gfMeanGrid");
+  const sg = document.getElementById("gfSprGrid");
+  if (mg) mg.hidden = (m === "spr");
+  if (sg) sg.hidden = (m !== "spr");
+  document.getElementById("ggMean").setAttribute("aria-pressed", String(m === "mean"));
+  document.getElementById("ggSpr").setAttribute("aria-pressed", String(m === "spr"));
+  const sb = document.getElementById("ggSpr");
+  sb.disabled = !GG_HAS_SPR;
+  sb.title = GG_HAS_SPR ? "Spread view - member disagreement"
+                        : "No spread frames this cycle";
+  const note = document.getElementById("ggNote");
+  if (note) note.textContent = m === "spr"
+    ? "Spread view: 31-member std dev on a 2x2 grid - brighter = members " +
+      "disagree more. True spread ships for " + (GG_SPR_NAMES || "no products") +
+      "; day high/low and winter type are mean-only."
+    : "Mean view: what most members show.";
+}}
+document.getElementById("ggMean").onclick = () => ggSetMode("mean");
+document.getElementById("ggSpr").onclick = () => ggSetMode("spr");
 if (GG_LEADS.length) {{
   document.getElementById("ggSel").innerHTML = GG_LEADS.map((fh, i) =>
     `<option value="${{i}}"${{i === ggI ? " selected" : ""}}>F${{String(fh).padStart(3, "0")}}</option>`).join("");
   ggShow();
 }}
+ggSetMode("mean");
 </script>
 
 <div class="card" id="gefsCard">
@@ -6816,9 +6869,12 @@ if (HL_FRAMES.length) {{
 <style>
   .gfGrid {{ display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:12px; margin-top:10px; }}
   .gfCell {{ margin:0; }}
+  .gfCap {{ display:block; font-size:12.5px; color:#8fa3bf; margin-bottom:4px; }}
   .gfCell figcaption {{ font-size:12.5px; color:#8fa3bf; margin-bottom:4px; }}
   .gfCell img {{ width:100%; border-radius:10px; border:1px solid #333c46; }}
-  @media (max-width: 900px) {{ .gfGrid {{ grid-template-columns:1fr; }} }}
+  #gfSprGrid {{ grid-template-columns:repeat(2, 1fr); }}
+  .ctl button[aria-pressed="true"] {{ outline:2px solid #4ea1ff; outline-offset:-2px; }}
+  @media (max-width: 900px) {{ .gfGrid {{ grid-template-columns:1fr; }} #gfSprGrid {{ grid-template-columns:1fr; }} }}
 </style>
 """
     return _page("GEFS Ensemble", "gefs.html", body)

@@ -50,6 +50,12 @@ FHS_BY_PROD = {"qpf": FHS[1:],                     # f000 acc window is 0-0
                "ptype": FHS[1:]}                   # same: 6-h ave windows
 KEEP_HOURS = 48
 
+# products that also get a dedicated spread-only frame (frame["surl"]) for
+# the gefs.html 2x2 uncertainty grid - the four whose gespr std dev is
+# meaningful and already fetched for the mean|spread panels. tmaxtmin has
+# no spread (right panel is TMIN), ptype's gespr repeats the flags.
+SPR_PRODS = ("mslp", "t2m", "cape", "pwat")
+
 # daily TMAX/TMIN leads per cycle hour: the geavg 6-h max/min windows are
 # (fh-6)->fh, so "the day's high" sits at the lead ending near local
 # evening. East TN = UTC-4 (EDT); a 12Z init's day-1 max ends 00Z d2
@@ -528,6 +534,57 @@ def _render(mean, spread, lat, lon, prod, cycle, fh, out_path, axes=None):
     return out_path
 
 
+def _render_spread(spread, lat, lon, prod, cycle, fh, out_path):
+    """Single-panel spread (std dev) map for the gefs.html uncertainty grid.
+
+    Same levels/palette as the right panel of _render, but full-width on a
+    smaller canvas so the 2x2 grid stays readable. Only SPR_PRODS reach
+    this - the levels/palette table covers exactly those four.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import cartopy.crs as ccrs
+    import cartopy.feature as cfeature
+    from data._tz import full
+
+    if prod == "mslp":
+        sa, _, la, lo = _na_crop(lat, lon, spread["PRMSL"], None)
+        sval, slev = sa / 100.0, np.arange(0.5, 5.01, 0.5)
+        slbl = "MSLP spread (hPa)"
+    elif prod == "t2m":
+        sa, _, la, lo = _na_crop(lat, lon, spread["T2M"], None)
+        sval, slev = sa * 1.8, np.arange(0.5, 6.01, 0.5)
+        slbl = "Temperature spread (\u00b0F)"
+    elif prod == "cape":
+        sa, _, la, lo = _na_crop(lat, lon, spread["CAPE"], None)
+        sval, slev = sa, np.arange(100, 2001, 100)
+        slbl = "CAPE spread (J/kg)"
+    else:  # pwat
+        sa, _, la, lo = _na_crop(lat, lon, spread["PWAT"], None)
+        sval, slev = sa / 25.4, np.arange(0.05, 1.01, 0.05)
+        slbl = "PWAT spread (in)"
+
+    valid = cycle + dt.timedelta(hours=fh)
+    fig = plt.figure(figsize=(8.6, 6.6), dpi=100)
+    proj = ccrs.LambertConformal(central_longitude=-100, central_latitude=42)
+    ax = fig.add_subplot(1, 1, 1, projection=proj)
+    ax.set_extent([-170, -50, 10, 72], crs=ccrs.PlateCarree())
+    ax.coastlines("50m", linewidth=0.5)
+    ax.add_feature(cfeature.STATES, linewidth=0.35, edgecolor="gray")
+    ax.add_feature(cfeature.BORDERS, linewidth=0.5, edgecolor="dimgray")
+    cf = ax.contourf(lo, la, sval, levels=slev, cmap="cividis_r",
+                     transform=ccrs.PlateCarree(), alpha=0.9, extend="max")
+    plt.colorbar(cf, ax=ax, shrink=0.8, label=slbl)
+    ax.set_title(f"Member disagreement (std dev) - valid {full(valid)}",
+                 fontsize=11)
+    tmp = out_path.replace(".png", ".tmp.png")
+    fig.savefig(tmp, bbox_inches="tight")
+    plt.close(fig)
+    os.replace(tmp, out_path)
+    return out_path
+
+
 def _prune_old():
     cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=KEEP_HOURS)
     try:
@@ -615,11 +672,25 @@ def refresh():
                             path, axes=axes)
                 except Exception:  # noqa: BLE001 - one bad frame never kills
                     continue
+            # dedicated spread-only png for the uncertainty grid - no extra
+            # network walk, sfields was already fetched for the right panel
+            sfn = None
+            if prod in SPR_PRODS:
+                sfn = f"gefs_{prod}_spr_f{fh:03d}_{cycle:%Y%m%d%H}_na.png"
+                spath = os.path.join(OUT_DIR, sfn)
+                if not (os.path.exists(spath) and os.path.getsize(spath) > 6_000):
+                    try:
+                        _render_spread(sfields, lat, lon, prod, cycle, fh,
+                                       spath)
+                    except Exception:  # noqa: BLE001 - one bad frame never kills
+                        sfn = None
             frame = {
                 "fh": fh,
                 "url": f"../gefs/{fn}",
                 "label": f"F{fh:03d} \u00b7 {full(cycle + dt.timedelta(hours=fh))}",
             }
+            if sfn:
+                frame["surl"] = f"../gefs/{sfn}"
             if prod == "tmaxtmin":
                 frame["towns"] = _etn_towns(fields, lat, lon)
             frames.append(frame)
