@@ -6845,7 +6845,7 @@ function lbOpen(k, mode) {{
 function lbShow() {{
   const f = Lb.frames[Lb.i];
   if (!f) return;
-  document.getElementById('gfLbImg').src = f.url;
+  document.getElementById('gfLbImg').src = f.surl || f.url;
   document.getElementById('gfLbFh').textContent = 'F' + String(f.fh).padStart(3, '0');
   document.getElementById('gfLbSel').value = String(Lb.i);
   document.getElementById('gfLbTitle').textContent =
