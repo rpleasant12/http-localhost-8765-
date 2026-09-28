@@ -6986,10 +6986,11 @@ if (HL_FRAMES.length) {{
   #gfLb {{ display:flex; }}
   #gfLb[hidden] {{ display:none; }}
   #gfSprGrid {{ grid-template-columns:repeat(2, 1fr); }}
-  .gfVer {{ display:grid; grid-template-columns:repeat(auto-fit, minmax(640px, 1fr)); gap:12px; margin-top:10px; }}
+  .gfVer {{ display:flex; flex-direction:column; gap:18px; margin-top:10px; }}
   .gfVerPair {{ margin:0; }}
   .gfVerPair figcaption {{ font-size:12.5px; color:#8fa3bf; margin-bottom:4px; }}
-  .gfVerPair img {{ width:calc(50% - 3px); border-radius:10px; border:1px solid #333c46; }}
+  .gfVerPair img {{ width:calc(50% - 3px); border-radius:10px; border:1px solid #333c46; vertical-align:top; }}
+  @media (max-width: 640px) {{ .gfVerPair img {{ width:100%; }} }}
   .ctl button[aria-pressed="true"] {{ outline:2px solid #4ea1ff; outline-offset:-2px; }}
   /* big-map breakout: cards span the viewport, controls stay centered */
   @media (min-width: 1240px) {{
