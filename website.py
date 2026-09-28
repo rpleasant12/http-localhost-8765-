@@ -6842,6 +6842,43 @@ def page_gefs(d):
             p = "true" if lead == first_lead else "false"
             btns += (f'<button class="gvBtn" data-lead="{lead}" '
                      f'aria-pressed="{p}">{html.escape(lbl)}</button>')
+        ver_help = """
+  <details class="gvHelp">
+    <summary>New to forecast verification? Start here</summary>
+    <p>Every forecast is easy to check in hindsight - this card does it
+    with numbers. The idea: take a real forecast from 3, 5, 7, or 10 days
+    out (kept in NOAA's archive), wait for the weather to happen, then
+    compare the two maps and score them. A score near the top means the
+    forecast put the right weather in the right place.</p>
+    <table>
+      <tr><th>Score</th><th>Plain-English question it answers</th><th>Good</th></tr>
+      <tr><td>RMS</td><td>On average, how far off was the number? (hPa, degrees, ...)</td><td>lower is better</td></tr>
+      <tr><td>r</td><td>Do the map's highs and lows line up with what happened?</td><td>1 = perfect</td></tr>
+      <tr><td>ACC</td><td>Did it beat just predicting "normal weather for the date"? (vs a 5-year climatology)</td><td>above 0; below 0 = worse than climatology</td></tr>
+      <tr><td>S/S</td><td>Did the 31 members disagree as much as the forecast turned out to be wrong? (their spread vs the actual error)</td><td>near 1.0; &lt;1 = overconfident</td></tr>
+      <tr><td>bias</td><td>Did it systematically run too warm/wet (+) or too cool/dry (&minus;)?</td><td>near 0</td></tr>
+    </table>
+    <p><strong>Rules of thumb from our own 77-day record</strong> (MSLP):
+    day-3 forecasts are near-perfect (ACC 0.96); day-5 are good (0.88);
+    day-7 are useful but rougher (0.72); day-10 average 0.55 - and in our
+    record they dipped below 0 once, meaning on that day flipping a coin
+    with climatology would have done better. Temperature holds up much
+    better than rain-based fields at long range: pattern errors grow
+    fastest in CAPE and PWAT, so trust a day-10 temperature outlook more
+    than a day-10 storm forecast.</p>
+    <p><strong>How to read a pair of maps:</strong> start with the forecast
+    (left/top image), form a picture - where is the low, where is the
+    warm tongue - then look at the observed map and ask what moved. Then
+    check the badge: high ACC but visible differences means the big
+    picture was right and details moved; ACC near 0 means the whole
+    pattern was wrong. The S/S number tells you whether the ensemble was
+    honestly uncertain about it.</p>
+    <p class="src">Both chart panels show these scores for every valid
+    day of the last ~3 months, one colored line per lead: the vertical
+    gap between lines is skill lost with lead time; the red 0-line on the
+    ACC chart is the bust line. Data: NOAA GEFS + GFS, no keys. Scores
+    are computed nightly by this site from the public archive.</p>
+  </details>"""
         ver_cards = f"""
 <div class="card" id="gefsVerifyCard">
   <h2>📆 Forecast verification <span class="src" style="font-weight:400">lead-time picker · all leads vs the same observed hour · valid {html.escape(gv.get("valid") or "")}</span></h2>
@@ -6849,6 +6886,7 @@ def page_gefs(d):
   <div class="gfVer">{pairs_html}</div>
   {hist_cards}
   <div class="src" style="margin-top:8px">Each pair sets a lead's ensemble-mean forecast beside the observed analysis for the SAME valid hour - pick a lead to see how much skill the forecast loses with range (the grid frames above only survive 48 h, so these are re-fetches from NOAA's archive). Same levels and palette as the grid above, so the differences you see are the forecast's, not the map's. Truth: {html.escape(gv.get("obsSource") or "analysis")}.</div>
+  {ver_help}
 </div>
 <script>
 (function() {{
@@ -7113,6 +7151,12 @@ if (HL_FRAMES.length) {{
   .gvHist h3 {{ margin:0 0 10px; font-size:15px; }}
   .gvHist img {{ max-width:100%; height:auto; border-radius:6px; display:block; }}
   .gvHistStat {{ font-size:12px; color:#9fb4d0; background:#1c242e; border-radius:7px; padding:3px 8px; display:inline-block; margin:6px 6px 0 0; }}
+  .gvHelp {{ margin-top:14px; background:#141b23; border:1px solid #232e3a; border-radius:10px; padding:10px 16px; }}
+  .gvHelp summary {{ cursor:pointer; font-weight:600; font-size:14px; color:#cfe3ff; }}
+  .gvHelp p {{ margin:10px 0; line-height:1.5; }}
+  .gvHelp table {{ border-collapse:collapse; margin:10px 0; width:100%; font-size:13px; }}
+  .gvHelp th, .gvHelp td {{ border:1px solid #232e3a; padding:5px 8px; text-align:left; vertical-align:top; }}
+  .gvHelp th {{ background:#1c242e; color:#cfe3ff; }}
   .gfVerPair img {{ width:calc(50% - 3px); border-radius:10px; border:1px solid #333c46; vertical-align:top; }}
   @media (max-width: 640px) {{ .gfVerPair img {{ width:100%; }} }}
   .ctl button[aria-pressed="true"] {{ outline:2px solid #4ea1ff; outline-offset:-2px; }}
