@@ -3669,6 +3669,18 @@ _CSS = """
 # Shared Leaflet control suite (plain JS, no f-string braces): basemap switcher,
 # fullscreen, home, locate-me, scale bar, live lat/lon readout. Attached to
 # every site map via addMapControls(map, homeLatLng, homeZoom).
+# UTC build stamp shown in every page's footer ("Page generated …")
+_BUILD_STAMP = ""
+
+
+def _set_build_stamp():
+    global _BUILD_STAMP
+    try:
+        _BUILD_STAMP = f"{dt.datetime.now(dt.timezone.utc):%b %d %Y %H:%M} UTC"
+    except Exception:          # noqa: BLE001 - stamp must never break a build
+        _BUILD_STAMP = ""
+
+
 _MAP_CONTROLS_JS = """
 const BASEMAPS = {
   dark:  { label: "Dark", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", invert: true },
@@ -4254,7 +4266,7 @@ setInterval(() => {{
 <footer>
   <div id="upd" style="color:#7d8794">checking data age…</div>
   Data: National Weather Service · NOAA · RainViewer · SPC — all free, no keys.<br/>
-  Auto-updated every few minutes by the {html.escape(config.PAGE_NAME)} weather center ·
+  Page generated {html.escape(_BUILD_STAMP)} · auto-updated every few minutes by the {html.escape(config.PAGE_NAME)} weather center ·
   <a href="{config.PAGE_URL}" target="_blank">Facebook page</a> ·
   <a id="fbShareFt" href="#" target="_blank" rel="noopener">📘 Post this page to Facebook</a> ·
   <a href="fb_page.html" target="_blank">📱 Facebook post page (stand-alone)</a>
@@ -11703,6 +11715,7 @@ def _strip_dead_frames(obj):
 def generate_site():
     """Collect live data and write the whole site. Returns SITE_DIR or None."""
     try:
+        _set_build_stamp()
         _seed_model_maps()      # keep the models-page catalog stocked (async)
         enforce_disk_budget()
         d = collect_data()
