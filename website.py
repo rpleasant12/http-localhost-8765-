@@ -838,6 +838,7 @@ def collect_data():
         "nbmPct": _nbm_pct_safe(),
         "rapNowcast": _rap_nowcast_safe(),
         "gefs": _gefs_safe(),
+        "gefsVerify": _gefs_verify_safe(),
         "pivotUs": _pivot_us(),
         "pivotEtn": _pivot_us("etn"),
         "sevTowns": _sev_towns_safe(),
@@ -3198,6 +3199,20 @@ def _gefs_safe():
     except Exception as exc:                           # noqa: BLE001
         print(f"GEFS bundle failed ({type(exc).__name__}: {exc})", flush=True)
         return {"ok": False, "items": []}
+
+
+def _gefs_verify_safe():
+    """GEFS day-7 verification rows (never breaks the site build)."""
+    try:
+        from data.gefs_verify import bundle
+        v = bundle()
+        if not (v and v.get("ok")):
+            raise RuntimeError("no verification rows this cycle")
+        return v
+    except Exception as exc:                           # noqa: BLE001
+        print(f"GEFS verify bundle failed ({type(exc).__name__}: {exc})",
+              flush=True)
+        return {"ok": False, "rows": []}
 
 
 def _afd_safe():
@@ -6709,6 +6724,27 @@ def page_gefs(d):
         for k in _has_spr)
     hi_lo = next((i for i in gf_items if i["key"] == "tmaxtmin"), None)
     hl_frames_json = json.dumps((hi_lo or {}).get("frames") or [])
+    gv = d.get("gefsVerify") or {}
+    gv_rows = gv.get("rows") or []
+    ver_cards = ""
+    if gv.get("ok") and gv_rows:
+        pairs = "".join(
+            f'<figure class="gfVerPair">'
+            f'<figcaption>{html.escape(r["label"])}</figcaption>'
+            f'<img loading="lazy" src="{html.escape(r["fcstUrl"])}" '
+            f'alt="GEFS {html.escape(r["prod"])} F168 forecast" '
+            f'title="F168 ensemble-mean forecast"/>'
+            f'<img loading="lazy" src="{html.escape(r["obsUrl"])}" '
+            f'alt="{html.escape(r["prod"])} observed analysis" '
+            f'title="Observed analysis"/>'
+            f'</figure>'
+            for r in gv_rows)
+        ver_cards = f"""
+<div class="card" id="gefsVerifyCard">
+  <h2>📆 Day-7 verification <span class="src" style="font-weight:400">last week's F168 forecast vs the observed analysis · init {html.escape(gv.get("cycle") or "")}</span></h2>
+  <div class="gfVer">{pairs}</div>
+  <div class="src" style="margin-top:8px">Each pair re-fetches the week-old GEFS cycle from NOAA's archive (the grid frames above only survive 48 h) and sets its F168 ensemble mean beside the observed analysis for the same valid hour - same levels and palette as the grid above, so the differences you see are the forecast's, not the map's. Truth: {html.escape(gv.get("obsSource") or "analysis")}.</div>
+</div>"""
 
     body = f"""
 <header class="hero"><h1>🌐 GEFS Ensemble</h1>
@@ -6814,6 +6850,8 @@ if (GG_LEADS.length) {{
 }}
 ggSetMode("mean");
 </script>
+
+{ver_cards}
 
 <div id="gfLb" hidden style="position:fixed;inset:0;background:rgba(4,8,12,.94);z-index:9999;flex-direction:column;align-items:center;justify-content:center;padding:14px">
   <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:center;width:100%;max-width:1650px">
@@ -6948,15 +6986,20 @@ if (HL_FRAMES.length) {{
   #gfLb {{ display:flex; }}
   #gfLb[hidden] {{ display:none; }}
   #gfSprGrid {{ grid-template-columns:repeat(2, 1fr); }}
+  .gfVer {{ display:grid; grid-template-columns:repeat(auto-fit, minmax(640px, 1fr)); gap:12px; margin-top:10px; }}
+  .gfVerPair {{ margin:0; }}
+  .gfVerPair figcaption {{ font-size:12.5px; color:#8fa3bf; margin-bottom:4px; }}
+  .gfVerPair img {{ width:calc(50% - 3px); border-radius:10px; border:1px solid #333c46; }}
   .ctl button[aria-pressed="true"] {{ outline:2px solid #4ea1ff; outline-offset:-2px; }}
   /* big-map breakout: cards span the viewport, controls stay centered */
   @media (min-width: 1240px) {{
-    #gefsGridCard, #gefsCard {{
+    #gefsGridCard, #gefsCard, #gefsVerifyCard {{
       margin-left: calc((min(1100px, 100vw - 28px) - 100vw) / 2 + 14px);
       margin-right: calc((min(1100px, 100vw - 28px) - 100vw) / 2 + 14px); }}
     #gefsGridCard .ctl, #gefsGridCard > .src,
-    #gefsCard h2, #gefsCard .ctl {{
+    #gefsCard h2, #gefsCard .ctl, #gefsVerifyCard h2 {{
       max-width: 1072px; margin-left: auto; margin-right: auto; }}
+    .gfVer {{ max-width: 1800px; margin-left: auto; margin-right: auto; }}
     .gfGrid {{ max-width: 1800px; margin-left: auto; margin-right: auto;
                grid-template-columns:repeat(auto-fit, minmax(560px, 1fr)); }}
   }}
