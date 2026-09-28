@@ -3662,7 +3662,7 @@ _CSS = """
     padding:5px 9px; font-size:15px; cursor:pointer; margin-bottom:6px; box-shadow:0 1px 4px rgba(0,0,0,.4); text-align:center; }
   .mapcoord { background:rgba(14,17,23,.85); color:#cdd7e4; border:1px solid var(--line); border-radius:6px;
     font-size:11.5px; padding:3px 8px; }
-  @media (max-width:640px){ .wrap{padding:10px;} .card{padding:12px;} nav .brand{font-size:16px;} }
+  __MOBILE_BLOCK__
 """
 
 
@@ -9143,6 +9143,15 @@ def page_severe(d):
     outlooks = sev.get("outlooks") or []
     ww = sev.get("warnings") or []
     tn = sev.get("tnAlerts") or []
+    nation = (sev.get("forecast") or {}).get("nationwide") or {}
+    n_rows = "".join(
+        f'<tr><td><b style="color:{_alert_color(a.get("event"))}">{html.escape(a.get("event") or "")}</b></td>'
+        f'<td>{html.escape((a.get("areaDesc") or "")[:90])}</td>'
+        f'<td>{html.escape(a.get("expires") or "")}</td></tr>'
+        for a in (nation.get("rows") or [])[:12])
+    n_tbl = (f'<table class="minitable" style="min-width:520px">'
+             '<tr><th>Alert</th><th>Area</th><th>Expires (ET)</th></tr>' + n_rows + '</table>'
+             if n_rows else '<div class="alert ok">No active alerts nationwide.</div>')
     md = sev.get("md") or []
     reports = sev.get("reports") or {}
 
@@ -9182,6 +9191,7 @@ def page_severe(d):
                or '<div class="card"><h2>📍 SPC Mesoscale Discussions</h2><div class="src">No discussions in the last day.</div></div>')
 
     hail = sev.get("forecast") or {}
+    sev48 = hail.get("spc48") or {}
     if hail.get("ok") and hail.get("hours"):
         from data._tz import iso_local
         peak = hail.get("peak") or {}
@@ -9273,7 +9283,7 @@ def page_severe(d):
 
     body = f"""
 <header class="hero"><h1>🚨 Severe storms</h1>
-<div class="sub">Official NWS watches/warnings · SPC outlooks & MCDs · storm reports · MRMS severe products — updated {d["generated"]}</div></header>
+<div class="sub">Official NWS watches/warnings (TN + nationwide) · SPC outlooks &amp; Days 4-8 · MCDs · storm reports · HRRR severe products — updated {d["generated"]}</div></header>
 
 <div class="card">
   <div id="map" class="map-dark"></div>
@@ -9325,10 +9335,33 @@ def page_severe(d):
   <div class="src">The same six colors mean the same thing everywhere on this site: the outlook polygons on this page, the mesoanalysis composites, and the severe-parameter walls on the Models page (bulk shear, lapse rate, SCP, EHI, STP, MUCAPE, CAPE) all share SPC's categorical palette.</div>
 </div>
 <div class="card"><h2>📊 Storm reports today (SPC)</h2>{rep_html}</div>
+
+<div class="card"><h2>🗓️ SPC Days 4-8 severe probabilities</h2>
+{(
+    f'<img loading="lazy" src="{sev48["url"].replace("/app/static/", "../")}" '
+    f'alt="SPC days 4-8 severe probability outlook" '
+    f'style="max-width:100%;border:1px solid #444;border-radius:6px;background:#fff">'
+    f'<div class="src">Experimental SPC graphic: probability of severe weather (tornado, wind or hail) '
+    f'for each day 4 through 8 - brown 5% / yellow 15% / orange 30% / red 45% contours. '
+    f'<a href="{sev48["source"]}" target="_blank">Source product on SPC ↗</a> - updated several times daily when warranted.</div>'
+    if sev48.get("ok") else
+    '<div class="src">Days 4-8 graphic temporarily unavailable - '
+    '<a href="https://www.spc.noaa.gov/products/exper/day4-8/" target="_blank">view it on SPC ↗</a>.</div>'
+)}
+</div>
 {hail_html}
 {ltg_html}
 <div class="card"><h2>🎩 SPC risk at home</h2><div class="kpis">{spc_html or '<span class="src">SPC data unavailable.</span>'}</div></div>
 <div class="card"><h2>⚠️ Tennessee alerts (all counties)</h2><div class="alerts">{tn_html}</div></div>
+<div class="card"><h2>🇺🇸 Nationwide alerts - worst first</h2>
+<div class="kpis">{''.join(
+    f'<div class="kpi"><span>{sevword} (US)</span><b style="color:#ff1744">{nation.get("bySeverity", {}).get(sevword, 0)}</b></div>'
+    for sevword in ("Extreme", "Severe", "Moderate"))}
+<div class="kpi"><span>All active (US)</span><b>{nation.get("total", 0)}</b></div>
+</div>
+{n_tbl}
+<div class="src">Every active NWS watch, warning and advisory nationwide, worst first - tornado, severe thunderstorm and flash-flood warnings lead. Counts by severity; the list shows the twelve most serious. Full interactive polygons on the map above (tick Warnings &amp; watches).</div>
+</div>
 {md_html}
 
 <script>
@@ -9888,6 +9921,7 @@ def page_winter(d):
     wpc = wnt.get("wpc") or []
     cpc = wnt.get("cpc") or []
     msnow = wnt.get("modelSnow") or {}
+    lr = wnt.get("longRange") or []
 
     us_n = alerts.get("usCount", 0)
     if us_n:
@@ -9914,9 +9948,17 @@ def page_winter(d):
         f'<figcaption>{html.escape(p["label"])}</figcaption></figure>'
         for p in cpc)
 
+    # 2026-27 seasonal outlooks: CPC long-lead + WPC days 4-8 (winter.html
+    # lives one level deep, so ../static/... mirrors the ../winter/... and
+    # ../fire/... patterns the packager rewrites)
+    lr_tiles = "".join(
+        f'<figure class="wpcfig"><img loading="lazy" src="{p["url"].replace("/app/static/", "../")}" alt="{html.escape(p["label"])}"/'
+        f'<figcaption>{html.escape(p["label"])}</figcaption></figure>'
+        for p in lr)
+
     body = f"""
 <header class="hero"><h1>❄️ Winter Weather</h1>
-<div class="sub">HRRR snow &amp; ice forecast maps · WPC Winter Weather Desk · winter alerts - updated {d["generated"]}</div></header>
+<div class="sub">HRRR snow &amp; ice forecast maps · WPC Winter Weather Desk · CPC 2026-27 seasonal outlooks · winter alerts - updated {d["generated"]}</div></header>
 
 <div class="card">
   <div class="kpis">
@@ -9963,6 +10005,11 @@ def page_winter(d):
 <div class="card"><h2>🗺️ WPC Winter Weather Desk (national)</h2>
 <div class="src">Weather Prediction Center winter desks run twice daily in the cold season; probabilities are for at least the amount shown through each day.</div>
 <div class="ltg-row">{wpc_tiles}</div>
+</div>
+
+<div class="card"><h2>🌐 Winter 2026-27 seasonal outlooks (CPC long-lead)</h2>
+<div class="src">Climate Prediction Center seasonal outlooks - the official NOAA winter forecast for 2026-27. Each 3-month window is a <b>probability tilt</b>, not an amount: blues = below normal, reds = above, gray = equal chances (no signal). The three rows shift one month deeper into winter - updated the third Thursday of each month. A cold-blue column over Tennessee with a wet-green precipitation row is the classic big-winter setup; a warm-red column says expect another flip-flop season.</div>
+<div class="ltg-row">{lr_tiles}</div>
 </div>
 
 <div class="card"><h2>📅 Weeks 2-4: CPC extended outlooks</h2>

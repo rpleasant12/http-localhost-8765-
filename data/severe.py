@@ -10,9 +10,14 @@ Sources (all keyless):
   the ticker and official watch/warning polygons.
 """
 import datetime as dt
+import os
+import time
 
 import numpy as np
 import requests
+
+from data import _tz
+from data.national import us_warnings
 
 UA = {"User-Agent": "tennessee-weather-network/1.0 (local demo)"}
 SPC_BASE = "https://www.spc.noaa.gov/products/outlook"
@@ -192,11 +197,15 @@ def _hotspots(values, lon, lat, threshold, min_px=2, limit=10):
     return out[:limit]
 
 
-def hrrr_severe(lat=None, lon=None, hours=4, max_px=1000):
+def hrrr_severe(lat=None, lon=None, hours=4, max_px=1000, cities=None):
     """HRRR hail/rotation maxima for the first `hours` of the latest cycle.
 
     Returns {'cycle', 'hail_max_mm', 'hail_time', 'uphl_max', 'uphl_time',
              'hail_points', 'rot_points', 'frames': [{'time','hail','uphl'}]}
+
+    With cities={name: (lat, lon)}, each HAIL frame also samples every city
+    (row['cities']) and records the East-TN-box max (row['tn_max']) - the
+    inputs for the site's hail forecast card.
     """
     from data.models import _decode_blob, _sample_point  # reuse decode/sample
 
@@ -230,10 +239,13 @@ def hrrr_severe(lat=None, lon=None, hours=4, max_px=1000):
             if not idx.ok:
                 continue
             hail_rng = _find_range(idx.text, "HAIL", "entire atmosphere") or _find_range(idx.text, "HAIL")
-            uphl_rng = _find_range(idx.text, "UPHL", "entire atmosphere") or _find_range(idx.text, "UPHL")
+            # HRRR publishes the hourly max as MXUPHL (exact-name "UPHL" never matches)
+            uphl_rng = (_find_range(idx.text, "MXUPHL") or _find_range(idx.text, "UPHL", "entire atmosphere")
+                        or _find_range(idx.text, "UPHL"))
             url = f"{base}{fh:02d}.grib2"
             valid = cycle + dt.timedelta(hours=fh)
-            row = {"time": valid.strftime("%Y-%m-%dT%H:%M:%SZ"), "hail": None, "uphl": None}
+            row = {"time": valid.strftime("%Y-%m-%dT%H:%M:%SZ"), "hail": None,
+               "uphl": None, "cities": {}, "tn_max": None}
             for tag, rng, thr in (("hail", hail_rng, 19.0), ("uphl", uphl_rng, 50.0)):
                 if rng is None:
                     continue
@@ -249,6 +261,21 @@ def hrrr_severe(lat=None, lon=None, hours=4, max_px=1000):
                 row[tag] = round(peak, 1)
                 if tag == "hail" and peak > hail_best[0]:
                     hail_best = (peak, row["time"])
+                if tag == "hail":
+                    box_all = (glat > 34.8) & (glat < 36.9) & (glon > -90.4) & (glon < -81.6)
+                    if box_all.any():
+                        row["tn_max"] = round(
+                            float(np.nanmax(np.where(box_all, values, np.nan))), 1)
+                else:
+                    box_all = (glat > 34.8) & (glat < 36.9) & (glon > -90.4) & (glon < -81.6)
+                    if box_all.any():
+                        row["tn_max_uphl"] = round(
+                            float(np.nanmax(np.where(box_all, values, np.nan))), 1)
+                if cities:
+                    for cname, (clat, clon) in cities.items():
+                        pv = _sample_point(glat, glon, values, clat, clon)
+                        if pv is not None:
+                            row["cities"].setdefault(cname, {})[tag] = round(pv, 1)
                 if tag == "uphl" and peak > uphl_best[0]:
                     uphl_best = (peak, row["time"])
                 # statewide signature hotspots (TN box, throttled thresholds)
@@ -272,7 +299,7 @@ def hrrr_severe(lat=None, lon=None, hours=4, max_px=1000):
     hail_all.sort(key=lambda p: -p["peak"])
     rot_all.sort(key=lambda p: -p["peak"])
     return {
-        "cycle": cycle.strftime("%Y-%m-%d %H:%M UTC"),
+        "cycle": __import__('data._tz', fromlist=['full']).full(cycle),
         "hail_max_mm": hail_best[0],
         "hail_time": hail_best[1],
         "uphl_max": uphl_best[0],
@@ -281,6 +308,193 @@ def hrrr_severe(lat=None, lon=None, hours=4, max_px=1000):
         "rot_points": rot_all[:10],
         "frames": frames,
     }
+
+
+_HAIL_CACHE = {"at": 0.0, "data": None}
+_HAIL_TTL = 900          # 15 min: forecast is cycle-based, no need to hammer
+_HAIL_CITIES = {
+    "Greeneville": (36.1627, -82.8332),
+    "Knoxville": (35.9606, -83.9207),
+    "Tri-Cities": (36.3134, -82.3573),
+    "Morristown": (36.0454, -83.2934),
+    "Oak Ridge": (35.9903, -84.2853),
+    "Chattanooga": (35.0456, -85.3097),
+    "Cookeville": (36.1629, -85.5016),
+    "Crossville": (35.9479, -85.0269),
+}
+
+
+def _hail_cat(mm):
+    """SPC-style severe-hail size categories from HRRR HAIL (mm)."""
+    if mm is None or mm < 6.4:
+        return None
+    if mm < 19:
+        return ("small", "pea to penny", "#aed581")
+    if mm < 25:
+        return ("3/4-1 in", "severe threshold", "#ffd54f")
+    if mm < 45:
+        return ("1-1.75 in", "quarter to golf ball", "#ff9f43")
+    if mm < 70:
+        return ("1.75-2.75 in", "golf ball to tennis ball", "#ff5252")
+    return ("2.75+ in", "tennis ball and larger", "#e040fb")
+
+
+def _uphl_cat(v):
+    """Rotation/tornado categories from HRRR UPHL (updraft helicity, m2/s2).
+
+    UPHL is the standard HRRR tornado proxy: 2-5 km rotation strength of
+    the strongest updraft. 130+ marks mesocyclone-strength rotation (the
+    same threshold the hotspot tracker uses); 250+ is a genuine tornado
+    threat signal.
+    """
+    if v is None or v < 25:
+        return None
+    if v < 75:
+        return ("weak rotation", "#aed581")
+    if v < 130:
+        return ("rotation", "#ffd54f")
+    if v < 250:
+        return ("strong rotation - tornado possible", "#ff9f43")
+    return ("TORNADO THREAT", "#e040fb")
+
+
+def severe_forecast(hours=8):
+    """East-TN hail + tornado-proxy (UPHL) forecast for the site (15-min cache).
+
+    Returns {'ok', 'cycle', 'hours': [{'time','tn_max','cat','catColor',
+             'tn_uphl','ucat','ucatColor','cities'}...],
+             'peak': {...hail...}, 'peakRot': {...rotation...},
+             'cities': {name: {'hail','hcat','uphl','ucat','time'}}}
+    or {'ok': False, 'reason': ...}.
+    """
+    now = time.time()
+    c = _HAIL_CACHE.get("data")
+    if c and c.get("ok") and now - _HAIL_CACHE["at"] < _HAIL_TTL:
+        return c
+    try:
+        from data.observations import EAST_TN_CITIES
+        sev = hrrr_severe(hours=hours, cities=dict(EAST_TN_CITIES))
+    except Exception as exc:      # noqa: BLE001 - degrade, never break the site
+        return {"ok": False, "reason": str(exc)[:120]}
+    if sev.get("error") or not sev.get("frames"):
+        return {"ok": False, "reason": sev.get("error") or "no HRRR frames"}
+
+    hours_out = []
+    city_peak = {}               # name -> {'hail':(mm,time), 'uphl':(v,time)}
+    pk_hail, pk_uphl = (0.0, None), (0.0, None)
+    for row in sev["frames"]:
+        h_tn, u_tn = row.get("tn_max"), row.get("tn_max_uphl")
+        if row.get("hail") is None and h_tn is None and u_tn is None \
+                and row.get("uphl") is None:
+            continue
+        hval = h_tn if h_tn is not None else (row.get("hail") or 0)
+        uval = u_tn if u_tn is not None else (row.get("uphl") or 0)
+        hcat, ucat = _hail_cat(hval), _uphl_cat(uval)
+        hours_out.append({
+            "time": row["time"],
+            "tn_max": h_tn, "cat": hcat[0] if hcat else None,
+            "catColor": hcat[2] if hcat else "#81c784",
+            "tn_uphl": u_tn, "ucat": ucat[0] if ucat else None,
+            "ucatColor": ucat[1] if ucat else "#81c784",
+            "cities": row.get("cities") or {},
+        })
+        if hval > pk_hail[0]:
+            pk_hail = (hval, row["time"])
+        if uval > pk_uphl[0]:
+            pk_uphl = (uval, row["time"])
+        for cname, cv in (row.get("cities") or {}).items():
+            e = city_peak.setdefault(cname, {"hail": (0, ""), "uphl": (0, "")})
+            hm = cv.get("hail")
+            if hm is not None and hm > e["hail"][0]:
+                e["hail"] = (hm, row["time"])
+            um = cv.get("uphl")
+            if um is not None and um > e["uphl"][0]:
+                e["uphl"] = (um, row["time"])
+
+    _pc, _pu = _hail_cat(pk_hail[0]), _uphl_cat(pk_uphl[0])
+    result = {
+        "ok": bool(hours_out),
+        "cycle": sev.get("cycle"),
+        "hours": hours_out,
+        "peak": {"mm": pk_hail[0], "time": pk_hail[1],
+                 "cat": _pc[0] if _pc else None,
+                 "catColor": _pc[2] if _pc else "#81c784"},
+        "peakRot": {"val": pk_uphl[0], "time": pk_uphl[1],
+                    "cat": _pu[0] if _pu else None,
+                    "catColor": _pu[1] if _pu else "#81c784"},
+        "cities": {name: {"hail": v["hail"][0],
+                          "hcat": (_hail_cat(v["hail"][0]) or (None,))[0],
+                          "uphl": v["uphl"][0],
+                          "ucat": (_uphl_cat(v["uphl"][0]) or (None, None))[0],
+                          "time": v["hail"][1] or v["uphl"][1]}
+                   for name, v in city_peak.items()},
+    }
+    result["spc48"] = _mirror_spc_extended()
+    result["nationwide"] = national_alerts()
+    if result["ok"]:
+        _HAIL_CACHE["at"], _HAIL_CACHE["data"] = now, result
+    return result
+
+
+def _mirror_spc_extended():
+    """SPC Days 4-8 severe probability graphic, mirrored for the public site.
+
+    The day 1-3 outlooks on this page are polygons; days 4-8 SPC publishes
+    as a single experimental probability gif (severe = any of tornado/wind/
+    hail). It bridges the gap between the 8-hour HRRR forecast card and the
+    week-2 CPC outlooks, so a quiet-looking week 1 with a building day 6-8
+    signal is visible on the site. Re-fetched hourly.
+    """
+    out_dir = os.path.join("static", "severe")
+    os.makedirs(out_dir, exist_ok=True)
+    fn = "spc_day48prob.gif"
+    dest = os.path.join(out_dir, fn)
+    try:
+        if not (os.path.exists(dest) and os.path.getsize(dest) > 5_000
+                and time.time() - os.stat(dest).st_mtime < 3_600):
+            r = requests.get(
+                "https://www.spc.noaa.gov/products/exper/day4-8/day48prob.gif",
+                headers=UA, timeout=30)
+            if r.ok and r.content[:3] in (b"GIF", b"\xff\xd8\xff", b"\x89PN"):
+                tmp = dest + ".part"
+                with open(tmp, "wb") as f:
+                    f.write(r.content)
+                os.replace(tmp, dest)
+        if os.path.exists(dest) and os.path.getsize(dest) > 5_000:
+            return {"ok": True, "file": fn, "url": f"/app/static/severe/{fn}",
+                    "source": "https://www.spc.noaa.gov/products/exper/day4-8/"}
+    except Exception:                              # noqa: BLE001
+        pass
+    return {"ok": False}
+
+
+def national_alerts(limit=30):
+    """Nationwide active NWS alerts for the severe page's US board.
+
+    Reuses data.national.us_warnings() (official NWS ArcGIS watch/warn layer
+    + api.weather.gov enrichment, 90 s server-side-tolerant cache) and groups
+    it: severity counts plus the most alarming rows for the list. (The map
+    polygons already ship nationwide via the severe payload's warnings.)
+    """
+    try:
+        feats = us_warnings() or []
+    except Exception:                              # noqa: BLE001
+        return {"ok": False, "total": 0, "bySeverity": {}, "rows": []}
+    sev_count = {}
+    for f in feats:
+        s = (f.get("severity") or "Unknown").upper()
+        sev_count[s] = sev_count.get(s, 0) + 1
+    rank = {"Tornado Warning": 0, "Severe Thunderstorm Warning": 1,
+            "Flash Flood Warning": 2, "Special Marine Warning": 3}
+    feats.sort(key=lambda a: (rank.get(a.get("event"), 4),
+                              a.get("severity") != "Extreme",
+                              a.get("severity") != "Severe"))
+    rows = [{"event": f.get("event"), "severity": f.get("severity"),
+             "areaDesc": f.get("areaDesc"), "headline": f.get("headline"),
+             "expires": _tz.iso_z(f.get("expires")), "url": f.get("url")}
+            for f in feats[:limit]]
+    return {"ok": True, "total": len(feats), "bySeverity": sev_count,
+            "rows": rows}
 
 
 def tn_alerts():
@@ -303,8 +517,7 @@ def tn_alerts():
             "severity": p.get("severity") or "Unknown",
             "areaDesc": p.get("areaDesc") or "",
             "headline": p.get("headline") or "",
-            "expires": (p.get("expires") or "")[:16].replace("T", " ") + "Z"
-            if p.get("expires") else "",
+            "expires": _tz.iso_z(p.get("expires")),
             "geometry": f.get("geometry"),
         })
     # worst first for the ticker
