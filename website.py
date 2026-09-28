@@ -6794,28 +6794,33 @@ def page_gefs(d):
                           "<img loading=\"lazy\" "
                           "src=\"../gefs_verify/gefsver_skill_history.png\" "
                           "alt=\"Pattern correlation by valid day and lead\"/>")
-            per = {}
+            per = {}                 # lead -> {"vals": [r...], "days": set}
             for k in hist_days:
                 for lk, scv in (hist[k] or {}).items():
-                    per.setdefault(lk.split(":")[0], []).append(
-                        (scv or {}).get("r"))
+                    slot = per.setdefault(
+                        lk.split(":")[0], {"vals": [], "days": set()})
+                    slot["days"].add(k)
+                    rv = (scv or {}).get("r")
+                    if rv is not None:
+                        slot["vals"].append(rv)
             _lsc = {"72": "Day 3", "120": "Day 5", "168": "Day 7",
                     "240": "Day 10"}
             for lead_s in sorted(per, key=lambda s: int(s)):
-                _rs = [x for x in per[lead_s] if x is not None]
+                _rs = per[lead_s]["vals"]
+                _nd = len(per[lead_s]["days"])
                 if not _rs:
                     continue
                 hist_cards += (f"<span class=\"gvHistStat\">"
                                f"{_lsc.get(lead_s, lead_s)}: "
                                f"r {_minmax(_rs)} over "
-                               f"{len(_rs)} days</span>")
+                               f"{_nd} days</span>")
             hist_cards += ("<div class=\"src\" style=\"margin-top:6px\">"
                            "Pattern correlation r vs the GFS analysis, one "
                            "point per valid day, one color per lead - the "
                            "gap between the lines is the skill lost with "
                            "lead time; the slope is day-to-day pattern "
                            "variability. Scores are recomputed nightly from "
-                           "the archive and kept 3 weeks. ACC is the anomaly "
+                           "the archive and kept 90 days. ACC is the anomaly "
                            "correlation - fcst and obs vs the same-day "
                            "climatology (mean of the last 5 years of GFS "
                            "analyses): positive means the forecast beat "

@@ -18,7 +18,8 @@ raises.
 Scores are also accumulated per valid hour in scores_history.json (kept
 HIST_DAYS days) and rendered into a skill-vs-lead chart: pattern
 correlation r vs the GFS analysis, one panel per product, one point per
-day. backfill_history() seeds the chart from the archive for past days.
+day (HIST_DAYS window). backfill_history() seeds the chart from the
+archive for past days.
 
 Each score also carries ACC, the anomaly correlation coefficient: fcst
 and obs are both converted to anomalies against a same-day climatology
@@ -47,7 +48,7 @@ CACHE = {"t": 0.0, "b": None}
 CACHE_LOCK = threading.Lock()
 SCORE_FILE = os.path.join(OUT_DIR, "scores.json")   # pair -> {rms, r, bias}
 HIST_FILE = os.path.join(OUT_DIR, "scores_history.json")  # vYYYYMMDDHH -> lead:prod -> score
-HIST_DAYS = 21               # chart window: skill vs lead over ~3 weeks
+HIST_DAYS = 90               # chart window: skill vs lead over ~90 days
 
 # ACC climatology: same-day GFS analyses from the N prior years (bucket
 # coverage starts 2021; the window slides forward automatically).
@@ -497,10 +498,10 @@ def _prune_old():
                     pass
     except OSError:
         pass
-    try:                              # climo sidecars: keep the last ~40
+    try:                              # climo sidecars: keep the last ~100
         cl = sorted((os.path.getmtime(os.path.join(CLIMO_DIR, f)), f)
                     for f in os.listdir(CLIMO_DIR) if f.endswith(".npz"))
-        for _mt, fn in cl[:-40]:
+        for _mt, fn in cl[:-100]:
             try:
                 os.remove(os.path.join(CLIMO_DIR, fn))
             except OSError:
@@ -764,7 +765,7 @@ def _history_chart(path=None):
                     continue
                 order = sorted(range(len(xs)), key=lambda i: xs[i])
                 ax.plot([xs[i] for i in order], [ys[i] for i in order],
-                        "o-", ms=3.5, lw=1.4, color=color,
+                        "o-", ms=2.6, lw=1.3, color=color,
                         label=f"Day {L // 24}")
             ax.set_ylim(0, 1.02)
             ax.grid(alpha=0.25, lw=0.4)
@@ -791,8 +792,9 @@ def backfill_history(days=HIST_DAYS):
     For each past valid hour V (00Z cycles, newest first) the GFS 0.25-deg
     analysis at V is scored against the GEFS geavg ensemble mean at
     f{V - init} from the V-lead init - no panels rendered, scores only.
-    Idempotent: hours already in the history file are skipped. Returns
-    the number of hours scored.
+    Idempotent: hours already in the history file are skipped. The
+    in-memory climo cache is popped per key after each hour (each key is
+    used once per run; ~1 MB of arrays apiece).
     """
     import json
     os.makedirs(OUT_DIR, exist_ok=True)
@@ -844,6 +846,7 @@ def backfill_history(days=HIST_DAYS):
             hist[key] = day
             done += 1
             print(f"backfill {v:%m-%d}: {len(day)} scores", flush=True)
+        _CLIMO_MEM.pop(f"{v:%m%d%H}", None)
         try:
             tmp = HIST_FILE + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
