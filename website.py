@@ -6815,7 +6815,7 @@ if (GG_LEADS.length) {{
 ggSetMode("mean");
 </script>
 
-<div id="gfLb" hidden style="position:fixed;inset:0;background:rgba(4,8,12,.94);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:14px">
+<div id="gfLb" hidden style="position:fixed;inset:0;background:rgba(4,8,12,.94);z-index:9999;flex-direction:column;align-items:center;justify-content:center;padding:14px">
   <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:center;width:100%;max-width:1650px">
     <b id="gfLbTitle" style="color:#dfe8f4;margin-right:6px"></b>
     <button id="gfLbPrev">◀</button><span class="frame" id="gfLbFh">--</span><button id="gfLbNext">▶</button>
@@ -6845,7 +6845,8 @@ function lbOpen(k, mode) {{
 function lbShow() {{
   const f = Lb.frames[Lb.i];
   if (!f) return;
-  document.getElementById('gfLbImg').src = f.surl || f.url;
+  document.getElementById('gfLbImg').src =
+    (Lb.mode === 'spr' ? (f.surl || f.url) : f.url);
   document.getElementById('gfLbFh').textContent = 'F' + String(f.fh).padStart(3, '0');
   document.getElementById('gfLbSel').value = String(Lb.i);
   document.getElementById('gfLbTitle').textContent =
@@ -6944,6 +6945,7 @@ if (HL_FRAMES.length) {{
   .gfCap {{ display:block; font-size:12.5px; color:#8fa3bf; margin-bottom:4px; }}
   .gfCell figcaption {{ font-size:12.5px; color:#8fa3bf; margin-bottom:4px; }}
   .gfCell img {{ width:100%; border-radius:10px; border:1px solid #333c46; cursor:zoom-in; }}
+  #gfLb {{ display:flex; }}
   #gfLb[hidden] {{ display:none; }}
   #gfSprGrid {{ grid-template-columns:repeat(2, 1fr); }}
   .ctl button[aria-pressed="true"] {{ outline:2px solid #4ea1ff; outline-offset:-2px; }}
