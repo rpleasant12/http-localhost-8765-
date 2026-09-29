@@ -163,6 +163,16 @@ def package():
     with open(os.path.join(staging, "data.json"), "w", encoding="utf-8") as f:
         json.dump(data, f)
 
+    # PWA root files live inside static/site but are never referenced by
+    # image URLs, so the rewrite-based discovery cannot see them - copy
+    # explicitly. (manifest/SW registration uses relative URLs, so the
+    # subpath deployment works without rewriting.)
+    for pwa_fn in ("manifest.webmanifest", "sw.js", "offline.html",
+                   "icon-192.png", "icon-512.png"):
+        pwa_src = os.path.join(SITE_DIR, pwa_fn)
+        if os.path.isfile(pwa_src):
+            shutil.copy2(pwa_src, os.path.join(staging, pwa_fn))
+
     # the stand-alone Facebook post page lives outside static/site
     fb_src = os.path.join("static", "fb_page.html")
     if os.path.isfile(fb_src):

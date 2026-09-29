@@ -3806,6 +3806,36 @@ _CSS = """
     padding:5px 9px; font-size:15px; cursor:pointer; margin-bottom:6px; box-shadow:0 1px 4px rgba(0,0,0,.4); text-align:center; }
   .mapcoord { background:rgba(14,17,23,.85); color:#cdd7e4; border:1px solid var(--line); border-radius:6px;
     font-size:11.5px; padding:3px 8px; }
+  /* ---------- mobile nav drawer (2026-09-28) ----------
+     phones get a hamburger that opens a grouped, sectioned menu instead
+     of hunting through the flat strip; desktop shows neither */
+  #navBtn { display:none; }
+  #navDrawer { display:none; }
+  @media (max-width:640px){
+    #navBtn { display:block; }
+    #navDrawer { display:block; position:fixed; inset:0; z-index:9999;
+                 background:rgba(5,8,12,.6); backdrop-filter:blur(2px); }
+    #navDrawer[hidden] { display:none; }   /* beats the display above */
+    #navDrawer > .dHead, #navDrawer .dGroup {
+      background:var(--card); border-bottom:1px solid var(--line); }
+    #navDrawer .dHead { position:sticky; top:0; font-weight:800;
+      padding:14px 16px; display:flex; justify-content:space-between;
+      align-items:center; }
+    #navDrawer .dHead button { background:none; border:none;
+      color:var(--dim); font-size:26px; line-height:1; cursor:pointer;
+      padding:2px 8px; }
+    #navDrawer .dGroup { padding:6px 12px; }
+    #navDrawer .dGroup b { display:block; color:var(--dim);
+      font-size:11.5px; text-transform:uppercase; letter-spacing:.08em;
+      margin:10px 4px 4px; }
+    #navDrawer .dGroup a.pg { display:block; padding:11px 10px;
+      font-size:15px; color:#cdd7e4; border-radius:8px; }
+    #navDrawer .dGroup a.pg.on { background:#1d2432; color:#fff;
+      font-weight:700; }
+    #navBtn { background:#1d2432; color:#e8edf4; border:1px solid var(--line);
+      border-radius:8px; font-size:18px; padding:6px 12px; cursor:pointer;
+      order:-1; }
+  }
   /* ---------- mobile friendliness (2026-09-28) ----------
      26 nav links wrap into a tall block on phones; wide alert tables
      (min-width 420-520px) overflow the screen; .wpcfig min-width forces
@@ -3932,6 +3962,30 @@ function drawHomeMarker(map, home) {
 # suite to static maps that did not call addMapControls themselves.
 _BOOT_CONTROLS_JS = """
 setTimeout(function () {
+  /* mobile drawer: hamburger opens the grouped nav; scrim click, X,
+     Escape and link taps all close it */
+  var nb = document.getElementById("navBtn"),
+      nd = document.getElementById("navDrawer");
+  if (nb && nd) {
+    var setDrawer = function (open) {
+      nd.hidden = !open;
+      nb.setAttribute("aria-expanded", open ? "true" : "false");
+      document.body.style.overflow = open ? "hidden" : "";
+    };
+    nb.addEventListener("click", function () { setDrawer(nd.hidden); });
+    var xc = document.getElementById("navClose");
+    if (xc) xc.addEventListener("click", function () { setDrawer(false); });
+    nd.addEventListener("click", function (e) {
+      if (e.target === nd) setDrawer(false);   /* scrim tap, not a link */
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") setDrawer(false);
+    });
+    nd.addEventListener("click", function (e) {
+      if (e.target && e.target.closest && e.target.closest("a")) setDrawer(false);
+    });
+    setDrawer(false);
+  }
   if (typeof map === "undefined" || !map) return;
   const sel = document.getElementById("baseSel");
   if (typeof addMapControls === "function" && (typeof _baseLayer === "undefined" || !_baseLayer)) {
@@ -4257,23 +4311,47 @@ window.onDataRefresh = function (d) {{ refresh(d); }};   /* soft auto-refresh: t
 
 
 def _page(title, active, body, extra_head=""):
-    pages = [("index.html", "Home"), ("radar.html", "Radar"), ("satellite.html", "Satellite"),
-             ("models.html", "Models"), ("gefs.html", "GEFS"), ("hrrr.html", "HRRR · RRFS"),
-             ("tropical.html", "NHC"),             ("storms.html", "Storms"), ("fronts.html", "Fronts"),
-             ("history.html", "History"),
-             ("tropmodels.html", "Trop Models"), ("climate.html", "Climate"),
-             ("enso.html", "El Niño"),
-             ("severe.html", "Severe"),             ("winter.html", "Winter Forecast"),
-             ("rivers.html", "Rivers"), ("fire.html", "Fire"), ("dashboard.html", "Dashboard"),
-             ("traffic.html", "Traffic"),
-             ("meso.html", "Mesoanalysis"),
-             ("obs.html", "Obs & Skew-T"), ("charts.html", "Charts & MOS"), ("national.html", "National"),
-             ("forecast.html", "Forecast"), ("education.html", "Education"),
-             ("fieldguide.html", "Field Guide")]
+    # nav groups: flattened in order = the desktop bar, so the desktop nav
+    # and the mobile drawer can never drift apart (single source of truth)
+    groups = (
+        ("Live & Forecast", (
+            ("index.html", "Home"), ("radar.html", "Radar"),
+            ("satellite.html", "Satellite"), ("forecast.html", "Forecast"),
+            ("dashboard.html", "Dashboard"), ("national.html", "National"))),
+        ("Models", (
+            ("models.html", "Models"), ("gefs.html", "GEFS"),
+            ("hrrr.html", "HRRR · RRFS"), ("tropmodels.html", "Trop Models"),
+            ("meso.html", "Mesoanalysis"), ("charts.html", "Charts & MOS"))),
+        ("Storms & Seasons", (
+            ("severe.html", "Severe"), ("storms.html", "Storms"),
+            ("tropical.html", "NHC"), ("winter.html", "Winter Forecast"),
+            ("fronts.html", "Fronts"), ("fire.html", "Fire"),
+            ("rivers.html", "Rivers"), ("history.html", "History"))),
+        ("Climate & Learn", (
+            ("climate.html", "Climate"), ("enso.html", "El Niño"),
+            ("obs.html", "Obs & Skew-T"), ("education.html", "Education"),
+            ("fieldguide.html", "Field Guide"), ("traffic.html", "Traffic"))),
+    )
+    pages = [pg for _, pgs in groups for pg in pgs]
     nav = "".join(
         f'<a class="pg{" on" if p == active else ""}" href="{p}">{label}</a>'
         for p, label in pages
     )
+    # drawer: grouped links for the phone hamburger (a flat 26-link strip
+    # works, but grouped sections turn hunting into scanning)
+    drawer = "".join(
+        '<div class="dGroup"><b>' + gname + '</b>'
+        + "".join(
+            f'<a class="pg{" on" if p == active else ""}" href="{p}">{label}</a>'
+            for p, label in pgs)
+        + '</div>'
+        for gname, pgs in groups)
+    drawer_html = f"""
+<button id="navBtn" aria-label="Menu" aria-expanded="false" aria-controls="navDrawer">\u2630</button>
+<div id="navDrawer" hidden>
+  <div class="dHead">{html.escape(config.PAGE_NAME)}<button id="navClose" aria-label="Close menu">\u00d7</button></div>
+  {drawer}
+</div>"""
     return f"""<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -4288,6 +4366,9 @@ def _page(title, active, body, extra_head=""):
 <meta name="twitter:image" content="{getattr(config, 'PUBLIC_SITE_URL', '').rstrip('/')}/og.png"/>
 <meta name="description" content="Live East Tennessee weather: radar, future cast, satellite, all forecast models, severe weather, and city forecasts. Updated continuously."/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="manifest" href="manifest.webmanifest"/>
+<meta name="theme-color" content="#0e1117"/>
+<link rel="apple-touch-icon" href="icon-192.png"/>
 {MAPBOX_JS}{extra_head}
 <style>{_CSS}</style>
 </head><body>
@@ -4302,6 +4383,7 @@ def _page(title, active, body, extra_head=""):
        style="text-decoration:none;background:#1877f2;color:#fff;padding:4px 10px;border-radius:8px;font-size:12.5px;font-weight:600;display:inline-block">📘 Share</a>
   </div>
 </div></nav>
+{drawer_html}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const SITE_DATA_URL = "data.json";
@@ -4466,6 +4548,16 @@ setInterval(() => {{
     var a = document.getElementById(id); if (a) a.href = u;
   }});
 }})();
+/* PWA: register the service worker (shell precache + offline fallback for
+   pages and data.json; tiles/gifs/CDN pass through untouched). Relative
+   scope so it covers every page under the GitHub Pages subpath. */
+if ("serviceWorker" in navigator) {{
+  window.addEventListener("load", function () {{
+    navigator.serviceWorker.register("sw.js").catch(function (_e) {{
+      /* SW is an enhancement - offline support silently absent on failure */
+    }});
+  }});
+}}
 </script>
 </body></html>"""
 
@@ -12669,6 +12761,11 @@ def generate_site():
     """Collect live data and write the whole site. Returns SITE_DIR or None."""
     try:
         _set_build_stamp()
+        try:
+            from data.pwa import build_pwa
+            build_pwa()         # manifest/SW/icons: installable site (PWA)
+        except Exception:       # noqa: BLE001 - never block a build on PWA
+            pass
         _seed_model_maps()      # keep the models-page catalog stocked (async)
         enforce_disk_budget()
         d = collect_data()
