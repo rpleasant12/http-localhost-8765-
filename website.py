@@ -867,6 +867,7 @@ def collect_data():
         "cityForecasts": city_fc,
         "sounding": sounding,
         "satBands": sat_bands,
+        "starBands": _star_bands_safe(),
         "satHome": "wvh",
         "severe": {
             "outlooks": outlook_feats,
@@ -907,6 +908,7 @@ def collect_data():
         "cityForecasts": city_fc,
         "sounding": sounding,
         "satBands": sat_bands,
+        "starBands": _star_bands_safe(),
         "satHome": "wvh",
         "severe": {
             "outlooks": outlook_feats,
@@ -957,6 +959,33 @@ _CMP_PRODUCTS = (
     ("uphl", "Updraft helicity"),
     ("shear01", "0-1 km shear"),
 )
+
+
+_STAR_GROUP = "NOAA STAR quick-look"
+
+def _star_bands_safe():
+    """NOAA STAR viewer products (GeoColor, AirMass, Sandwich, Dust, layered
+    WV, FireTemperature) as extra satellite-page layers. Renderer threads run
+    in the app process (app.py starts them per request); here we only READ
+    what is already rendered, so the static build never fetches anything.
+    A product with no frames yet simply does not appear in the picker."""
+    try:
+        from data.star_sat import PRODUCTS as STAR_PRODUCTS, star_bundle
+        out = {}
+        for key in STAR_PRODUCTS:
+            try:
+                b = star_bundle(key) or {}
+                if b.get("frames"):
+                    out[key] = {"label": b.get("label") or key,
+                                "total": b.get("total", 0),
+                                "ready": b.get("ready", 0),
+                                "frames": b["frames"],
+                                "group": _STAR_GROUP}
+            except Exception:                      # noqa: BLE001
+                continue
+        return out
+    except Exception:                              # noqa: BLE001
+        return {}
 
 
 def _marine_safe():
@@ -4112,6 +4141,7 @@ function framesFor(k) {{
   const spec = LAYERS[k] || {{}};
   if (spec.framesKey) return (DATA.radar && DATA.radar[spec.framesKey]) || [];
   if (spec.satKey) return (DATA.satBands[spec.satKey] || {{}}).frames || [];
+  if (spec.starKey) return ((DATA.starBands || {{}})[spec.starKey] || {{}}).frames || [];
   return [];
 }}
 /* Leaflet never refetches failed tiles: while the radar shows "empty"
@@ -5273,7 +5303,7 @@ function onDataRefresh(d) {{ refresh(d); drawObs(); }}
 def page_satellite(d):
     body = """
 <header class="hero"><h1>🛰️ Satellite</h1>
-<div class="sub">Every GOES-19 ABI band — water vapor (high/mid/low + GINI full-disk), IR, all visible bands, fire, ozone, CO2.</div></header>
+<div class="sub">Every GOES-19 ABI band — water vapor (high/mid/low + GINI full-disk), IR, all visible bands, fire, ozone, CO2 — plus NOAA STAR quick-look products.</div></header>
 <div class="card">
   <div id="map" class="map-dark"></div>
   <div class="ctl">
@@ -5282,7 +5312,40 @@ def page_satellite(d):
     <input type="range" id="opacity" min="30" max="100" value="90"/>
   </div>
   <div class="src" id="pend"></div>
-  <div class="src">GOES-19 ABI decoded from NOAA open data, rendered locally. Visible bands go dark at night - that is the satellite, not the site. Full-disk water vapor takes a couple of minutes to render the first time.</div>
+  <div class="src">GOES-19 ABI decoded from NOAA open data and rendered locally; the NOAA STAR group mirrors STAR's ready-to-view products (5-min cadence). Visible bands go dark at night - that is the satellite, not the site. Full-disk water vapor takes a couple of minutes to render the first time.</div>
+</div>
+
+<div class="card"><h2>🍂 Fall color tracker - when the mountains turn</h2>
+<div class="kpis">
+  <div class="kpi"><span>NDVI snapshot</span><b id="fcDate">-</b></div>
+  <div class="kpi"><span>Compare to</span><b>Sep 1 baseline</b></div>
+  <div class="kpi"><span>Season</span><b id="fcSeason">peaking up top first</b></div>
+</div>
+<div id="fallMap" class="map-dark" style="height:460px"></div>
+<div class="legend">
+  <span><i style="background:#6b8f3c"></i>dense green</span>
+  <span><i style="background:#d9c95c"></i>starting to turn</span>
+  <span><i style="background:#e08c3a"></i>peak color</span>
+  <span><i style="background:#a65b2a"></i>past peak</span>
+  <span><i style="background:linear-gradient(90deg,#6b8f3c,#d9c95c,#e08c3a,#a65b2a)"></i>NDVI: plant vigor declines as chlorophyll fades - the color wave, measured by satellite</span>
+</div>
+<div class="ctl">
+  <label><input type="checkbox" id="fcNdvi" checked/> foliage index</label>
+  <label><input type="checkbox" id="fcTc"/> true color</label>
+  <select id="fcDateSel" title="8-day NDVI composite"></select>
+  <button id="fcSweep">▶ Sweep the season</button>
+</div>
+<div class="src">Vegetation index (NDVI) from MODIS-Terra via NASA's open GIBS service - where photosynthesis is fading, color is coming. The <b>foliage index</b> layer shows the measured signal (dark green = still growing; gold/orange/brown = color change underway); <b>true color</b> is what the satellite actually photographed, clouds permitting. Sweep runs Sep 1 through late October - future composites stay empty until the satellite paints them; the latest date with real tiles is the honest "now".</div>
+</div>
+
+<div class="card"><h2>📖 Reading the bands - which layer for what</h2>
+<div class="src">
+<b>Water vapor (high / mid / low)</b> - moisture at three heights of the atmosphere. Swirls here are the storms of tomorrow: a plume pulling in from the Gulf or a dry slot boring into the Tennessee Valley shows up hours before clouds form. The <b>GINI full-disk</b> style is the classic weather-broadcast look.<br/><br/>
+<b>Infrared (10.3 / 11.2 / dirty 12.3)</b> - cloud-top temperature, day and night. Colder = higher = stronger convection; the dirty-IR split with 11.2 helps separate low clouds from fog.<br/><br/>
+<b>Visible bands (day only)</b> - red visible is the crisp daytime picture; blue and near-IR (veggie) see haze and vegetation; <b>cirrus</b> picks out thin high cloud the others miss; <b>snow/ice</b> makes winter surfaces pop; <b>cloud particle size</b> distinguishes water droplets from ice.<br/><br/>
+<b>Shortwave IR (fire/hot spots)</b> - glows at wildfire lines and industrial heat day or night; <b>CO2 / cloud top height</b> helps gauge how deep storms reach.<br/><br/>
+<b>NOAA STAR quick-look</b> - pre-built combinations: <b>GeoColor</b> (true-color by day, city-lights IR by night), <b>AirMass</b> (jet-stream and air-mass boundaries), <b>Sandwich</b> (visible + IR coldest tops combined), <b>Dust</b> (pink airborne dust), <b>Fire Temperature</b> (thermal detection), and STAR's own layered water vapor.
+</div>
 </div>
 <script>
 """ + _player_js("{}") + """
@@ -5291,10 +5354,18 @@ document.getElementById("opacity").oninput = () => { for (const l of curLayers) 
 const layerSel = document.getElementById("layer");
 layerSel.onchange = (e) => { kind = e.target.value; try { localStorage.setItem("tnwxSatKind", kind); } catch (_e) {} build(); };
 function fillLayerPicker() {
+  /* group ABI bands and STAR quick-look products into labeled optgroups */
+  const groups = {};
+  for (const [k, v] of Object.entries(LAYERS))
+    (groups[v.group || "GOES-19 ABI (decoded locally)"] = groups[v.group || "GOES-19 ABI (decoded locally)"] || []).push([k, v]);
   layerSel.innerHTML = "";
-  for (const [k, v] of Object.entries(LAYERS)) {
-    const o = document.createElement("option"); o.value = k; o.textContent = v.label;
-    if (k === kind) o.selected = true; layerSel.appendChild(o);
+  for (const [g, items] of Object.entries(groups)) {
+    const og = document.createElement("optgroup"); og.label = g;
+    for (const [k, v] of items) {
+      const o = document.createElement("option"); o.value = k; o.textContent = v.label;
+      if (k === kind) o.selected = true; og.appendChild(o);
+    }
+    layerSel.appendChild(og);
   }
 }
 async function boot() {
@@ -5308,6 +5379,8 @@ async function boot() {
   LAYERS = {};
   for (const [k, v] of Object.entries(DATA.satBands || {}))
     if ((v.frames || []).length) LAYERS[k] = { label: v.label, mode: "png", satKey: k };
+  for (const [k, v] of Object.entries(DATA.starBands || {}))
+    if ((v.frames || []).length) LAYERS[k] = { label: v.label, mode: "png", starKey: k, group: v.group };
   try { const sv = localStorage.getItem("tnwxSatKind"); if (sv && LAYERS[sv]) kind = sv; } catch (_e) {}
   if (LAYERS[DATA.satHome]) kind = DATA.satHome;
   else if (Object.keys(LAYERS).length) kind = Object.keys(LAYERS)[0];
@@ -5317,6 +5390,101 @@ async function boot() {
 boot();
 document.addEventListener("visibilitychange", () => document.hidden ? pause() : play());
 function onDataRefresh(d) { refresh(d); }
+
+/* ---- fall color tracker: NASA GIBS NDVI + true color, East TN view ---- */
+(function () {
+  const FC_GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best";
+  /* 8-day NDVI composite start dates. Sep 1 is the season baseline; the
+     marked-ahead October dates render empty until MODIS composites them. */
+  const FC_DATES = [
+    { d: "2026-09-01", l: "Sep 1 (baseline)" },
+    { d: "2026-09-09", l: "Sep 9" },
+    { d: "2026-09-17", l: "Sep 17" },
+    { d: "2026-09-25", l: "Sep 25 (latest)" },
+    { d: "2026-10-03", l: "Oct 3 (est.)" },
+    { d: "2026-10-11", l: "Oct 11 (est.)" },
+    { d: "2026-10-19", l: "Oct 19 (est.)" },
+  ];
+  const FC_PLACES = [
+    ["Knoxville", 35.96, -83.92], ["Chattanooga", 35.05, -85.31],
+    ["Tri-Cities", 36.44, -82.40], ["Crossville - Plateau", 35.95, -85.03],
+    ["Newfound Gap - GSMNP", 35.61, -83.43], ["Gatlinburg", 35.71, -83.51],
+    ["Cherokee NF", 36.05, -82.10], ["Cookeville", 36.16, -85.50],
+    ["Asheville NC", 35.60, -82.55],
+  ];
+  const fcMap = document.getElementById("fallMap");
+  if (!fcMap || typeof L === "undefined" || !L.map) return;
+  let fmap = null, ndviLayer = null, tcLayer = null, fcIdx = 0, fcTimer = null;
+  let fcHadTiles = false, fcTileErrors = 0, fcTilesTotal = 0;
+  const ndviUrl = d => `${FC_GIBS}/MODIS_Terra_NDVI_8Day/default/${d}/GoogleMapsCompatible_Level9/{z}/{x}/{y}.png`;
+  const tcUrl = d => `${FC_GIBS}/MODIS_Terra_CorrectedReflectance_TrueColor/default/${d}/GoogleMapsCompatible_Level9/{z}/{x}/{y}.jpg`;
+  function bootFall() {
+    fmap = L.map("fallMap", { zoomSnap: 0.5, maxZoom: 9 }).setView([35.9, -83.6], 6);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+      { maxNativeZoom: 9, maxZoom: 9, attribution: "&copy; OpenStreetMap contributors" }).addTo(fmap);
+    FC_PLACES.forEach(p => L.circleMarker([p[1], p[2]], {
+      radius: 4, color: "#fff", weight: 1.5, fillColor: "#b0762c", fillOpacity: .92,
+    }).bindTooltip(p[0]).addTo(fmap));
+    const sel = document.getElementById("fcDateSel");
+    sel.innerHTML = FC_DATES.map((x, i) => `<option value="${i}">${x.l}</option>`).join("");
+    sel.value = 3;   /* latest dated composite */
+    sel.onchange = () => { fcStop(); showFc(+sel.value); };
+    document.getElementById("fcNdvi").onchange = showFcCur;
+    document.getElementById("fcTc").onchange = showFcCur;
+    document.getElementById("fcSweep").onclick = () => fcTimer ? fcStop() : fcPlay();
+    showFc(3);
+  }
+  function showFc(i) {
+    fcIdx = (i + FC_DATES.length) % FC_DATES.length;
+    showFcCur();
+  }
+  function showFcCur() {
+    if (!fmap) return;
+    const d = FC_DATES[fcIdx].d;
+    document.getElementById("fcDate").textContent = FC_DATES[fcIdx].l;
+    if (ndviLayer) { fmap.removeLayer(ndviLayer); ndviLayer = null; }
+    if (tcLayer) { fmap.removeLayer(tcLayer); tcLayer = null; }
+    fcHadTiles = false; fcTileErrors = 0; fcTilesTotal = 0;
+    if (document.getElementById("fcTc").checked) {
+      tcLayer = L.tileLayer(tcUrl(d), { opacity: .95, maxNativeZoom: 9, maxZoom: 9,
+        attribution: "NASA GIBS" }).addTo(fmap);
+    }
+    if (document.getElementById("fcNdvi").checked) {
+      ndviLayer = L.tileLayer(ndviUrl(d), { opacity: .78, maxNativeZoom: 9, maxZoom: 9,
+        attribution: "NASA GIBS / MODIS-Terra NDVI" });
+      ndviLayer.on("tileload", () => { fcHadTiles = true; fcNote(); });
+      ndviLayer.on("tileerror", () => { fcTileErrors++; if (fcTilesTotal && fcTileErrors >= fcTilesTotal) fcNote(); });
+      ndviLayer.on("tileloadstart", () => { fcTilesTotal++; });
+      ndviLayer.addTo(fmap);
+    }
+    fcNote();
+  }
+  function fcNote() {
+    const el = document.getElementById("fcSeason");
+    if (!el) return;
+    const d = FC_DATES[fcIdx];
+    el.textContent = (!fcHadTiles && fcTileErrors > 0)
+      ? "no tiles yet - future or not composited"
+      : (d.d === "2026-09-01" ? "baseline - color wave begins up high"
+         : d.est ? "color wave descending"
+         : d.l.includes("latest") ? "latest measured snapshot"
+         : "color wave descending");
+  }
+  function fcPlay() {
+    fcIdx = 0; showFc(0);
+    document.getElementById("fcSweep").textContent = "⏸ Sweeping...";
+    fcTimer = setInterval(() => {
+      if (fcIdx >= FC_DATES.length - 1) { fcStop(); return; }
+      showFc(fcIdx + 1);
+      const sel = document.getElementById("fcDateSel"); if (sel) sel.value = fcIdx;
+    }, 2200);
+  }
+  function fcStop() {
+    if (fcTimer) { clearInterval(fcTimer); fcTimer = null; }
+    const b = document.getElementById("fcSweep"); if (b) b.textContent = "▶ Sweep the season";
+  }
+  if (document.getElementById("fallMap")) bootFall();
+})();
 </script>
 """
     return _page("Satellite", "satellite.html", body)
