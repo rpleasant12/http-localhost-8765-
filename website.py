@@ -920,6 +920,7 @@ def collect_data():
             "maps": sevmaps_bundle(),
         },
         "tropical": _trop_carry_block(storms, nhc_gfx, wr_geo, out_geo),
+        "marine": _marine_safe(),
         "stormSearch": _storm_search_safe(),
         "fronts": _fronts_safe(),
         "spcHrrr": _spc_hrrr_safe(),
@@ -956,6 +957,17 @@ _CMP_PRODUCTS = (
     ("uphl", "Updraft helicity"),
     ("shear01", "0-1 km shear"),
 )
+
+
+def _marine_safe():
+    """NDBC buoy waves + MUR SST dates for the Tropical page's ocean cards.
+    30-min cached fetch of ~28 station text files; never raises."""
+    try:
+        from data.marine import marine_bundle
+        return marine_bundle()
+    except Exception:                              # noqa: BLE001
+        return {"ok": False, "buoys": [],
+                "sst": {"latest": "", "weekAgo": ""}}
 
 
 def _cmp_cam_index():
@@ -7325,6 +7337,43 @@ def page_tropical(d):
     trop = d.get("tropical") or {}
     storms = trop.get("storms") or []
     gt = d.get("gefsTracks") or {}
+    marine = d.get("marine") or {}
+    m_buoys = marine.get("buoys") or []
+    m_worst = marine.get("worst") or {}
+    m_gulf = marine.get("gulfWorst") or {}
+    m_sst = marine.get("sst") or {}
+    m_gs = marine.get("gulfStream") or {}
+    m_beaches = marine.get("beachRisk") or []
+    m_beach_rows = "".join(
+        f'<tr><td><b>{html.escape(r["beach"])}</b></td>'
+        f'<td><span class="chip" style="background:{html.escape(r["color"])};color:#fff">{html.escape(r["risk"])}</span></td>'
+        f'<td>{html.escape(r["src"])}</td>'
+        f'<td>{html.escape(r["text"])}</td></tr>'
+        for r in m_beaches)
+    # MUR SST analysis date: GIBS publishes T-1; today's tiles 404 until built
+    m_sst_ok = bool(m_sst.get("latest"))
+    _today = dt.datetime.now(dt.timezone.utc).date()
+    _yest = (_today - dt.timedelta(days=1)).isoformat()
+    _sst_stale = m_sst_ok and m_sst.get("latest") != _yest
+    def _fmt(v, spec, unit):
+        return "-" if v is None else f"{v:{spec}}{unit}"
+
+    def _fmtF(c):
+        return "-" if c is None else f"{c * 1.8 + 32:.0f}&deg;F"
+
+    m_buoy_rows = "".join(
+        f'<tr><td><b>{html.escape(b["id"])}</b></td><td>{html.escape(b["name"])}</td>'
+        f'<td>{_fmt(b.get("wvht"), ".1f", " m")}</td>'
+        f'<td>{_fmt(b.get("dpd"), ".0f", " s")}</td>'
+        f'<td>{_fmt(b.get("mwd"), ".0f", "&deg;")}</td>'
+        f'<td>{_fmtF(b.get("wtmp"))}</td></tr>'
+        for b in m_buoys if b.get("ok"))
+    m_state_chip = (f'<span class="chip" style="background:#d32f2f;color:#fff">{html.escape(m_worst.get("state", "-"))}</span>'
+                    if m_worst.get("state") in ("rough", "heavy", "violent") else
+                    f'<span class="chip" style="background:#43a047;color:#fff">{html.escape(m_worst.get("state", "calm"))}</span>')
+    m_worst_h = "-" if not m_worst else f"{m_worst.get('wvht') or 0:.1f} m"
+    m_gulf_h = "-" if not m_gulf else f"{m_gulf.get('wvht') or 0:.1f} m"
+    m_n_ok = marine.get("nOk", 0)
     gt_storms = gt.get("storms") or []
     gt_cards = ""
     if gt_storms:
@@ -7373,6 +7422,64 @@ def page_tropical(d):
 <div class="card"><h2>🌀 Active storms</h2><div id="stormCards">{storm_html}</div></div>
 
 {gt_cards}
+
+<div class="card"><h2>🌊 Sea-surface temperature - the hurricane fuel map</h2>
+<div class="kpis">
+  <div class="kpi"><span>MUR analysis</span><b>{html.escape(m_sst.get("latest") or "-")}</b></div>
+  <div class="kpi"><span>Buoy water temps</span><b>{sum(1 for b in m_buoys if b.get("wtmp") is not None)} reporting</b></div>
+  <div class="kpi"><span>26&deg;C+ isotherm</span><b>hurricane fuel threshold</b></div>
+</div>
+<div id="sstMap" class="map-dark" style="height:460px"></div>
+<div class="legend">
+  <span><i style="background:#3d5a9e"></i>&lt;24&deg;F</span>
+  <span><i style="background:#4f9be8"></i>~60&deg;F</span>
+  <span><i style="background:#3fae6a"></i>~75&deg;F</span>
+  <span><i style="background:#ffd54f"></i>80&deg;F</span>
+  <span><i style="background:#e0662a"></i>85&deg;F+</span>
+  <span><i style="background:#7b1fa2"></i>&gt;90&deg;F</span>
+  <span><i style="background:#00e5ff"></i>Gulf Stream axis (GOFS)</span>
+</div>
+<div class="ctl">
+  <select id="sstDate">
+    <option value="{html.escape(m_sst.get("latest") or _yest)}">Latest analysis ({html.escape(m_sst.get("latest") or _yest)})</option>
+    <option value="{html.escape(m_sst.get("weekAgo") or "")}">Week ago - {html.escape(m_sst.get("weekAgo") or "")}</option>
+  </select>
+  <label><input type="checkbox" id="sstBuoy" checked/> buoy water temps</label>
+  <label><input type="checkbox" id="gsShow" checked/> Gulf Stream axis</label>
+</div>
+<div class="src">NASA JPL's Multi-scale Ultra-high Resolution analysis (GHRSST L4 MUR), streamed client-side from NASA's keyless GIBS tile service - the same sea-surface-temperature field hurricane forecasters watch. Storms need <b>~26&deg;C (79&deg;F)</b> water to sustain themselves: watch the orange/red pool in the Gulf Stream, the Gulf and the Main Development Region, and whether the week-ago comparison shows a cool wake (upwelling + evaporative cooling) where a storm mixed the ocean. Buoy markers report measured water temperature - click one for the reading. The dashed cyan line is the <b>Gulf Stream axis</b> - the warm western-boundary current storms ride north - located from GOFS 3.1 surface currents (speed-maximum walk across the corridor, valid {html.escape(m_gs.get("date") or "-")}); toggle it off for the plain SST field.</div>
+</div>
+
+<div class="card"><h2>〰️ Wave tracker - Atlantic &amp; Gulf buoy reports</h2>
+<div class="kpis">
+  <div class="kpi"><span>Buoys reporting</span><b>{m_n_ok}/{len(m_buoys)}</b></div>
+  <div class="kpi"><span>Worst seas</span><b>{m_state_chip} {m_worst_h}</b></div>
+  <div class="kpi"><span>Gulf of Mexico</span><b>{m_gulf_h}</b></div>
+</div>
+<div id="ripWrap" style="overflow-x:auto;margin-bottom:10px"><table class="minitable" style="min-width:660px">
+<tr><th>Southeast beach</th><th>Rip-current risk</th><th>Waves at the nearest buoy</th><th>Guidance</th></tr>
+{m_beach_rows}
+</table></div>
+<div id="waveMap" class="map-dark" style="height:460px"></div>
+<div class="legend">
+  <span><i style="background:#43a047"></i>&lt;1 m calm</span>
+  <span><i style="background:#8bc34a"></i>1-2 m</span>
+  <span><i style="background:#ffd54f"></i>2-3 m</span>
+  <span><i style="background:#ff9800"></i>3-4 m rough</span>
+  <span><i style="background:#d32f2f"></i>4-6 m heavy</span>
+  <span><i style="background:#7b1fa2"></i>6 m+ violent</span>
+  <span><i style="background:#555555"></i>&#8599; wave direction arrow</span>
+</div>
+<div class="ctl">
+  <label><input type="checkbox" id="wvArrow" checked/> direction arrows</label>
+  <label><input type="checkbox" id="wvTab" checked/> report table</label>
+</div>
+<div class="src">Live NDBC buoy observations (hourly reports): marker color = significant wave height, arrow = mean wave direction, tooltip = height/period/direction/water temp. The long swells that reach Tennessee's mountains start here - and the swells that outrun a storm into the Southeast coast are the first signal of a hurricane offshore. Values marked - were not reported (NDBC's MM sentinel is never guessed). Rip-current one-liners are qualitative guidance derived from the nearest buoy's wave height and period (bigger surf and long-period swell drive stronger rip currents) - they are not a substitute for the beach warning flags or your local NWS forecast: <b>check the flags and talk to a lifeguard before swimming.</b></div>
+<div id="wvTableWrap" style="overflow-x:auto"><table class="minitable" style="min-width:560px">
+<tr><th>Buoy</th><th>Location</th><th>Wave height</th><th>Period</th><th>Direction</th><th>Water</th></tr>
+{m_buoy_rows}
+</table></div>
+</div>
 
 <script>
 const TROP = {json.dumps(trop)};
@@ -7471,6 +7578,100 @@ function onDataRefresh(d2) {{
   }}
   try {{ drawTrop(T); }} catch (_e) {{}}
 }}
+/* ---- SST + wave-tracker maps (client-side GIBS + payload buoys) ---- */
+const MARINE = {json.dumps(marine)};
+const GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best";
+(function () {{
+  const sm = document.getElementById("sstMap");
+  if (!sm || typeof L === "undefined" || !L.map) return;
+  const sstLatest = {json.dumps((m_sst.get("latest") or _yest))};
+  let smap = L.map("sstMap", {{ zoomSnap: 0.5, maxZoom: 9 }}).setView([26, -80], 5);
+  L.tileLayer("https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png",
+    {{ maxNativeZoom: 9, maxZoom: 9, attribution: "&copy; OpenStreetMap contributors" }}).addTo(smap);
+  let sstL = null, sstBuoyL = null;
+  const sstUrl = d => `${{GIBS}}/GHRSST_L4_MUR_Sea_Surface_Temperature/default/${{d}}/GoogleMapsCompatible_Level7/{{z}}/{{x}}/{{y}}.png`;
+  function sstShow() {{
+    const d = document.getElementById("sstDate").value;
+    if (sstL) smap.removeLayer(sstL);
+    sstL = L.tileLayer(sstUrl(d), {{ opacity: .88, maxNativeZoom: 9, maxZoom: 9,
+      attribution: "NASA GIBS / JPL MUR SST" }}).addTo(smap);
+  }}
+  sstShow();
+  document.getElementById("sstDate").onchange = sstShow;
+  const buoys = (MARINE.buoys || []).filter(b => b.ok);
+  function buoyTip(b) {{
+    return "<b>⛏ Buoy " + b.id + "</b> " + b.name
+      + (b.wtmp != null ? "<br/>Water temp: <b>" + Math.round(b.wtmp * 1.8 + 32) + "&deg;F</b> (" + b.wtmp.toFixed(1) + "&deg;C)" : "")
+      + (b.wvht != null ? "<br/>Waves: " + b.wvht.toFixed(1) + " m" : "")
+      + (b.dpd != null ? " @ " + Math.round(b.dpd) + " s" : "")
+      + (b.ts ? "<br/><span class=src>reported " + b.ts.slice(5, 16).replace("T", " ") + "Z</span>" : "");
+  }}
+  function drawSstBuoys() {{
+    if (sstBuoyL) {{ smap.removeLayer(sstBuoyL); sstBuoyL = null; }}
+    if (!document.getElementById("sstBuoy").checked) return;
+    sstBuoyL = L.layerGroup(buoys.filter(b => b.wtmp != null).map(b =>
+      L.circleMarker([b.lat, b.lon], {{ radius: 5, color: "#fff", weight: 1.5,
+        fillColor: "#ffd54f", fillOpacity: .95 }}).bindTooltip(buoyTip(b)))).addTo(smap);
+  }}
+  drawSstBuoys();
+  document.getElementById("sstBuoy").onchange = drawSstBuoys;
+  /* ---- Gulf Stream axis (GOFS 3.1 surface-current core, walked) ---- */
+  const gsPts = ((MARINE.gulfStream || {{}}).points || []);
+  let gsLine = null;
+  function gsDraw() {{
+    if (gsLine) {{ smap.removeLayer(gsLine); gsLine = null; }}
+    if (!document.getElementById("gsShow").checked || gsPts.length < 2) return;
+    const ll = gsPts.map(p => [p.lat, p.lon > 180 ? p.lon - 360 : p.lon]);
+    const g = MARINE.gulfStream || {{}};
+    gsLine = L.polyline(ll, {{ color: "#00e5ff", weight: 5, opacity: .85,
+      dashArray: "1 8", lineCap: "round" }}).addTo(smap)
+      .bindTooltip("Gulf Stream axis - surface-current core<br/>Max " +
+        (g.maxSpd || "?") + " m/s &middot; valid " + (g.date || "?") +
+        "<br/><span class=src>GOFS 3.1 (HYCOM) via tds.hycom.org</span>",
+        {{ sticky: true }});
+  }}
+  gsDraw();
+  document.getElementById("gsShow").onchange = gsDraw;
+  /* ---- wave tracker map ---- */
+  const wm = document.getElementById("waveMap");
+  if (!wm) return;
+  let wmap = L.map("waveMap", {{ zoomSnap: 0.5, maxZoom: 12 }}).setView([28, -76], 5);
+  L.tileLayer("https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png",
+    {{ maxNativeZoom: 12, maxZoom: 12, attribution: "&copy; OpenStreetMap contributors" }}).addTo(wmap);
+  const wvBuoys = buoys.filter(b => b.wvht != null);
+  const worst = wvBuoys.length ? wvBuoys.reduce((a, b) => (b.wvht > a.wvht ? b : a)) : null;
+  if (worst) wmap.fitBounds([[worst.lat - 9, worst.lon - 9], [worst.lat + 9, worst.lon + 9]]);
+  /* MWD = the direction waves COME FROM, so the arrow points DOWN-wave:
+     rotate a SE-pointing glyph to (mwd - 180). One rebuild function draws
+     both the height markers and (optionally) the direction arrows - the
+     first draft toggled layers and wiped every marker with it. */
+  const wvLayer = L.layerGroup();
+  function arrowIcon(b) {{
+    const deg = b.mwd - 180;
+    return L.divIcon({{ className: "", iconSize: [26, 26],
+      html: `<div style="transform:rotate(${{deg}}deg);font-size:19px;line-height:26px;text-align:center;` +
+            `color:${{b.color}};text-shadow:0 0 3px #000">&#8599;</div>` }});
+  }}
+  function wvBuild() {{
+    wvLayer.clearLayers();
+    const wantArrows = document.getElementById("wvArrow").checked;
+    buoys.forEach(b => {{
+      if (!b.ok) return;
+      if (wantArrows && b.wvht != null && b.mwd != null)
+        L.marker([b.lat, b.lon], {{ icon: arrowIcon(b), keyboard: false }})
+          .bindTooltip(buoyTip(b)).addTo(wvLayer);
+      L.circleMarker([b.lat, b.lon], {{ radius: 6, color: "#fff", weight: 1.5,
+        fillColor: b.color, fillOpacity: .96 }}).bindTooltip(buoyTip(b)).addTo(wvLayer);
+    }});
+  }}
+  wvBuild();
+  wvLayer.addTo(wmap);
+  document.getElementById("wvArrow").onchange = wvBuild;
+  document.getElementById("wvTab").onchange = () => {{
+    document.getElementById("wvTableWrap").style.display =
+      document.getElementById("wvTab").checked ? "" : "none";
+  }};
+}})();
 </script>
 """
     return _page("NHC", "tropical.html", body)
