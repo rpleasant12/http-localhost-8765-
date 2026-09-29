@@ -23,12 +23,158 @@ import urllib.request
 
 REPO_API = "https://api.github.com/repos/rpleasant12/http-localhost-8765-"
 
+# CREATE_NO_WINDOW: a console-less publisher spawning git/tasklist would
+# flash a visible console box per call - dozens per publish (2026-09-21).
+NOWIN = 0x08000000 if os.name == "nt" else 0
+
 MAX_AGE = 3600          # refuse to publish builds older than 1 hour
-MAX_SIZE_MB = 780       # hard cap; full build sits around 700 MB
+# Hard cap (GitHub Pages refuses sites over ~1 GB). Full loops on every
+# model (2026-09-15) raised the worst-case build: model_maps budget 600 MB
+# + every other cache at its ceiling sums to ~940 MB, so the guard sits at
+# 950 - still under the Pages limit while never refusing a healthy build.
+MAX_SIZE_MB = 950
+# Each force-publish orphans the previous ~600 MB build in .git/objects;
+# repack as soon as orphans pile past ~400 MB so the object store stays
+# bounded (the 1.5 GB trigger let .git sit at 1+ GB - 2026-09-11).
+REPACK_TRIGGER_KB = 2_000_000   # ~2 GB: with the gh-pages chain depth-capped,
+                                # dead objects stay bounded between repacks, so
+                                # repack when they pile up - not every publish
+                                # (the old 390 MB trigger repacked 40+ GB every
+                                # ~10 min, which is what cooked the disk)
+
+
+def _pid_alive(pid):
+    try:
+        if os.name == "nt":
+            import ctypes
+            h = ctypes.windll.kernel32.OpenProcess(0x1000, False, int(pid))
+            if h:
+                ctypes.windll.kernel32.CloseHandle(h)
+                return True
+            return False
+        os.kill(int(pid), 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+LOCK_PATH = os.path.join(".freebuff", "publish.lock")
+
+
+def _acquire_publish_lock():
+    """Single-flight guard: only one publish's heavy git work at a time.
+
+    Two concurrent publishes (updater main cycle + freshness-watchdog
+    recovery + manual) interleave index/repack operations on the same
+    object store and kill each other with empty 'git add failed' errors
+    (2026-09-17: every publish after an 8h pause failed this way - the
+    throttled main-cycle publish and the lag-recovery publish spawned
+    together, and the old check-then-write lock let both through).
+    Acquisition is now ATOMIC (O_CREAT|O_EXCL): exactly one caller wins.
+    A lock older than 30 min or held by a dead pid is stale and removed.
+    """
+    os.makedirs(".freebuff", exist_ok=True)
+
+    def _stale() -> bool:
+        holder = ""
+        try:
+            with open(LOCK_PATH, encoding="utf-8") as f:
+                holder = f.read().strip()
+            holder_pid = int(holder.split()[0]) if holder.split() else 0
+            age = time.time() - os.path.getmtime(LOCK_PATH)
+            return not (holder_pid and _pid_alive(holder_pid) and age < 1800)
+        except (OSError, ValueError):
+            return True
+
+    for attempt in range(2):
+        try:
+            fd = os.open(LOCK_PATH,
+                         os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(f"{os.getpid()} "
+                        f"{time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            return True
+        except FileExistsError:
+            if attempt == 0 and _stale():
+                print(f"publish: removing stale publish lock "
+                      f"(holder {_lock_holder()!r})")
+                try:
+                    os.remove(LOCK_PATH)
+                except OSError:
+                    pass
+                continue
+            print("publish: another publish is in flight - skipping")
+            return False
+        except OSError:
+            print("publish: cannot write publish lock - skipping")
+            return False
+    return False
+
+
+def _lock_holder():
+    try:
+        with open(LOCK_PATH, encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def _clear_stale_index_locks():
+    """Remove leftover git index locks from killed publishes (60s+ old)."""
+    for p in (os.path.join(".git", "index.lock"),
+              os.path.join(".git", "worktrees", "ghpages-wt", "index.lock")):
+        try:
+            if os.path.isfile(p) and time.time() - os.path.getmtime(p) > 60:
+                os.remove(p)
+                print(f"publish: removed stale lock {p}")
+        except OSError:
+            pass
 
 
 def _run(args, **kw):
-    return subprocess.run(args, capture_output=True, text=True, **kw)
+    # gc.auto=0: git's background geometric-repack spawned DURING our add/commit
+    # collided with the publish's own index work and left it dead mid-commit
+    # (2026-09-18 log: commits dying with rc=3221225786 while "executing git
+    # geometric-repack"). All publishing git calls run gc-free; housekeeping()
+    # below does the repacking explicitly, serialized under the publish lock.
+    if args and args[0] == "git":
+        args = ["git", "-c", "gc.auto=0"] + args[1:]
+    if os.name == "nt":
+        kw.setdefault("creationflags", NOWIN)
+    try:
+        return subprocess.run(args, capture_output=True, text=True, **kw)
+    except subprocess.TimeoutExpired:
+        # network git calls get explicit timeouts; surface them as rc=124
+        class _R:
+            returncode = 124
+            stdout = ""
+            stderr = "git call timed out"
+        return _R()
+
+
+def _push_once(cwd):
+    """One push attempt, hard-capped at 15 min.
+
+    2026-09-18: git push sat for 16+ minutes with ZERO network connections
+    after GitHub's edge dropped the TLS upload mid-flight - the call had no
+    timeout, so the publisher hung forever holding the publish lock while
+    every later cycle just logged 'another publish is in flight'. The cap
+    turns that hang into a normal retryable failure.
+    """
+    proc = subprocess.Popen(
+        ["git", "-c", "gc.auto=0", "push", "origin", "HEAD:gh-pages", "--force"],
+        cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, **({"creationflags": NOWIN} if os.name == "nt" else {}))
+    try:
+        out, err = proc.communicate(timeout=900)
+    except subprocess.TimeoutExpired:
+        try:
+            proc.kill()
+            out, err = proc.communicate(timeout=30)
+        except Exception:  # noqa: BLE001 - kill is best-effort
+            out, err = "", ""
+        return 124, out or "", ((err or "") + "\npush timed out after 900s")
+    return proc.returncode, out or "", err or ""
 
 
 def _gh_token():
@@ -36,7 +182,8 @@ def _gh_token():
     try:
         r = subprocess.run(["git", "credential", "fill"],
                            input="protocol=https\nhost=github.com\n",
-                           capture_output=True, text=True, timeout=20)
+                           capture_output=True, text=True, timeout=20,
+                           creationflags=NOWIN if os.name == "nt" else 0)
         for line in r.stdout.splitlines():
             if line.startswith("password="):
                 return line[len("password="):].strip()
@@ -70,6 +217,82 @@ def dispatch_mirror():
         return False
 
 
+def _git_size_kb():
+    """Packed object-store size in KB (from git count-objects -v)."""
+    r = _run(["git", "count-objects", "-v"])
+    for line in r.stdout.splitlines():
+        if line.startswith("size-pack:"):
+            try:
+                return int(line.split(":", 1)[1].strip())
+            except ValueError:
+                return None
+    return None
+
+
+def _push_in_flight():
+    """True while any git push/recv-pack process is alive (Windows-safe)."""
+    try:
+        out = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq git.exe", "/FO", "CSV", "/NH"],
+            capture_output=True, text=True, timeout=15,
+            creationflags=NOWIN).stdout or ""
+        return "git.exe" in out.lower()
+    except Exception:  # noqa: BLE001 - probe is best-effort
+        return False
+
+
+def housekeeping(full=None):
+    """Drop git objects orphaned by force-published builds.
+
+    Every publish creates a new orphan commit on gh-pages; the moment the
+    next push replaces it, that commit's blobs become unreachable - but
+    they stay in .git/objects forever unless pruned (this hit 6.3 GB in
+    three days of 2-minute publishing). Loose orphans are pruned on every
+    call; the expensive full repack runs only when the pack size crosses
+    REPACK_TRIGGER_KB, or immediately with full=True (--cleanup flag).
+    Reachable history (main) is never touched.
+
+    2026-09-20: a full repack launched WHILE another publish's push was
+    still uploading corrupted that push (git-for-Windows crashed with
+    rc=3221225786 mid-add/repack, and the oversized 2.7 GB pack made both
+    near-certain) - the public site went ~19 h stale. Repack is now
+    skipped while any git push is alive, and retried on the next cycle.
+    """
+    _run(["git", "worktree", "prune"])   # a removed worktree must not pin its base
+    _run(["git", "reflog", "expire", "--expire-unreachable=now", "--all"])
+    _run(["git", "prune", "--expire=now"])
+    size = _git_size_kb()
+    if full is False:
+        return
+    need_full = bool(full) or (size is not None and size > REPACK_TRIGGER_KB)
+    if need_full and _push_in_flight():
+        print("publish: housekeeping repack deferred (push in flight)",
+              flush=True)
+        return
+    if need_full:
+        r = _run(["git", "repack", "-A", "-d", "--unpack-unreachable=now"])
+        if r.returncode == 0:
+            _run(["git", "prune", "--expire=now"])
+        after = _git_size_kb()
+        print(f"publish: housekeeping repack rc={r.returncode} "
+              f"({(size or 0) // 1024} MB -> {(after or 0) // 1024} MB)",
+              flush=True)
+
+
+def _wait_remote_tip(sha, timeout=75):
+    """Poll origin until gh-pages really shows `sha` (max ~75s)."""
+    if not sha:
+        return False
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        r = _run(["git", "ls-remote", "origin", "gh-pages"], timeout=60)
+        if r.returncode == 0 and r.stdout.strip().startswith(sha):
+            return True
+        time.sleep(5)
+    print("publish: remote tip never showed the pushed SHA; deploying anyway")
+    return False
+
+
 def build_age_seconds():
     """Age of the freshest file in docs/ (0 if the tree is missing)."""
     newest = 0.0
@@ -100,24 +323,80 @@ def publish(check_only=False):
     if check_only:
         print(f"publish: build ok ({total:.0f} MB, age {int(age)}s)")
         return True
+    if not _acquire_publish_lock():
+        return False
 
     _run(["git", "worktree", "prune"])
     wt = os.path.join(".freebuff", "ghpages-wt")
     if os.path.isdir(wt):
         _run(["git", "worktree", "remove", "--force", wt])
-    # ensure gh-pages exists remotely or locally before adding the worktree
-    if _run(["git", "rev-parse", "--verify", "gh-pages"]).returncode != 0:
-        r = _run(["git", "fetch", "origin", "gh-pages"])
-        if r.returncode != 0:
-            print("publish: creating fresh gh-pages branch")
-            _run(["git", "branch", "gh-pages", "HEAD"])   # replaced below anyway
-        else:
-            _run(["git", "branch", "gh-pages", "origin/gh-pages"])
-    if _run(["git", "rev-parse", "--verify", "gh-pages"]).returncode != 0:
-        _run(["git", "branch", "gh-pages", "HEAD"])
-    _run(["git", "branch", "-f", "gh-pages", "HEAD"])   # base only; content replaced
-    if _run(["git", "worktree", "add", "--detach", wt]).returncode != 0:
-        print("publish: worktree add failed")
+        if os.path.isdir(wt):
+            # Half-created leftover (crashed worktree add): git no longer
+            # knows it, so 'remove' fails and a plain prune can't clear it
+            # either - every later 'worktree add' then dies with "already
+            # exists" and the public site goes stale (2026-09-19 15:56).
+            # Nuke the folder by hand so the next add starts clean.
+            shutil.rmtree(wt, ignore_errors=True)
+    # Build each publish ON TOP OF the previous gh-pages commit. The old
+    # flow parented every publish to main, i.e. an ORPHAN vs gh-pages: git
+    # then re-uploaded the ENTIRE ~470 MB tree on every push (nothing to
+    # delta against), pushes took 15+ min, GitHub's edge kept killing them
+    # mid-upload, and the wedged git calls eventually hung the publisher
+    # while it held the lock (2026-09-18). Chained, a push carries only the
+    # frames that actually changed - a few MB - and lands in seconds.
+    # Content is still complete: every tracked file is deleted and recopied
+    # from docs/ below, so the pushed tree matches docs/ exactly. To keep
+    # gh-pages history bounded ("branch never grows history"), a base older
+    # than 2 h is ignored and that publish falls back to the old full
+    # upload. (Was 12 h: the whole 12-h snapshot chain stayed reachable in
+    # .git/objects the whole time, so housekeeping's repack could never
+    # reclaim and the pack grew ~0.3 GB per publish to 80+ GB / disk-full
+    # on 2026-09-26 14:00. 2 h bounds the pinned history while still
+    # delta-compressing the common case.)
+    _run(["git", "fetch", "origin", "gh-pages"], timeout=300)   # non-fatal
+
+    def _usable(sha):
+        sha = (sha or "").strip()
+        if not sha:
+            return ""
+        if _run(["git", "cat-file", "-e", f"{sha}^{{commit}}"]).returncode != 0:
+            return ""
+        bd = _run(["git", "show", "-s", "--format=%ct", sha]).stdout.strip()
+        try:
+            return sha if time.time() - int(bd) <= 2 * 3600 else ""
+        except ValueError:
+            return ""
+
+    tip = _run(["git", "rev-parse", "--verify", "FETCH_HEAD"]).stdout.strip()
+    base = _usable(tip) or _usable(
+        _run(["git", "rev-parse", "--verify", "gh-pages"]).stdout.strip())
+    if base:
+        # Chain-depth cap: a chained push inherits the base's ancestry, so
+        # origin/gh-pages becomes an unbroken chain of full-site snapshots
+        # and EVERY one stays reachable forever - reflog expiry can't help,
+        # and the pack grew to 80 GB / disk-full (2026-09-26). Once more
+        # than 6 gh-pages-unique commits have piled up (snapshots not in
+        # main's history), publish the next build as a fresh root (no-base
+        # branch: parented on main, cutting the gh-pages chain) so the old
+        # snapshots go unreachable and housekeeping's repack reclaims them.
+        _depth = _run(["git", "rev-list", "--count", base, "--not", "main"])
+        try:
+            if int((_depth.stdout or "0").strip() or 0) > 6:
+                print(f"publish: gh-pages chain depth "
+                      f"{(_depth.stdout or '0').strip()} > 6 - publishing a "
+                      f"fresh root to bound history", flush=True)
+                base = ""
+        except ValueError:
+            pass
+    if base:
+        rc = _run(["git", "worktree", "add", "--detach", wt, base], timeout=180)
+    else:
+        rc = _run(["git", "worktree", "add", "--detach", wt], timeout=180)
+    if rc.returncode != 0:
+        # include git's own words: empty-stderr failures here are the
+        # externally-killed pattern, and the detail matters (2026-09-18)
+        print("publish: worktree add failed: "
+              f"{(rc.stderr or '').strip()[:200] or (rc.stdout or '').strip()[:200] or 'no output (killed?)'}")
         return False
     try:
         for name in os.listdir(wt):
@@ -125,9 +404,11 @@ def publish(check_only=False):
                 continue
             p = os.path.join(wt, name)
             if os.path.isdir(p):
-                subprocess.run(["git", "rm", "-rf", "-q", name], cwd=wt)
+                subprocess.run(["git", "rm", "-rf", "-q", name], cwd=wt,
+                               creationflags=NOWIN)
             else:
-                subprocess.run(["git", "rm", "-f", "-q", name], cwd=wt)
+                subprocess.run(["git", "rm", "-f", "-q", name], cwd=wt,
+                               creationflags=NOWIN)
         for root, dirs, files in os.walk("docs"):
             rel = os.path.relpath(root, "docs")
             if rel == ".":
@@ -137,10 +418,27 @@ def publish(check_only=False):
             for f in files:
                 src = os.path.join(root, f)
                 dst = os.path.join(wt, rel, f)
-                if os.path.isfile(dst):
-                    os.remove(dst)
-                shutil.copy2(src, dst)   # COPY: docs/ stays intact for serving
-        r = _run(["git", "add", "-A", "."], cwd=wt)
+                # The updater's own cycle REWRITES docs/ every ~2 min (fresh
+                # data.json + packaged assets), so a file listed by os.walk
+                # can legitimately vanish before we copy it. Previously one
+                # such miss aborted the whole publish with FileNotFoundError
+                # (2026-09-20 20:58: 'The system cannot find the file
+                # specified' killed every publish for an hour). Skip the
+                # vanished file - the next cycle's commit carries it.
+                try:
+                    if os.path.isfile(dst):
+                        os.remove(dst)
+                    shutil.copy2(src, dst)   # COPY: docs/ stays intact for serving
+                except (FileNotFoundError, NotADirectoryError) as exc:
+                    print(f"publish: skipped vanished file {rel and rel + '/'}{f}: {exc}")
+                    continue
+        _clear_stale_index_locks()
+        r = _run(["git", "add", "-A", "."], cwd=wt)  # gc.auto=0 via _run
+        if r.returncode != 0:
+            # one retry after clearing any lock a killed publish left behind
+            time.sleep(3)
+            _clear_stale_index_locks()
+            r = _run(["git", "add", "-A", "."], cwd=wt)
         if r.returncode != 0:
             print("publish: git add failed:", r.stderr[-300:])
             return False
@@ -149,21 +447,83 @@ def publish(check_only=False):
         if r.returncode != 0:
             print("publish: nothing to commit?", r.stdout[-200:], r.stderr[-200:])
             return False
-        r = _run(["git", "push", "origin", "HEAD:gh-pages", "--force"], cwd=wt)
+        # GitHub's edge hangs up on long (~450 MB) uploads intermittently
+        # (2026-09-17: three consecutive publishes died with "remote end
+        # hung up unexpectedly", leaving the public site 9 h stale). Retry
+        # the push on transient transport failures - each attempt resumes
+        # from the committed index, so retries are cheap.
+        r = None
+        for attempt in range(3):
+            r_cd, r_out, r_err = _push_once(cwd=wt)
+            class _P:  # shim so the existing rc/stderr checks keep working
+                pass
+            r = _P()
+            r.returncode = r_cd
+            r.stderr = r_err
+            if r.returncode == 0:
+                break
+            err = (r_err or "").lower()
+            transient = any(s in err for s in ("hung up", "timeout", "timed out",
+                                               "connection", "could not resolve",
+                                               "ssl", "unavailable"))
+            if not transient:
+                break
+            print(f"publish: push attempt {attempt + 1} failed "
+                  f"({r_err.strip().splitlines()[-1] if r_err.strip() else 'unknown'});"
+                  f" retrying in 20s", flush=True)
+            time.sleep(20)
         if r.returncode != 0:
             print("publish: push failed:", r.stderr[-300:])
             return False
+        pushed_sha = _run(["git", "rev-parse", "HEAD"], cwd=wt).stdout.strip()
+        # Re-point the local gh-pages ref at what we just pushed: left on an
+        # old commit it pins that whole snapshot chain in .git/objects even
+        # after housekeeping expires reflogs (pack grew to 80 GB this way).
+        if pushed_sha:
+            _run(["git", "update-ref", "refs/heads/gh-pages", pushed_sha])
+        # Deploy race (cost the public site hours of staleness on 2026-09-11):
+        # dispatching the mirror workflow ~2s after the push means its checkout
+        # runs BEFORE GitHub's ref update is visible, so the deploy packages the
+        # PREVIOUS build every time - while reporting success. Wait until
+        # ls-remote actually shows the pushed SHA before nudging the deploy.
+        _wait_remote_tip(pushed_sha)
         nudged = dispatch_mirror()
         print(f"publish: gh-pages updated ({total:.0f} MB, {msg});"
               f" pages mirror {'dispatched' if nudged else 'will follow on schedule'}")
+        # completion marker for site_updater.spawn_publish() (best-effort)
+        try:
+            with open(os.path.join(".freebuff", "publish.done"), "w",
+                      encoding="utf-8") as f:
+                f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        except OSError:
+            pass
         return True
     finally:
         _run(["git", "worktree", "remove", "--force", wt])
         _run(["git", "worktree", "prune"])
+        # housekeeping MUST run after the worktree removal: while it exists,
+        # its detached HEAD still anchors the just-pushed build's objects and
+        # prune would keep ~1-2 builds (~100 MB each) alive forever.
+        # AND while the lock is still held: a repack racing the next publish's
+        # git add/commit on the same object store got killed every time
+        # (rc=0xC000013A, 2026-09-15) and the orphaned packs never shrank.
+        # Holding the lock through housekeeping serializes ALL git work; the
+        # next publish skips and catches up on its next cycle.
+        housekeeping()
+        try:
+            if os.path.isfile(LOCK_PATH):
+                os.remove(LOCK_PATH)
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="validate only; do not push")
+    ap.add_argument("--cleanup", action="store_true",
+                    help="force a full git housekeeping repack, then exit")
     args = ap.parse_args()
+    if args.cleanup:
+        housekeeping(full=True)
+        sys.exit(0)
     sys.exit(0 if publish(check_only=args.check) else 1)
