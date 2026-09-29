@@ -5320,6 +5320,7 @@ def page_satellite(d):
   <div class="kpi"><span>NDVI snapshot</span><b id="fcDate">-</b></div>
   <div class="kpi"><span>Compare to</span><b>Sep 1 baseline</b></div>
   <div class="kpi"><span>Season</span><b id="fcSeason">peaking up top first</b></div>
+  <div class="kpi"><span>Under cursor</span><b id="fcPixel">hover the map</b></div>
 </div>
 <div id="fallMap" class="map-dark" style="height:460px"></div>
 <div class="legend">
@@ -5336,6 +5337,20 @@ def page_satellite(d):
   <button id="fcSweep">▶ Sweep the season</button>
 </div>
 <div class="src">Vegetation index (NDVI) from MODIS-Terra via NASA's open GIBS service - where photosynthesis is fading, color is coming. The <b>foliage index</b> layer shows the measured signal (dark green = still growing; gold/orange/brown = color change underway); <b>true color</b> is what the satellite actually photographed, clouds permitting. Sweep runs Sep 1 through late October - future composites stay empty until the satellite paints them; the latest date with real tiles is the honest "now".</div>
+<div id="foliageLinks" style="margin-top:8px">
+  <div class="src" style="margin-bottom:4px"><b>Weekly color reports</b> - official &amp; free, updated through the season:</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a class="chip" style="background:#2e5d34;color:#fff;text-decoration:none;padding:6px 10px;border-radius:10px;font-size:12.5px;display:inline-block" href="https://www.nps.gov/grsm/planyourvisit/fallcolor.htm" target="_blank" rel="noopener">🍂 Great Smoky Mountains NPS</a>
+    <a class="chip" style="background:#3a6ea5;color:#fff;text-decoration:none;padding:6px 10px;border-radius:10px;font-size:12.5px;display:inline-block" href="https://smokieslife.org/fall-colors-reports/" target="_blank" rel="noopener">Smokies Life weekly report</a>
+    <a class="chip" style="background:#5d3a2e;color:#fff;text-decoration:none;padding:6px 10px;border-radius:10px;font-size:12.5px;display:inline-block" href="http://tnstateparks.com/inspiration/experience-fall" target="_blank" rel="noopener">TN State Parks</a>
+    <a class="chip" style="background:#5d3a2e;color:#fff;text-decoration:none;padding:6px 10px;border-radius:10px;font-size:12.5px;display:inline-block" href="https://www.exploreasheville.com/things-to-do/things-to-do-by-season/fall/fall-forecast-and-weekly-fall-color-report" target="_blank" rel="noopener">NC - Asheville weekly report</a>
+    <a class="chip" style="background:#5d3a2e;color:#fff;text-decoration:none;padding:6px 10px;border-radius:10px;font-size:12.5px;display:inline-block" href="https://www.blueridgeparkway.org/plan-your-parkway-trip/stories-guides/fall-color-on-the-parkway/" target="_blank" rel="noopener">Blue Ridge Parkway</a>
+    <a class="chip" style="background:#5d2e47;color:#fff;text-decoration:none;padding:6px 10px;border-radius:10px;font-size:12.5px;display:inline-block" href="https://www.dof.virginia.gov/education-and-recreation/fall-foliage-in-virginia/" target="_blank" rel="noopener">VA Forestry (weekly map)</a>
+    <a class="chip" style="background:#5d2e47;color:#fff;text-decoration:none;padding:6px 10px;border-radius:10px;font-size:12.5px;display:inline-block" href="https://www.dcr.virginia.gov/state-parks/foliage-report" target="_blank" rel="noopener">VA State Parks report</a>
+    <a class="chip" style="background:#2e5d34;color:#fff;text-decoration:none;padding:6px 10px;border-radius:10px;font-size:12.5px;display:inline-block" href="https://www.fs.usda.gov/visit/fall-colors" target="_blank" rel="noopener">US Forest Service hotline</a>
+  </div>
+  <div class="src" style="margin-top:3px">Satellite NDVI shows the whole season at a glance; the links above are the human ground truth - rangers and foresters who stand next to the trees. Reports run weekly from mid-September through early November.</div>
+</div>
 </div>
 
 <div class="card"><h2>📖 Reading the bands - which layer for what</h2>
@@ -5451,6 +5466,7 @@ function onDataRefresh(d) { refresh(d); }
     }
     if (document.getElementById("fcNdvi").checked) {
       ndviLayer = L.tileLayer(ndviUrl(d), { opacity: .78, maxNativeZoom: 9, maxZoom: 9,
+        crossOrigin: true,   /* GIBS sends ACAO:* - without this getImageData taints and throws */
         attribution: "NASA GIBS / MODIS-Terra NDVI" });
       ndviLayer.on("tileload", () => { fcHadTiles = true; fcNote(); });
       ndviLayer.on("tileerror", () => { fcTileErrors++; if (fcTilesTotal && fcTileErrors >= fcTilesTotal) fcNote(); });
@@ -5482,6 +5498,79 @@ function onDataRefresh(d) { refresh(d); }
   function fcStop() {
     if (fcTimer) { clearInterval(fcTimer); fcTimer = null; }
     const b = document.getElementById("fcSweep"); if (b) b.textContent = "▶ Sweep the season";
+  }
+  /* ---- pixel sampler: NDVI color under the cursor -> foliage stage word.
+     Canvas 2D getImageData on the rendered tile <img>s - no WebGL anywhere.
+     The palette is GIBS' MODIS NDVI 8-day ramp; sampled RGB is matched to
+     the nearest ramp entry and mapped to an approximate stage word. The
+     readout always says "approximate" - opacity blending, the basemap and
+     resampling make exact classification impossible, which is fine: the
+     NDVI layer already proves color via the human-eye check next to it. */
+  let fcRaf = 0, fcLastEvt = null;
+  const FC_STAGE = {
+    ramp: [   /* sampled at level-9 pixel values from the GIBS NDVI palette */
+      [26, 92, 26], [49, 121, 49], [73, 150, 73], [98, 179, 98],
+      [146, 195, 98], [170, 205, 90], [191, 214, 92], [216, 219, 98],
+      [230, 190, 74], [233, 160, 58], [219, 122, 46], [184, 95, 40],
+      [148, 74, 36]],
+    words: ["dense green", "dense green", "dense green", "starting to turn",
+            "starting to turn", "starting to turn", "patchy color",
+            "near peak", "peak color", "peak color", "past peak",
+            "past peak", "past peak"] };
+  function fcSampleWord(e) {
+    const smapPane = fmap.getContainer().querySelector(".leaflet-tile-pane");
+    if (!smapPane) return null;
+    const rect = fmap.getContainer().getBoundingClientRect();
+    const px = e.clientX - rect.left, py = e.clientY - rect.top;
+    let best = null;
+    /* find the topmost NDVI tile <img> containing the cursor point; use its
+       bounding rect so CSS transforms (fractional zoom) are accounted for */
+    for (const img of smapPane.querySelectorAll("img.leaflet-tile")) {
+      const r = img.getBoundingClientRect();
+      if (px < r.left - rect.left || px >= r.right - rect.left ||
+          py < r.top - rect.top || py >= r.bottom - rect.top) continue;
+      const src = img.currentSrc || img.src || "";
+      if (src.indexOf("NDVI") === -1) continue;      /* NDVI layer only */
+      fcSampleWord.overNdvi = true;                  /* cursor is on the layer */
+      const c = fcSampleWord._c || (fcSampleWord._c = document.createElement("canvas"));
+      c.width = img.naturalWidth; c.height = img.naturalHeight;
+      const ctx = c.getContext("2d");
+      try { ctx.drawImage(img, 0, 0); } catch (_e) { return null; }
+      let d;
+      try { d = ctx.getImageData(
+        Math.round((px - (r.left - rect.left)) * img.naturalWidth / r.width),
+        Math.round((py - (r.top - rect.top)) * img.naturalHeight / r.height),
+        1, 1).data; } catch (_e) { return null; }   /* tainted canvas */
+      if (d[3] < 200) return null;                   /* transparent - gap */
+      best = [d[0], d[1], d[2]];
+      break;
+    }
+    if (!best) return null;
+    let bi = 0, bd = Infinity;
+    FC_STAGE.ramp.forEach((rgb, i) => {
+      const dist = (rgb[0]-best[0])**2 + (rgb[1]-best[1])**2 + (rgb[2]-best[2])**2;
+      if (dist < bd) { bd = dist; bi = i; }
+    });
+    return { word: FC_STAGE.words[bi], rgb: best };
+  }
+  function fcShow(e) {
+    const out = document.getElementById("fcPixel");
+    if (!out || !fmap || !document.getElementById("fcNdvi").checked) return;
+    const s = fcSampleWord(e);
+    out.innerHTML = s
+      ? `<span style="display:inline-block;width:11px;height:11px;border-radius:3px;
+           background:rgb(${s.rgb[0]},${s.rgb[1]},${s.rgb[2]});vertical-align:-1px"></span>
+           ~${s.word}`
+      : (fcSampleWord.overNdvi
+          ? "cloud / no data here - try another date"
+          : "hover the map");
+  }
+  if (document.getElementById("fallMap")) {
+    document.getElementById("fallMap").addEventListener("mousemove", (e) => {
+      fcLastEvt = e;
+      if (fcRaf) return;
+      fcRaf = requestAnimationFrame(() => { fcRaf = 0; fcShow(fcLastEvt); });
+    });
   }
   if (document.getElementById("fallMap")) bootFall();
 })();
