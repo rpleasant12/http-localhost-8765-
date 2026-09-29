@@ -344,6 +344,49 @@ def _season_safe():
         return {"ok": False, "reason": "season module unavailable"}
 
 
+def _road_risk(hourly):
+    """Road-conditions outlook for the next ~18 h from the NWS hourly.
+
+    Simple, honest thresholds a driver can act on: sub-freezing = icy
+    spots possible (bridges first), cold + precip = slick risk, heavy
+    precip = wet-road caution, else dry. Returns worst-first summary.
+    """
+    hours = []
+    for h in (hourly or [])[:18]:
+        t = h.get("temp")
+        if t is None:
+            continue
+        pop = h.get("pop") or 0
+        if t <= 32:
+            level, word, color = ("hazard", "Icy spots possible", "#ff1744")
+        elif t <= 36 and pop >= 20:
+            level, word, color = ("caution", "Slick bridges possible", "#ff9800")
+        elif pop >= 60:
+            level, word, color = ("caution", "Wet roads - slow down", "#ff9800")
+        elif pop >= 30:
+            level, word, color = ("watch", "Chance of wet roads", "#ffd54f")
+        else:
+            level, word, color = ("ok", "Dry", "#43a047")
+        hours.append({"t": h.get("t"), "temp": t, "pop": pop,
+                      "level": level, "word": word, "color": color})
+    rank = {"hazard": 3, "caution": 2, "watch": 1, "ok": 0}
+    worst = max(hours, key=lambda x: rank[x["level"]]) if hours else None
+    return {"hours": hours,
+            "worst": (worst["word"] if worst else "-"),
+            "worstLevel": (worst["level"] if worst else "ok"),
+            "worstColor": (worst["color"] if worst else "#43a047"),
+            "coldest": (min(hours, key=lambda x: x["temp"])["temp"]
+                        if hours else None)}
+
+
+def _road_risk_safe(hourly):
+    try:
+        return _road_risk(hourly)
+    except Exception:                              # noqa: BLE001
+        return {"hours": [], "worst": "-", "worstLevel": "ok",
+                "worstColor": "#43a047", "coldest": None}
+
+
 def collect_data():
     """Everything the site needs, from disk caches + a few fast NWS calls."""
     from data.nws import get_active_alerts, get_current_conditions, get_forecast, get_hourly
@@ -905,6 +948,7 @@ def collect_data():
         },
         "days": days,
         "hourly": hourly,
+        "roadRisk": _road_risk_safe(hourly),
         "alerts": alerts,
         "spc": spc_days,
         "storm": {
@@ -11724,6 +11768,14 @@ fireBoot();
 def page_traffic(d):
     """TDOT SmartWay traffic cameras: map + region/route picker + live snapshots."""
     rc = d.get("roadCams") or {}
+    rr = d.get("roadRisk") or {}
+    risk_cells = "".join(
+        f'<span style="flex:0 0 auto;text-align:center;background:#10151f;border:1px solid {c.get("color")};'
+        f'border-radius:8px;padding:6px 8px;min-width:64px">'
+        f'<b style="display:block;font-size:12.5px">{html.escape(str(c.get("t") or ""))}</b>'
+        f'<span style="display:block;font-size:13px;font-weight:700;color:{c.get("color")}">{html.escape(str(c.get("word")))}</span>'
+        f'<span style="display:block;font-size:11px;color:#8b97a5">{c.get("temp")}°F · {c.get("pop")}%</span></span>'
+        for c in (rr.get("hours") or []))
     rc_js = json.dumps(rc, ensure_ascii=False, separators=(",", ":"))
     n_etn = rc.get("etnCount") or 0
     n_all = rc.get("total") or 0
@@ -11781,6 +11833,16 @@ def page_traffic(d):
     <span><i style="background:#ffb74d"></i>ice / snow risk</span>
     <span><i style="background:#7986cb"></i>advisory event</span>
   </div>
+</div>
+
+<div class="card">
+  <h2>🛣️ Road conditions forecast - next 18 hours</h2>
+  <div class="kpis">
+    <div class="kpi"><span>Worst expected</span><b style="color:{rr.get("worstColor")}">{rr.get("worst")}</b></div>
+    <div class="kpi"><span>Coldest hour</span><b>{rr.get("coldest") if rr.get("coldest") is not None else "-"}°F</b></div>
+  </div>
+  <div class="ctl" style="flex-wrap:nowrap;overflow-x:auto;padding:2px 0">{risk_cells}</div>
+  <div class="src">Hour-by-hour driving outlook for {html.escape(d.get("place") or "the area")} from the NWS hourly forecast: sub-freezing = icy spots possible (bridges and shade first), cold + rain = slick, heavy rain = standing water. Bridges and overpasses ice before the rest of the road - and this is the weather's contribution, not a substitute for TDOT's own road-condition reports in the events table above.</div>
 </div>
 
 <div class="card">
