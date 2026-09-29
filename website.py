@@ -171,6 +171,97 @@ def _cache_mpas_shield_from_disk(payload):
         payload[kind][key]["frames"].sort(key=lambda f: f["hour"])
 
 
+_GLANCE_REGIONS = (
+    ("East Tennessee", "ETN", (
+        ("Greeneville", 36.1627, -82.8332), ("Knoxville", 35.9606, -83.9207),
+        ("Chattanooga", 35.0456, -85.3097), ("Crossville", 35.9479, -85.0269))),
+    ("Southwest Virginia", "SWVA", (
+        ("Bristol", 36.6114, -82.1880), ("Abingdon", 36.7098, -81.9773),
+        ("Marion", 36.8029, -81.5123), ("Wytheville", 36.9482, -81.0834))),
+    ("Western North Carolina", "WNCC", (
+        ("Asheville", 35.5951, -82.5515), ("Boone", 36.2118, -81.6739),
+        ("Murphy", 35.0876, -84.0347), ("Hendersonville", 35.3193, -82.4606))),
+)
+
+
+def _sev_glance(outlook_feats, ww):
+    """Severe weather at a glance for ETN / SWVA / WNC - zero new calls.
+
+    Samples the SPC outlook polygons (day 1-3 categorical + day-1
+    hail/tornado/wind probabilities) and the active warning polygons at
+    representative towns in each region; the region value is the WORST
+    across its anchors. All geometry, no network.
+    """
+    from data.severe import CAT_ORDER, _pip
+
+    def _feat_prob(f):
+        try:
+            return float(str(f.get("label")).replace("%", "")) * 100
+        except (ValueError, TypeError):
+            return 0.0
+
+    regions = []
+    for name, short, towns in _GLANCE_REGIONS:
+        pts = [(lat, lon) for _, lat, lon in towns]
+
+        def _worst(prefix):
+            """Max-rank day-N categorical across the region's towns."""
+            best = None
+            for f in (outlook_feats or []):
+                day = f.get("day") or ""
+                if day != prefix or "_" in day:
+                    continue
+                for lat, lon in pts:
+                    if _pip(lat, lon, f.get("geometry")):
+                        rank = (CAT_ORDER.index(f["label"])
+                                if f.get("label") in CAT_ORDER else -1)
+                        if best is None or rank > best[0]:
+                            best = (rank, f)
+            return best
+
+        cat = {}
+        for dnum in (1, 2, 3):
+            hit = _worst(f"day{dnum}")
+            if hit:
+                f = hit[1]
+                cat[f"day{dnum}"] = {"label": f.get("label"),
+                                     "label2": f.get("label2") or f.get("label"),
+                                     "fill": f.get("fill") or "#c1e9c1"}
+        haz = {}
+        for key, daykey in (("torn", "day1_torn"), ("hail", "day1_hail"),
+                            ("wind", "day1_wind")):
+            vals = [_feat_prob(f) for f in (outlook_feats or [])
+                    if (f.get("day") or "") == daykey
+                    for lat, lon in pts if _pip(lat, lon, f.get("geometry"))]
+            haz[key] = int(max(vals)) if vals else 0
+        warns = []
+        for w in (ww or []):
+            for lat, lon in pts:
+                if _pip(lat, lon, w.get("geometry")):
+                    warns.append({"event": w.get("event"),
+                                  "area": (w.get("areaDesc") or "")[:90],
+                                  "color": w.get("color") or "#ff9f43",
+                                  "tor": w.get("tor") or ""})
+                    break
+            if len(warns) >= 4:
+                break
+        regions.append({
+            "name": name, "short": short,
+            "towns": [t[0] for t in towns],
+            "cats": cat, "haz": haz, "warnings": warns,
+            "allClear": not warns and not cat.get("day1"),
+        })
+    return {"regions": regions}
+
+
+def _sev_glance_safe(outlook_feats, ww):
+    try:
+        return _sev_glance(outlook_feats, ww)
+    except Exception:                              # noqa: BLE001
+        return {"regions": []}
+
+
+
 def collect_data():
     """Everything the site needs, from disk caches + a few fast NWS calls."""
     from data.nws import get_active_alerts, get_current_conditions, get_forecast, get_hourly
@@ -781,6 +872,7 @@ def collect_data():
             "outlooks": outlook_feats,
             "warnings": ww,
             "tnAlerts": tn,
+            "atGlance": _sev_glance_safe(outlook_feats, ww),
             "md": md,
             "reports": reports,
             "ltgHistory": ltg_history,
@@ -820,6 +912,7 @@ def collect_data():
             "outlooks": outlook_feats,
             "warnings": ww,
             "tnAlerts": tn,
+            "atGlance": _sev_glance_safe(outlook_feats, ww),
             "md": md,
             "reports": reports,
             "ltgHistory": ltg_history,
@@ -9180,6 +9273,42 @@ def page_severe(d):
     outlooks = sev.get("outlooks") or []
     ww = sev.get("warnings") or []
     tn = sev.get("tnAlerts") or []
+    glance = sev.get("atGlance") or {}
+    n_rows_gl = ""
+    region_cards = ""
+    for rg in (glance.get("regions") or []):
+        day_cells = ""
+        for dnum, word in (("day1", "Today"), ("day2", "Tomorrow"), ("day3", "Day 3")):
+            c = rg.get("cats") or {}
+            cell = c.get(dnum)
+            day_cells += (
+                f'<td><span class="chip" style="background:{cell["fill"]};'
+                f'font-size:13px;padding:4px 12px">{html.escape(cell["label2"] or cell["label"])}</span></td>'
+                if cell else '<td class="src">-</td>')
+        hz = rg.get("haz") or {}
+        haz_bits = " ".join(
+            f'<b style="color:{"#ff1744" if hz.get(k) else "#8b97a5"}">{hz.get(k, 0)}%</b> {word}'
+            for k, word in (("torn", "tor"), ("hail", "hail"), ("wind", "wind")))
+        wcards = "".join(
+            f'<div class="alert" style="border-left-color:{w.get("color")};padding:6px 10px">'
+            f'<b>{html.escape(w.get("event") or "")}</b>'
+            f'{" · 🌪 tornado " + html.escape(w["tor"]) if w.get("tor") else ""}'
+            f'<span>{html.escape(w.get("area") or "")}</span></div>'
+            for w in (rg.get("warnings") or []))
+        wblock = (f'<div style="margin-top:8px">{wcards}</div>' if wcards else
+                  '<div class="src" style="margin-top:6px">No active warnings in this region.</div>')
+        towns = " · ".join(rg.get("towns") or [])
+        region_cards += (
+            f'<div class="card" style="margin:10px 0">'
+            f'<h2 style="margin:0 0 2px">{html.escape(rg["name"])} '
+            f'<span class="src">({html.escape(rg["short"])}) - {html.escape(towns)}</span></h2>'
+            + (f'<div class="alert ok" style="margin:8px 0 0">All clear right now - no watches, warnings or outlook areas in this region.</div>'
+               if rg.get("allClear") else
+               f'<table class="minitable" style="min-width:340px"><tr><th></th><th>Today</th><th>Tomorrow</th><th>Day 3</th></tr>'
+               f'<tr><td><b>Outlook</b></td>{day_cells}</tr></table>'
+               f'<div style="margin-top:6px;font-size:13.5px">Day-1 probabilities: {haz_bits}</div>'
+               + wblock)
+            + '</div>')
     nation = (sev.get("forecast") or {}).get("nationwide") or {}
     n_rows = "".join(
         f'<tr><td><b style="color:{_alert_color(a.get("event"))}">{html.escape(a.get("event") or "")}</b></td>'
@@ -9358,6 +9487,11 @@ def page_severe(d):
     <select id="fcHour"></select>
   </div>
   <div class="src">{len(ww)} warning polygons · {len(outlooks)} outlook areas · {len(tn)} TN alerts · HRRR forecast maps: hail size classes · UPHL rotation · combined severe chance · basemap {'Mapbox' if _MAPBOX_TOKEN else 'OpenStreetMap'}</div>
+</div>
+
+<div class="card"><h2>👀 Severe outlooks at a glance - ETN · SWVA · WNC</h2>
+<div class="src">The three-region board: worst-case SPC outlook category across representative towns (chips colored exactly like the map above), day-1 tornado/hail/wind probabilities (worst town), and any active warnings touching the region. It reads ALL CLEAR only when the polygons are actually somewhere else - everything updates with each SPC outlook and NWS warning cycle.</div>
+{region_cards}
 </div>
 
 <div class="card"><h2>🎨 SPC color language</h2>
