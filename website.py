@@ -7890,7 +7890,7 @@ def page_tropical(d):
     m_beach_rows = "".join(
         f'<tr><td><b>{html.escape(r["beach"])}</b></td>'
         f'<td><span class="chip" style="background:{html.escape(r["color"])};color:#fff">{html.escape(r["risk"])}</span></td>'
-        f'<td>{html.escape(r["src"])}</td>'
+        f'<td>{html.escape(r["src"])} <span class="chip" style="background:{html.escape(r.get("bandColor") or "#8b97a5")};color:#fff">{html.escape(r.get("band") or "-")}</span></td>'
         f'<td>{html.escape(r["text"])}</td></tr>'
         for r in m_beaches)
     # MUR SST analysis date: GIBS publishes T-1; today's tiles 404 until built
@@ -7904,11 +7904,39 @@ def page_tropical(d):
     def _fmtF(c):
         return "-" if c is None else f"{c * 1.8 + 32:.0f}&deg;F"
 
+    def _spark(hist):
+        """48 h dominant-period sparkline as an inline SVG, per-buoy
+        y-scale (the shape/timing is the story; the trend chip carries the
+        magnitude). Oldest -> newest, left -> right."""
+        pts = [p for _a, p, _h in (hist or []) if p is not None]
+        if len(pts) < 2:
+            return '<span class="src">-</span>'
+        lo, hi = min(pts), max(pts)
+        rng = max(hi - lo, 1.0)
+        lo2, span = lo - 0.1 * rng, max(hi - lo, 1.0) * 1.2
+        xy = " ".join(
+            f"{1 + 68 * i / (len(pts) - 1):.1f},"
+            f"{22 - 20 * (p - lo2) / span:.1f}"
+            for i, p in enumerate(pts))
+        return (f'<svg width="70" height="24" style="vertical-align:middle" '
+                f'role="img" aria-label="48 hour period trend">'
+                f'<polyline points="{xy}" fill="none" stroke="#26c6da" '
+                f'stroke-width="1.6"/></svg>')
+
+    def _trend_chip(tr):
+        if not tr:
+            return ""
+        col = {"building": "#26a69a", "fading": "#ef9a9a"}.get(tr.get("word"),
+                                                              "#607d8b")
+        return (f' <span class="chip" style="background:{col};color:#fff">'
+                f'{tr.get("word")} {tr.get("d", 0):+.1f} s</span>')
+
     m_buoy_rows = "".join(
         f'<tr><td><b>{html.escape(b["id"])}</b></td><td>{html.escape(b["name"])}</td>'
         f'<td>{_fmt(b.get("wvht"), ".1f", " m")}</td>'
         f'<td>{_fmt(b.get("dpd"), ".0f", " s")}</td>'
         f'<td><span class="chip" style="background:{html.escape(b.get("bandColor") or "#555")};color:#fff">{html.escape(b.get("band") or "-")}</span></td>'
+        f'<td>{_spark(b.get("hist"))}{_trend_chip(b.get("trend"))}</td>'
         f'<td>{_fmt(b.get("mwd"), ".0f", "&deg;")}</td>'
         f'<td>{_fmtF(b.get("wtmp"))}</td></tr>'
         for b in m_buoys if b.get("ok"))
@@ -7986,7 +8014,7 @@ def page_tropical(d):
   <span><i style="background:#ffd54f"></i>80&deg;F</span>
   <span><i style="background:#e0662a"></i>85&deg;F+</span>
   <span><i style="background:#7b1fa2"></i>&gt;90&deg;F</span>
-  <span><i style="background:#00e5ff"></i>Gulf Stream axis (GOFS)</span>
+  <span><i style="background:linear-gradient(90deg,#43a047,#8bc34a,#d9c95c,#ff9800,#d32f2f)"></i>Gulf Stream axis: 1&rarr;2 m/s (GOFS)</span>
 </div>
 <div class="ctl">
   <select id="sstDate">
@@ -7995,8 +8023,13 @@ def page_tropical(d):
   </select>
   <label><input type="checkbox" id="sstBuoy" checked/> buoy water temps</label>
   <label><input type="checkbox" id="gsShow" checked/> Gulf Stream axis</label>
+  <select id="gsLead" title="Forecast lead time for the axis">
+    <option value="0" selected>now</option>
+    <option value="24">+24 h</option>
+    <option value="48">+48 h</option>
+  </select>
 </div>
-<div class="src">NASA JPL's Multi-scale Ultra-high Resolution analysis (GHRSST L4 MUR), streamed client-side from NASA's keyless GIBS tile service - the same sea-surface-temperature field hurricane forecasters watch. Storms need <b>~26&deg;C (79&deg;F)</b> water to sustain themselves: watch the orange/red pool in the Gulf Stream, the Gulf and the Main Development Region, and whether the week-ago comparison shows a cool wake (upwelling + evaporative cooling) where a storm mixed the ocean. Buoy markers report measured water temperature - click one for the reading. The dashed cyan line is the <b>Gulf Stream axis</b> - the warm western-boundary current storms ride north - located from GOFS 3.1 surface currents (speed-maximum walk across the corridor, valid {html.escape(m_gs.get("date") or "-")}); toggle it off for the plain SST field.</div>
+<div class="src">NASA JPL's Multi-scale Ultra-high Resolution analysis (GHRSST L4 MUR), streamed client-side from NASA's keyless GIBS tile service - the same sea-surface-temperature field hurricane forecasters watch. Storms need <b>~26&deg;C (79&deg;F)</b> water to sustain themselves: watch the orange/red pool in the Gulf Stream, the Gulf and the Main Development Region, and whether the week-ago comparison shows a cool wake (upwelling + evaporative cooling) where a storm mixed the ocean. Buoy markers report measured water temperature - click one for the reading. The dotted line is the <b>Gulf Stream axis</b> - the warm western-boundary current storms ride north - located from GOFS 3.1 surface currents (speed-maximum walk across the corridor, valid {html.escape(m_gs.get("date") or "-")}) and colored by current speed, green through red as the jet strengthens to 2 m/s; hover any stretch for its speed. Toggle it off for the plain SST field.</div>
 </div>
 
 <div class="card"><h2>〰️ Wave tracker - Atlantic &amp; Gulf buoy reports</h2>
@@ -8019,19 +8052,17 @@ def page_tropical(d):
   <span><i style="background:#d32f2f"></i>4-6 m heavy</span>
   <span><i style="background:#7b1fa2"></i>6 m+ violent</span>
   <span><i style="background:#555555"></i>&#8599; wave direction arrow</span>
-  <span><i style="border:2px dotted #90a4ae;border-radius:50%"></i>chop &lt;7 s</span>
-  <span><i style="border:2px dotted #26c6da;border-radius:50%"></i>windswell 7-10 s</span>
-  <span><i style="border:2px dotted #5c6bc0;border-radius:50%"></i>long swell 10-13 s</span>
-  <span><i style="border:2px dotted #7c4dff;border-radius:50%"></i>groundswell 13 s+</span>
+  <span><i style="border:2px dotted #5c6bc0;border-radius:50%"></i>10-13 s swell</span>
+  <span><i style="border:2px dotted #7c4dff;border-radius:50%"></i>13 s+ groundswell</span>
 </div>
 <div class="ctl">
   <label><input type="checkbox" id="wvArrow" checked/> direction arrows</label>
-  <label><input type="checkbox" id="wvSwell"/> swell-period rings</label>
+  <label><input type="checkbox" id="wvSwell" checked/> long-swell rings 10 s+</label>
   <label><input type="checkbox" id="wvTab" checked/> report table</label>
 </div>
-<div class="src">Live NDBC buoy observations (hourly reports): marker color = significant wave height, arrow = mean wave direction, tooltip = height/period/direction/water temp. Toggle <b>swell-period rings</b> to color each buoy by period band - wind chop (&lt;7 s) is disorganized and closes out fast, while 10 s+ long-period swell is organized energy that wraps into beach breaks, and 13 s+ groundswell is the early head-up that a hurricane swell train is arriving before the storm does (swell outruns its storm, period outruns the swell). The long swells that reach Tennessee's mountains start here - and the swells that outrun a storm into the Southeast coast are the first signal of a hurricane offshore. Values marked - were not reported (NDBC's MM sentinel is never guessed). Rip-current one-liners are qualitative guidance derived from the nearest buoy's wave height and period (bigger surf and long-period swell drive stronger rip currents) - they are not a substitute for the beach warning flags or your local NWS forecast: <b>check the flags and talk to a lifeguard before swimming.</b></div>
-<div id="wvTableWrap" style="overflow-x:auto"><table class="minitable" style="min-width:560px">
-<tr><th>Buoy</th><th>Location</th><th>Wave height</th><th>Period</th><th>Swell band</th><th>Direction</th><th>Water</th></tr>
+<div class="src">Live NDBC buoy observations (hourly reports): marker color = significant wave height, arrow = mean wave direction, tooltip = height/period/direction/water temp. The dashed rings highlight just the <b>surf-relevant 10 s+ swells</b> (indigo 10-13 s, violet 13 s+ groundswell) - organized energy that wraps into beach breaks, unlike wind chop which closes out fast; 13 s+ is the early head-up that a hurricane swell train is arriving before the storm does (swell outruns its storm, period outruns the swell). The long swells that reach Tennessee's mountains start here - and the swells that outrun a storm into the Southeast coast are the first signal of a hurricane offshore. Values marked - were not reported (NDBC's MM sentinel is never guessed). Rip-current one-liners are qualitative guidance derived from the nearest buoy's wave height and period (bigger surf and long-period swell drive stronger rip currents) - they are not a substitute for the beach warning flags or your local NWS forecast: <b>check the flags and talk to a lifeguard before swimming.</b></div>
+<div id="wvTableWrap" style="overflow-x:auto"><table class="minitable" style="min-width:760px">
+<tr><th>Buoy</th><th>Location</th><th>Wave height</th><th>Period</th><th>Swell band</th><th>48 h trend</th><th>Direction</th><th>Water</th></tr>
 {m_buoy_rows}
 </table></div>
 </div>
@@ -8160,6 +8191,7 @@ const GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best";
       + (b.wvht != null ? "<br/>Waves: " + b.wvht.toFixed(1) + " m" : "")
       + (b.dpd != null ? " @ " + Math.round(b.dpd) + " s" : "")
       + (b.band ? "<br/><b style=color:" + b.bandColor + ">" + b.band + "</b>" : "")
+      + (b.trend ? "<br/><span class=src>48 h: " + b.trend.word + " " + (b.trend.d > 0 ? "+" : "") + b.trend.d + " s</span>" : "")
       + (b.ts ? "<br/><span class=src>reported " + b.ts.slice(5, 16).replace("T", " ") + "Z</span>" : "");
   }}
   function drawSstBuoys() {{
@@ -8172,22 +8204,43 @@ const GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best";
   drawSstBuoys();
   document.getElementById("sstBuoy").onchange = drawSstBuoys;
   /* ---- Gulf Stream axis (GOFS 3.1 surface-current core, walked) ---- */
+  /* Speed-colored segments: green (1 m/s) -> red (2 m/s+). A single-color
+     line hid the jet's variability - the fastest stretch is exactly where
+     storms get the biggest push. Dotted so the SST field stays the hero. */
+  const GS_SETS = ((MARINE.gulfStream || {{}}).sets || {{}});
   const gsPts = ((MARINE.gulfStream || {{}}).points || []);
-  let gsLine = null;
+  let gsSegs = null;                       /* L.layerGroup of segments */
+  const gsSpdCol = s => s >= 2.0 ? "#d32f2f" : s >= 1.75 ? "#e0662a" :
+                        s >= 1.5 ? "#ff9800" : s >= 1.25 ? "#d9c95c" :
+                        s >= 1.0 ? "#8bc34a" : "#43a047";
   function gsDraw() {{
-    if (gsLine) {{ smap.removeLayer(gsLine); gsLine = null; }}
-    if (!document.getElementById("gsShow").checked || gsPts.length < 2) return;
-    const ll = gsPts.map(p => [p.lat, p.lon > 180 ? p.lon - 360 : p.lon]);
-    const g = MARINE.gulfStream || {{}};
-    gsLine = L.polyline(ll, {{ color: "#00e5ff", weight: 5, opacity: .85,
-      dashArray: "1 8", lineCap: "round" }}).addTo(smap)
-      .bindTooltip("Gulf Stream axis - surface-current core<br/>Max " +
-        (g.maxSpd || "?") + " m/s &middot; valid " + (g.date || "?") +
-        "<br/><span class=src>GOFS 3.1 (HYCOM) via tds.hycom.org</span>",
-        {{ sticky: true }});
+    if (gsSegs) {{ smap.removeLayer(gsSegs); gsSegs = null; }}
+    if (!document.getElementById("gsShow").checked) return;
+    const sel = document.getElementById("gsLead");
+    const lead = sel ? sel.value : "0";
+    const useSet = lead !== "0" && GS_SETS[lead];
+    const pts = useSet ? GS_SETS[lead].points : gsPts;
+    const g = useSet ? GS_SETS[lead] : (MARINE.gulfStream || {{}});
+    if (pts.length < 2) return;
+    const ll = pts.map(p => [p.lat, p.lon > 180 ? p.lon - 360 : p.lon]);
+    gsSegs = L.layerGroup();
+    for (let i = 0; i < pts.length - 1; i++) {{
+      /* color the segment by the mean of its two endpoint speeds */
+      const s = (pts[i].spd + pts[i + 1].spd) / 2;
+      L.polyline([ll[i], ll[i + 1]], {{ color: gsSpdCol(s), weight: 5,
+        opacity: .9, dashArray: "1 8", lineCap: "round" }})
+        .bindTooltip("Gulf Stream axis" + (useSet ? " +" + lead + " h forecast" : "") +
+          "<br/>" + s.toFixed(2) + " m/s here &middot; max " + (g.maxSpd || "?") +
+          " m/s &middot; valid " + (g.date || "?") +
+          "<br/><span class=src>GOFS 3.1 (HYCOM) via tds.hycom.org</span>",
+          {{ sticky: true }}).addTo(gsSegs);
+    }}
+    gsSegs.addTo(smap);
   }}
   gsDraw();
   document.getElementById("gsShow").onchange = gsDraw;
+  const gsLead = document.getElementById("gsLead");
+  if (gsLead) gsLead.onchange = gsDraw;
   /* ---- wave tracker map ---- */
   const wm = document.getElementById("waveMap");
   if (!wm) return;
@@ -8202,12 +8255,13 @@ const GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best";
      both the height markers and (optionally) the direction arrows - the
      first draft toggled layers and wiped every marker with it. */
   const wvLayer = L.layerGroup();
-  const gsLayer = L.layerGroup();   /* swell-period rings (off by default) */
+  const gsLayer = L.layerGroup();   /* long-swell rings: 10 s+ only - surf-
+     relevant energy stands out on load; chop/windswell clutter the map */
   function drawSwellRings() {{
     gsLayer.clearLayers();
     if (!document.getElementById("wvSwell").checked) return;
     buoys.forEach(b => {{
-      if (!b.ok || b.dpd == null) return;
+      if (!b.ok || b.dpd == null || b.dpd < 10) return;
       L.circleMarker([b.lat, b.lon], {{ radius: 13, stroke: true,
         color: b.bandColor || "#555", weight: 2, dashArray: "2 4",
         fill: false }}).bindTooltip(buoyTip(b)).addTo(gsLayer);

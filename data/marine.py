@@ -118,9 +118,12 @@ def _gs_save_cache(payload):
 
 
 def _gs_fetch_axis():
-    """Slice the corridor's surface u/v from GOFS/HYCOM over OpenDAP, then
-    walk the per-latitude speed maximum north with a continuity window
-    (the Gulf Stream axis). Returns the payload to cache; raises on junk."""
+    """Slice the corridor's surface u/v from GOFS/HYCOM over OpenDAP and walk
+    the per-latitude speed maximum north with a continuity window (the Gulf
+    Stream axis). The file's time1 axis is hourly out to +360 h, so we walk
+    THREE steps - latest analysis, +24 h, +48 h - in one OpenDAP session and
+    return them as sets.now/sets.plus24/sets.plus48 for the forecast toggle.
+    Raises on junk (the caller falls back to the disk cache)."""
     import numpy as np
     import netCDF4
     if hasattr(netCDF4, "set_default_timeout"):
@@ -134,52 +137,70 @@ def _gs_fetch_axis():
                                  only_use_cftime_datetimes=False)
         now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
         ti = max((i for i, t in enumerate(times) if t <= now), default=0)
+        # pick the step nearest each lead (file is hourly; +24/+48 may be
+        # absent early in a cycle -> clamp to the last available step)
+        want = {0: ti, 24: min(ti + 24, len(times) - 1),
+                48: min(ti + 48, len(times) - 1)}
         i0 = int(np.searchsorted(lat, GS_LAT0))
         i1 = int(np.searchsorted(lat, GS_LAT1))
         j0 = int(np.searchsorted(lon, GS_LON0))
         j1 = int(np.searchsorted(lon, GS_LON1))
-        u = np.asarray(ds.variables["ssu"][ti, i0:i1, j0:j1], dtype=float)
-        v = np.asarray(ds.variables["ssv"][ti, i0:i1, j0:j1], dtype=float)
-        date_s = times[ti].strftime("%Y-%m-%d %H:%M")
+        slices = {}
+        for lead, tix in want.items():
+            slices[lead] = (
+                np.asarray(ds.variables["ssu"][tix, i0:i1, j0:j1], dtype=float),
+                np.asarray(ds.variables["ssv"][tix, i0:i1, j0:j1], dtype=float),
+                times[tix].strftime("%Y-%m-%d %H:%M"))
     finally:
         ds.close()
-    spd = np.hypot(u, v)
-    spd[spd > 9] = np.nan                       # sub-cell junk guard
-    # Anchor on the southernmost latitude with data (Florida Straits core),
-    # then walk north keeping the speed max within +/- GS_WINDOW_DEG of the
-    # previous point - a warm-core ring offshore is no longer reachable.
-    jw = max(1, int(GS_WINDOW_DEG / abs(float(lon[1] - lon[0]))))
-    start = next((k for k in range(spd.shape[0])
-                  if np.isfinite(spd[k]).any()), None)
-    if start is None:
-        raise ValueError("no valid corridor data")
-    jc = int(np.nanargmax(spd[start]))
-    pts = []
-    for k in range(start, spd.shape[0]):
-        row = spd[k]
-        lo, hi = max(0, jc - jw), min(row.size, jc + jw + 1)
-        seg = row[lo:hi]
-        if not np.isfinite(seg).any():
-            break
-        jj = lo + int(np.nanargmax(seg))
-        s = float(row[jj])
-        if s < GS_MIN_SPD:
-            break                               # jet left the corridor/window
-        # jj indexes the SLICED columns; lon needs the j0 offset (first run
-        # drew the jet over Greenwich!)
-        pts.append((round(float(lat[i0 + k]), 2),
-                    round(float(lon[j0 + jj]), 2), round(s, 2)))
-        jc = jj
-    if len(pts) < 8:                            # stream not resolvable
-        raise ValueError(f"axis under-resolved ({len(pts)} pts)")
-    # 3-pt median on lon kills single-cell spikes without bending the jet
-    lons = [p[1] for p in pts]
-    med = [sorted(lons[max(0, i - 1):i + 2])[1] for i in range(len(lons))]
-    points = [{"lat": p[0], "lon": round(m, 2), "spd": p[2]}
-              for p, m in zip(pts, med)]
-    return {"ok": True, "date": date_s, "points": points,
-            "n": len(points),
-            "maxSpd": max(p["spd"] for p in points), "ts": time.time(),
+
+    def walk(u, v, date_s):
+        spd = np.hypot(u, v)
+        spd[spd > 9] = np.nan                   # sub-cell junk guard
+        # Anchor on the southernmost latitude with data (Florida Straits
+        # core), then walk north keeping the speed max within +/-
+        # GS_WINDOW_DEG of the previous point - a warm-core ring offshore
+        # is no longer reachable.
+        jw = max(1, int(GS_WINDOW_DEG / abs(float(lon[1] - lon[0]))))
+        start = next((k for k in range(spd.shape[0])
+                      if np.isfinite(spd[k]).any()), None)
+        if start is None:
+            raise ValueError("no valid corridor data")
+        jc = int(np.nanargmax(spd[start]))
+        pts = []
+        for k in range(start, spd.shape[0]):
+            row = spd[k]
+            lo, hi = max(0, jc - jw), min(row.size, jc + jw + 1)
+            seg = row[lo:hi]
+            if not np.isfinite(seg).any():
+                break
+            jj = lo + int(np.nanargmax(seg))
+            s = float(row[jj])
+            if s < GS_MIN_SPD:
+                break                           # jet left the corridor/window
+            # jj indexes the SLICED columns; lon needs the j0 offset (first
+            # run drew the jet over Greenwich!)
+            pts.append((round(float(lat[i0 + k]), 2),
+                        round(float(lon[j0 + jj]), 2), round(s, 2)))
+            jc = jj
+        if len(pts) < 8:                        # stream not resolvable
+            raise ValueError(f"axis under-resolved ({len(pts)} pts)")
+        # 3-pt median on lon kills single-cell spikes without bending the jet
+        lons = [p[1] for p in pts]
+        med = [sorted(lons[max(0, i - 1):i + 2])[1] for i in range(len(lons))]
+        return [{"lat": p[0], "lon": round(m, 2), "spd": p[2]}
+                for p, m in zip(pts, med)]
+
+    sets = {}
+    for lead, (u, v, date_s) in slices.items():
+        points = walk(u, v, date_s)
+        sets[lead] = {"date": date_s, "points": points, "n": len(points),
+                      "maxSpd": max(p["spd"] for p in points)}
+    now_set = sets[0]
+    return {"ok": True, "date": now_set["date"], "points": now_set["points"],
+            "n": now_set["n"], "maxSpd": now_set["maxSpd"],
+            "sets": {str(k): vset for k, vset in sets.items()},
+            "ts": time.time(),
             "src": "GOFS 3.1 (HYCOM) surface currents, tds.hycom.org"}
 
 
@@ -194,10 +215,9 @@ def gs_bundle():
         data = {"ok": False, "reason": str(exc)[:120], "points": []}
         if cached and cached.get("ok"):
             data["fallback"] = True                # stale tiles beat no tiles
-            data["points"] = cached["points"]
-            data["date"] = cached.get("date", "")
-            data["n"] = cached.get("n", 0)
-            data["maxSpd"] = cached.get("maxSpd", 0)
+            for k in ("points", "date", "n", "maxSpd", "sets"):
+                if k in cached:
+                    data[k] = cached[k]
     _gs_save_cache(data)
     return data
 
@@ -258,7 +278,9 @@ def _beach_risks(buoys):
                 bits.append(f"from {b['mwd']:.0f}°")
             src = " ".join(bits) + f" via buoy {sid}"
         out.append({"beach": name, "risk": tier, "color": col,
-                    "text": text, "src": src})
+                    "text": text, "src": src,
+                    "band": b.get("band") or "-",
+                    "bandColor": b.get("bandColor") or "#8b97a5"})
     return out
 
 _cache = {"at": 0.0, "data": None}
@@ -290,7 +312,11 @@ def _sst_dates():
 
 
 def _parse_realtime2(text):
-    """Newest row with usable wave data -> dict; rows are newest-first."""
+    """Newest row with usable wave data -> dict; rows are newest-first.
+    The same file carries ~45 days of hourly rows, so while scanning we
+    also collect the last 48 h of (hours-ago, dpd, wvht) samples for the
+    swell-trend sparkline - zero extra requests, one row per hour."""
+    rows = []
     for line in text.splitlines():
         if line.startswith("#") or not line.strip():
             continue
@@ -320,9 +346,52 @@ def _parse_realtime2(text):
             ts = dt.datetime(yy, mo, dd, hh, mn, tzinfo=dt.timezone.utc)
         except ValueError:
             continue
-        return {"ts": ts.isoformat(), "wvht": wvht, "dpd": dpd,
-                "apd": apd, "mwd": mwd, "wtmp": wtmp}
-    return {}
+        rows.append((ts, wvht, dpd, apd, mwd, wtmp))
+    newest = None
+    for ts, wvht, dpd, apd, mwd, wtmp in rows:   # newest-first
+        if wvht is not None or dpd is not None or wtmp is not None:
+            newest = {"ts": ts.isoformat(), "wvht": wvht, "dpd": dpd,
+                      "apd": apd, "mwd": mwd, "wtmp": wtmp}
+            break
+    if not newest:
+        return {}
+    t0 = dt.datetime.fromisoformat(newest["ts"])
+    seen, hist = set(), []
+    for ts, wvht, dpd, _apd, _mwd, _wtmp in rows:
+        if dpd is None:
+            continue
+        age = (t0 - ts).total_seconds() / 3600.0
+        if age > 48:
+            break                               # rows are newest-first
+        hour = ts.replace(minute=0)
+        if hour in seen:
+            continue                            # one sample per hour
+        seen.add(hour)
+        hist.append([round(age), dpd,
+                     round(wvht, 2) if wvht is not None else None])
+    newest["hist"] = list(reversed(hist))       # oldest-first for plotting
+    return newest
+
+
+def _trend(hist):
+    """"building"/"fading"/"steady" from the 48 h period history, plus the
+    delta. Compare the mean of the oldest vs newest 6 h with plenty of
+    slop: period drifts slowly, and 0.3-0.4 s over a day is already a
+    real swell-train signal."""
+    if not hist or len(hist) < 12:
+        return None
+    old = [p for a, p, _h in hist if a >= 42]
+    new = [p for a, p, _h in hist if a <= 6]
+    if not old or not new:
+        return None
+    d = sum(new) / len(new) - sum(old) / len(old)
+    if d >= 0.4:
+        w = "building"
+    elif d <= -0.4:
+        w = "fading"
+    else:
+        w = "steady"
+    return {"d": round(d, 1), "word": w}
 
 
 def _wave_color(wvht):
@@ -396,12 +465,14 @@ def _build():
         col = _wave_color(wvht)
         state, word = _sea_state(wvht)
         band, band_col = _swell_band(obs.get("dpd"))
+        hist = obs.get("hist") or []
         buoys.append({
             "id": sid, "name": name, "lat": lat, "lon": lon,
             "wvht": wvht, "dpd": obs.get("dpd"), "apd": obs.get("apd"),
             "mwd": obs.get("mwd"), "wtmp": obs.get("wtmp"),
             "color": col, "state": state, "word": word,
             "band": band, "bandColor": band_col,
+            "hist": hist, "trend": _trend(hist),
             "ts": obs.get("ts"), "ok": bool(obs),
         })
     ok = [b for b in buoys if b["ok"]]
@@ -423,6 +494,10 @@ def _build():
                   "best": ({"id": best["id"], "name": best["name"],
                             "dpd": best["dpd"], "wvht": best["wvht"],
                             "band": best["band"]} if best else None)},
+        "building": sum(1 for b in ok
+                        if (b.get("trend") or {}).get("word") == "building"),
+        "fading": sum(1 for b in ok
+                      if (b.get("trend") or {}).get("word") == "fading"),
         "ok": bool(ok),
         "buoys": buoys,
         "nOk": len(ok),
