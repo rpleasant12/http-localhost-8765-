@@ -344,6 +344,16 @@ def _season_safe():
         return {"ok": False, "reason": "season module unavailable"}
 
 
+def _snowtrack_safe():
+    """Season-to-date snow tracker (data/snowtrack.py) - ACIS outage must
+    not kill the build; the panel degrades to a one-line notice."""
+    try:
+        from data.snowtrack import bundle
+        return bundle() or {"ok": False, "reason": "no data"}
+    except Exception:                              # noqa: BLE001
+        return {"ok": False, "reason": "snowtrack module unavailable"}
+
+
 def _road_risk(hourly):
     """Road-conditions outlook for the next ~18 h from the NWS hourly.
 
@@ -11039,6 +11049,8 @@ def page_winter(d):
     """Winter weather: HRRR snow/ice overlays, multi-model snowfall maps,
     WPC winter desks, CPC extended outlooks, winter alerts."""
     wnt = d.get("winter") or {}
+    snowtrack = _snowtrack_safe()
+    snowtrack_json = json.dumps(snowtrack, separators=(",", ":"))
     frames = wnt.get("frames") or {}
     alerts = wnt.get("alerts") or {}
     wpc = wnt.get("wpc") or []
@@ -11273,6 +11285,12 @@ def page_winter(d):
 <div class="src" style="margin-top:6px">Read it like an East Tennessean: the Plateau and Tri-Cities run 2-3 weeks ahead of Knoxville and Chattanooga into winter and a week behind coming out - freeze is a daily occurrence up there by late October. And the Superstorm of March 1993 appearing in two rows of the same table is no coincidence: the biggest storm in most of Tennessee's recorded history did not care about elevation. The row inside its current first-freeze window is highlighted. Sources: NWS Morristown climate pages (weather.gov/mrx: Knoxville, Chattanooga, Tri-Cities normals &amp; records) and NOAA's ACIS climate database (Crossville daily records); normals period 1991-2020.</div>
 </div>
 
+<div class="card"><h2>🌨️ Season-to-date snow tracker - observed vs. the outlook</h2>
+<div class="src">Every observed snow event (0.1"+) this snow year at the four anchor stations, logged from NOAA's ACIS daily database - then checked against the pace each station's CPC seasonal outlook implies. "Expected by now" applies the normal seasonal shape (quiet Oct/Nov, ramping Dec, peaking Jan) to the station's 1991-2020 normal: if the observed total tracks that curve, the outlook is verifying; if not, the panel says so plainly. Before Oct 1 the panel shows the most recent complete season as its proving ground.</div>
+<div id="stBody" class="src">Loading the season-to-date record&hellip;</div>
+<div class="src" style="margin-top:6px">Source: NOAA ACIS daily database (data.rcc-acis.org) - the same records behind the almanac above; normals 1991-2020. Event grouping: consecutive snowy days count as one storm (a single dry day between them does not split it).</div>
+</div>
+
 <div class="card"><h2>📅 Weeks 2-4: CPC extended outlooks</h2>
 <div class="src">Climate Prediction Center 6-10 and 8-14 day outlooks - the standard extended-range winter guidance. Below-normal temperatures (blues) + a wet signal = the pattern that produces Tennessee Valley snow.</div>
 <div class="ltg-row">{cpc_tiles}</div>
@@ -11363,6 +11381,52 @@ async function boot() {{
   }}
 }})();
 boot();
+/* ---- season-to-date snow tracker: render the inline payload ---- */
+(function () {{
+  const B = {snowtrack_json};
+  const body = document.getElementById("stBody");
+  if (!body) return;
+  const esc = s => String(s == null ? "" : s).replace(/[&<>]/g,
+    ch => ({{"&":"&amp;","<":"&lt;",">":"&gt;"}})[ch]);
+  if (!B || !B.ok || !(B.stations || []).length) {{
+    body.innerHTML = "Season-to-date snow log unavailable this cycle ("
+      + esc((B && B.reason) || "no data") + ").";
+    return;
+  }}
+  const rows = B.stations.map(s => {{
+    if (!s.ok) {{
+      return `<tr><td colspan=6 style="padding:7px 8px;color:#ef6c00">${{esc(s.town)}}: log unavailable (${{esc(s.reason || "no data")}})</td></tr>`;
+    }}
+    const ev = (s.events || []).map(e =>
+      `<span style="white-space:nowrap"><b>${{e.total.toFixed(1)}}"</b> ${{esc((e.start || "").slice(5))}}${{(e.days > 1 ? "-" + esc((e.end || "").slice(5)) : "")}}</span>`
+    ).join(" &middot; ") || "<span style=color:#9fb0c0>none logged yet</span>";
+    const pct = s.expectedByNow > 0
+      ? Math.round(100 * s.total / s.expectedByNow) : null;
+    const pace = pct == null ? "" :
+      (pct >= 999 ? "&ge;999%" : pct + "%") + " of the CPC pace";
+    const phaseTag = s.phase === "complete"
+      ? `<span class=sntag style=background:#455a64>final - ${{esc((s.seasonStart || "").slice(0,4))}}-${{(parseInt((s.seasonStart || "").slice(0,4)) + 1)}}</span>`
+      : `<span class=sntag style=background:#1e3a5f>through ${{esc((s.through || "").slice(5))}}</span>`;
+    return `<tr style="border-bottom:1px solid #1d2430">
+      <td style="padding:7px 8px"><b>${{esc(s.town)}}</b> <span style="color:#9fb0c0">(${{esc(s.code)}})</span><br><span style="color:#9fb0c0;font-size:12px">normal ${{s.normal.toFixed(1)}}" &middot; ${{esc(s.cpcPrior)}} snows</span></td>
+      <td style="padding:7px 8px"><b style="font-size:15px">${{s.total.toFixed(1)}}"</b></td>
+      <td style="padding:7px 8px">${{ev}}</td>
+      <td style="padding:7px 8px">${{s.expectedByNow.toFixed(1)}}"${{pct == null ? "" : ` <span style=color:#9fb0c0>(${{pct}}%)</span>`}}</td>
+      <td style="padding:7px 8px"><b style="color:${{esc(s.verdictColor)}}">${{esc(s.verdict)}}</b>${{pace ? `<br><span style="color:#9fb0c0;font-size:12px">${{pace}}</span>` : ""}}</td>
+      <td style="padding:7px 8px">${{phaseTag}}</td>
+    </tr>`;
+  }}).join("");
+  body.outerHTML = `
+  <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13.5px;min-width:760px">
+    <thead><tr style="color:#9fb0c0;text-align:left;border-bottom:1px solid #2b3441">
+      <th style="padding:6px 8px">Station</th>
+      <th style="padding:6px 8px">Season total</th>
+      <th style="padding:6px 8px">Logged events</th>
+      <th style="padding:6px 8px">Expected by now</th>
+      <th style="padding:6px 8px">Outlook check</th>
+      <th style="padding:6px 8px">Phase</th>
+    </tr></thead><tbody>${{rows}}</tbody></table></div>`;
+}})();
 </script>
 <style>
 .sntabs {{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }}
