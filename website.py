@@ -174,14 +174,71 @@ def _cache_mpas_shield_from_disk(payload):
 _GLANCE_REGIONS = (
     ("East Tennessee", "ETN", (
         ("Greeneville", 36.1627, -82.8332), ("Knoxville", 35.9606, -83.9207),
-        ("Chattanooga", 35.0456, -85.3097), ("Crossville", 35.9479, -85.0269))),
+        ("Chattanooga", 35.0456, -85.3097), ("Crossville", 35.9479, -85.0269)),
+     frozenset((
+        ("Anderson", "TN"), ("Bledsoe", "TN"), ("Blount", "TN"), ("Bradley", "TN"),
+        ("Campbell", "TN"), ("Carter", "TN"), ("Claiborne", "TN"), ("Cocke", "TN"),
+        ("Cumberland", "TN"), ("Grainger", "TN"), ("Greene", "TN"), ("Hamblen", "TN"),
+        ("Hamilton", "TN"), ("Hancock", "TN"), ("Hawkins", "TN"), ("Jefferson", "TN"),
+        ("Knox", "TN"), ("Loudon", "TN"), ("Marion", "TN"), ("McMinn", "TN"),
+        ("Meigs", "TN"), ("Monroe", "TN"), ("Morgan", "TN"), ("Polk", "TN"),
+        ("Rhea", "TN"), ("Roane", "TN"), ("Scott", "TN"), ("Sequatchie", "TN"),
+        ("Sevier", "TN"), ("Sullivan", "TN"), ("Unicoi", "TN"), ("Union", "TN"),
+        ("Washington", "TN")))),
     ("Southwest Virginia", "SWVA", (
         ("Bristol", 36.6114, -82.1880), ("Abingdon", 36.7098, -81.9773),
-        ("Marion", 36.8029, -81.5123), ("Wytheville", 36.9482, -81.0834))),
+        ("Marion", 36.8029, -81.5123), ("Wytheville", 36.9482, -81.0834)),
+     frozenset((
+        ("Lee", "VA"), ("Scott", "VA"), ("Washington", "VA"), ("Russell", "VA"),
+        ("Tazewell", "VA"), ("Smyth", "VA"), ("Wythe", "VA"), ("Bland", "VA"),
+        ("Giles", "VA"), ("Pulaski", "VA"), ("Montgomery", "VA"), ("Carroll", "VA"),
+        ("Grayson", "VA"), ("Buchanan", "VA"), ("Dickenson", "VA"), ("Wise", "VA"),
+        ("Bristol", "VA"), ("Norton", "VA"), ("Galax", "VA"), ("Radford", "VA")))),
     ("Western North Carolina", "WNCC", (
         ("Asheville", 35.5951, -82.5515), ("Boone", 36.2118, -81.6739),
-        ("Murphy", 35.0876, -84.0347), ("Hendersonville", 35.3193, -82.4606))),
+        ("Murphy", 35.0876, -84.0347), ("Hendersonville", 35.3193, -82.4606)),
+     frozenset((
+        ("Alleghany", "NC"), ("Ashe", "NC"), ("Avery", "NC"), ("Buncombe", "NC"),
+        ("Burke", "NC"), ("Caldwell", "NC"), ("Cherokee", "NC"), ("Clay", "NC"),
+        ("Graham", "NC"), ("Haywood", "NC"), ("Henderson", "NC"), ("Jackson", "NC"),
+        ("Macon", "NC"), ("Madison", "NC"), ("McDowell", "NC"), ("Mitchell", "NC"),
+        ("Polk", "NC"), ("Rutherford", "NC"), ("Swain", "NC"), ("Transylvania", "NC"),
+        ("Watauga", "NC"), ("Wilkes", "NC"), ("Yancey", "NC")))),
 )
+
+# duplicated names across the tri-state (Polk TN/NC, Washington TN/VA) mean
+# county matching must be (name, state), never name alone
+
+def _warn_counties(w):
+    """[(name, state)] from a NWS areaDesc ('Greene County, TN; City of Bristol, VA')."""
+    out = []
+    for seg in (w.get("areaDesc") or "").split(";"):
+        seg = seg.strip()
+        if not seg or "," not in seg:
+            continue
+        nm, _, st = seg.rpartition(",")
+        nm = nm.strip()
+        for cut in (" County", " county"):
+            if nm.endswith(cut):
+                nm = nm[:-len(cut)]
+        if nm.lower().startswith("city of "):
+            nm = nm[8:]
+        st = st.strip().upper()
+        if nm and len(st) == 2:
+            out.append((nm, st))
+    return out
+
+
+def _warn_rank(ev):
+    """Chip priority: tornado > flood > severe tstorm > other."""
+    ev = (ev or "").lower()
+    if "tornado" in ev:
+        return 4
+    if "flood" in ev:
+        return 3
+    if "severe thunderstorm" in ev or "thunderstorm" in ev:
+        return 2
+    return 1
 
 
 def _sev_glance(outlook_feats, ww):
@@ -201,7 +258,7 @@ def _sev_glance(outlook_feats, ww):
             return 0.0
 
     regions = []
-    for name, short, towns in _GLANCE_REGIONS:
+    for name, short, towns, counties in _GLANCE_REGIONS:
         pts = [(lat, lon) for _, lat, lon in towns]
 
         def _worst(prefix):
@@ -235,21 +292,37 @@ def _sev_glance(outlook_feats, ww):
                     for lat, lon in pts if _pip(lat, lon, f.get("geometry"))]
             haz[key] = int(max(vals)) if vals else 0
         warns = []
+        county_hits = {}
         for w in (ww or []):
-            for lat, lon in pts:
-                if _pip(lat, lon, w.get("geometry")):
-                    warns.append({"event": w.get("event"),
-                                  "area": (w.get("areaDesc") or "")[:90],
-                                  "color": w.get("color") or "#ff9f43",
-                                  "tor": w.get("tor") or ""})
-                    break
+            pip = any(_pip(lat, lon, w.get("geometry")) for lat, lon in pts)
+            wcs = _warn_counties(w)
+            if not pip and not (counties & set(wcs)):
+                continue      # touches neither the anchor towns nor the region's counties
+            warns.append({"event": w.get("event"),
+                          "area": (w.get("areaDesc") or "")[:90],
+                          "color": w.get("color") or "#ff9f43",
+                          "tor": w.get("tor") or ""})
+            # county breakdown: keep the highest-priority warning per county,
+            # only counties inside this board's region
+            pr = _warn_rank(w.get("event"))
+            for nm, st in wcs:
+                if (nm, st) not in counties:
+                    continue
+                cur = county_hits.get((nm, st))
+                if cur is None or pr > cur[0]:
+                    county_hits[(nm, st)] = (pr, w.get("event") or "",
+                                             w.get("color") or "#ff9f43")
             if len(warns) >= 4:
                 break
+        warn_counties = [{"name": nm, "state": st, "event": ev, "color": col}
+                         for (nm, st), (_, ev, col) in
+                         sorted(county_hits.items(), key=lambda kv: (-kv[1][0], kv[0]))]
         regions.append({
             "name": name, "short": short,
             "towns": [t[0] for t in towns],
             "cats": cat, "haz": haz, "warnings": warns,
-            "allClear": not warns and not cat.get("day1"),
+            "warnCounties": warn_counties,
+            "allClear": (not warns and not warn_counties and not cat.get("day1")),
         })
     return {"regions": regions}
 
@@ -10120,6 +10193,16 @@ def page_severe(d):
             f'{" · 🌪 tornado " + html.escape(w["tor"]) if w.get("tor") else ""}'
             f'<span>{html.escape(w.get("area") or "")}</span></div>'
             for w in (rg.get("warnings") or []))
+        # county-level breakdown: one chip per warned county, colored by the
+        # worst warning's map color, tornado warnings flagged bold
+        cchips = "".join(
+            f'<span class="chip" style="background:{c["color"]};font-size:12.5px;padding:3px 10px">'
+            f'{html.escape(c["name"])} county'
+            f'{" \U0001F32A" if "tornado" in (c["event"] or "").lower() else ""}</span>'
+            for c in (rg.get("warnCounties") or []))
+        cblock = (f'<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">'
+                  f'<span class="src" style="align-self:center">Warned counties:</span>{cchips}</div>'
+                  if cchips else '')
         wblock = (f'<div style="margin-top:8px">{wcards}</div>' if wcards else
                   '<div class="src" style="margin-top:6px">No active warnings in this region.</div>')
         towns = " · ".join(rg.get("towns") or [])
@@ -10132,7 +10215,7 @@ def page_severe(d):
                f'<table class="minitable" style="min-width:340px"><tr><th></th><th>Today</th><th>Tomorrow</th><th>Day 3</th></tr>'
                f'<tr><td><b>Outlook</b></td>{day_cells}</tr></table>'
                f'<div style="margin-top:6px;font-size:13.5px">Day-1 probabilities: {haz_bits}</div>'
-               + wblock)
+               + cblock + wblock)
             + '</div>')
     nation = (sev.get("forecast") or {}).get("nationwide") or {}
     n_rows = "".join(
