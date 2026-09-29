@@ -261,6 +261,15 @@ def _sev_glance_safe(outlook_feats, ww):
         return {"regions": []}
 
 
+def _season_safe():
+    """CPC seasonal snowfall-chance bundle - never let a CPC outage kill
+    the build (winter page degrades to the long-range image gallery)."""
+    try:
+        from data.season import season_bundle
+        return season_bundle() or {"ok": False, "reason": "no data"}
+    except Exception:                              # noqa: BLE001
+        return {"ok": False, "reason": "season module unavailable"}
+
 
 def collect_data():
     """Everything the site needs, from disk caches + a few fast NWS calls."""
@@ -881,6 +890,7 @@ def collect_data():
             "maps": sevmaps_bundle(),
         },
         "winter": winter_bundle(),
+        "season": _season_safe(),
         "rivers": _rivers_safe(),
         "dashboard": _dashboard_safe(),
         "space": _space_safe(),
@@ -10629,6 +10639,7 @@ def page_winter(d):
     cpc = wnt.get("cpc") or []
     msnow = wnt.get("modelSnow") or {}
     lr = wnt.get("longRange") or []
+    season = d.get("season") or {}
 
     us_n = alerts.get("usCount", 0)
     if us_n:
@@ -10662,6 +10673,64 @@ def page_winter(d):
         f'<figure class="wpcfig"><img loading="lazy" src="{p["url"].replace("/app/static/", "../")}" alt="{html.escape(p["label"])}"/'
         f'<figcaption>{html.escape(p["label"])}</figcaption></figure>'
         for p in lr)
+
+    # 2026-09-28: CPC seasonal snowfall-chance map (data/season.py) - the
+    # long-lead CONTOURS as toggleable Leaflet layers, region scorecards and
+    # an impacts ladder. All GeoJSON ships in data.json ("season" key); the
+    # page only renders what arrived and says so when the snow layer is
+    # legitimately empty (warm-tilt month). No raster output to package.
+    sn_kpis = sn_html = ""
+    if season.get("ok"):
+        sn_kpis = (
+            '<div class="kpi"><span>Issued</span><b>'
+            f'{html.escape(str(season.get("issued") or "?"))}</b></div>')
+        for _i, _w in enumerate(season.get("windows") or []):
+            _win = html.escape(_w["window"])
+            _lbl = html.escape(_w["label"])
+            _chance_rows = "".join(
+                f'<div class="snl"><span class="sndot" style="background:{f["properties"]["fill"]}"></span>'
+                f'{int(f["properties"]["chance"])}% snow window'
+                f'<span class="src">cold {int(f["properties"]["coldPct"])}% &times; wet {int(f["properties"]["wetPct"])}%</span></div>'
+                for f in (_w.get("snow") or [])[:8])
+            if _chance_rows:
+                _chance_html = (
+                    f'<div class="snchance">{_chance_rows}</div>'
+                    + '<div class="src">Snow chance = cold-tilt % + wet-tilt % &minus; 33 '
+                      '(the "both ingredients" probability), where CPC drew a below-normal '
+                      'temperature contour that overlaps an above-normal precipitation '
+                      'contour. In warm-tilt months that overlap is genuinely absent - '
+                      'nothing is invented.</div>')
+            else:
+                _chance_html = ('<div class="alert ok">No snow-chance overlap this window - '
+                                'the CPC temperature outlook has no below-normal contours, so '
+                                'the cold+wet intersection is empty. That is the honest read '
+                                'of a warm-tilt winter.</div>')
+            _cards = "".join(
+                '<div class="sncard">'
+                f'<b>{html.escape(c["region"])}</b>'
+                f'<div>{html.escape(c["summary"])}</div>'
+                f'<div class="src">warm {int((c["scores"].get("warm") or 0))}% &middot; cold {int((c["scores"].get("cold") or 0))}% &middot; wet {int((c["scores"].get("wet") or 0))}% &middot; dry {int((c["scores"].get("dry") or 0))}%</div>'
+                '</div>'
+                for c in (_w.get("cards") or []))
+            _impact_word = html.escape(str(_w.get("impactWord") or "-"))
+            _impact_text = html.escape(str(_w.get("impactText") or ""))
+            _impact_word_disp = _impact_word.upper()
+            sn_html += (
+                f'<div class="snwin" data-i="{_i}">'
+                f'<h3>{_lbl} <span class="src">({_win})</span></h3>'
+                f'{_chance_html}'
+                f'<div class="sncards">{_cards}</div>'
+                f'<div class="snimpact"><span class="sntag sn-{_impact_word}">{_impact_word_disp}</span> {_impact_text}</div>'
+                '</div>')
+        sn_html = (
+            '<div class="sntabs">'
+            ''.join(f'<button class="sntab" data-w="{_i}">{html.escape(w["label"])}</button>'
+                    for _i, w in enumerate(season.get("windows") or []))
+            + '</div>' + sn_html)
+    else:
+        sn_kpis = '<div class="kpi"><span>Seasonal outlook</span><b>unavailable right now</b></div>'
+        sn_html = ('<div class="alert">CPC seasonal shapefiles are unreachable right now - '
+                   'the long-lead image gallery below still has the official maps.</div>')
 
     body = f"""
 <header class="hero"><h1>❄️ Winter Weather</h1>
@@ -10717,6 +10786,31 @@ def page_winter(d):
 <div class="card"><h2>🌐 Winter 2026-27 seasonal outlooks (CPC long-lead)</h2>
 <div class="src">Climate Prediction Center seasonal outlooks - the official NOAA winter forecast for 2026-27. Each 3-month window is a <b>probability tilt</b>, not an amount: blues = below normal, reds = above, gray = equal chances (no signal). The three rows shift one month deeper into winter - updated the third Thursday of each month. A cold-blue column over Tennessee with a wet-green precipitation row is the classic big-winter setup; a warm-red column says expect another flip-flop season.</div>
 <div class="ltg-row">{lr_tiles}</div>
+</div>
+
+<div class="card"><h2>❄️ CPC seasonal snowfall chance - interactive tilt map</h2>
+<div class="src">The SAME Climate Prediction Center 2026-27 outlook as the image gallery below, drawn as the actual forecast contours: <b>red</b> = warmer than normal, <b>blue</b> = colder, <b>green</b> = wetter, <b>tan</b> = drier. Snow chance is where a cold tilt overlaps a wet tilt. Toggle layers, drag the map, tap a contour for its probability.</div>
+<div class="kpis">{sn_kpis}
+  <div class="kpi"><span>Snow-chance peak</span><b id="snTop">-</b></div>
+</div>
+<div id="seasonMap" class="map-dark" style="height:440px"></div>
+<div class="legend">
+  <span><i style="background:#c96a3f"></i>warmer</span>
+  <span><i style="background:#4f9be8"></i>colder</span>
+  <span><i style="background:#3fae6a"></i>wetter</span>
+  <span><i style="background:#d7b45a"></i>drier</span>
+  <span><i style="background:#7fc4f0"></i>snow 42-49%</span>
+  <span><i style="background:#2f9be8"></i>50-59%</span>
+  <span><i style="background:#4f6ed8"></i>60%+</span>
+</div>
+<div class="ctl" style="margin-top:10px">
+  <label><input type="checkbox" id="snWarm"/> warmer</label>
+  <label><input type="checkbox" id="snCold"/> colder</label>
+  <label><input type="checkbox" id="snWet"/> wetter</label>
+  <label><input type="checkbox" id="snDry"/> drier</label>
+  <label><input type="checkbox" id="snSnow" checked/> snow chance</label>
+</div>
+<div id="snTabs" style="margin-top:12px">{sn_html}</div>
 </div>
 
 <div class="card"><h2>📅 Weeks 2-4: CPC extended outlooks</h2>
@@ -10791,6 +10885,111 @@ async function boot() {{
   }}
 }}
 boot();
+</script>
+<style>
+.sntabs {{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }}
+.sntab {{ border:1px solid #2b3441; background:#161b22; color:#cfd8e3; padding:6px 14px;
+          border-radius:8px; font-weight:700; cursor:pointer; font-size:13px; }}
+.sntab.on {{ background:#1e3a5f; border-color:#4da3ff; color:#fff; }}
+.snwin {{ display:none; }}
+.snwin.on {{ display:block; }}
+.sncards {{ display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:10px; margin:10px 0; }}
+.sncard {{ background:#12161d; border:1px solid #232b37; border-radius:8px; padding:10px 12px; }}
+.sncard b {{ display:block; margin-bottom:2px; }}
+.snchance {{ margin:8px 0; }}
+.snl {{ display:flex; align-items:center; gap:6px; margin:3px 0; font-size:13px; }}
+.sndot {{ width:11px; height:11px; border-radius:3px; display:inline-block; }}
+.snimpact {{ margin-top:6px; font-size:13.5px; }}
+.sntag {{ display:inline-block; padding:2px 10px; border-radius:5px; font-weight:800;
+          font-size:12px; color:#fff; background:#37474f; }}
+.sn-frequent {{ background:#7b3fc9; }}
+.sn-occasional {{ background:#4f6ed8; }}
+.sn-episode {{ background:#2f9be8; }}
+.sn-light {{ background:#43a047; }}
+@media (max-width:640px) {{ .sncards {{ grid-template-columns:1fr; }} }}
+</style>
+<script>
+/* season GeoJSON rides in data.json ("season" key) - NOT inlined here, so the
+   page does not ship the same ~670 KB twice; wait for boot()'s DATA fetch */
+(function () {{
+  let n = 0;
+  (function waitData() {{
+    if (typeof DATA !== "undefined" && DATA && DATA.season) {{ try {{ bootSeason(DATA.season); }} catch (e) {{}} }}
+    else if (n++ < 150) setTimeout(waitData, 100);
+  }})();
+}})();
+function bootSeason(SEASON) {{
+if (SEASON && SEASON.ok) {{
+(async function () {{
+  const SNP = {{ warm:"#c96a3f", cold:"#4f9be8", wet:"#3fae6a", dry:"#d7b45a" }};
+  let smap = null;
+  const layers = {{ warm:null, cold:null, wet:null, dry:null, snow:null }};
+  function featLayer(feats, base) {{
+    if (!feats || !feats.length) return null;
+    return L.geoJSON({{ type:"FeatureCollection", features:feats }}, {{
+      style: f => ({{
+        color: f.properties.fill || SNP[f.properties.layer] || "#888",
+        weight: 1, fillColor: f.properties.fill || SNP[f.properties.layer],
+        fillOpacity: 0.34, dashArray: base ? null : "4 4"
+      }}),
+      onEachFeature: (f, ly) => {{
+        const p = f.properties || {{}};
+        const tip = p.chance != null
+          ? `<b>Snow chance ${{p.chance}}%</b><br/>cold ${{p.coldPct}}% × wet ${{p.wetPct}}%`
+          : `<b>${{Math.round(p.prob)}}%</b> chance ${{(p.word || "").trim()}}`;
+        ly.bindTooltip(tip, {{ sticky: true }});
+      }}
+    }});
+  }}
+  function snShow() {{
+    if (!smap || !smap._leaflet_id) return;
+    for (const k of Object.keys(layers)) {{
+      const built = layers[k];
+      const want = document.getElementById("sn" + k.charAt(0).toUpperCase() + k.slice(1));
+      if (built) built.remove();
+      layers[k] = null;
+      if (want && want.checked && (SEASON.windows[snIdx].layers[k] || []).length) {{
+        layers[k] = featLayer(SEASON.windows[snIdx].layers[k], k !== "snow");
+        if (layers[k]) layers[k].addTo(smap);
+      }}
+    }}
+  }}
+  let snIdx = 1;
+  function snPick(i) {{
+    snIdx = i;
+    document.querySelectorAll(".snwin").forEach(el =>
+      el.classList.toggle("on", +el.dataset.i === i));
+    document.querySelectorAll(".sntab").forEach(el =>
+      el.classList.toggle("on", +el.dataset.w === i));
+    const w = SEASON.windows[i];
+    const top = document.getElementById("snTop");
+    if (top) top.textContent = w.topSnow ? (w.topSnow + "% " + w.window) : "none - warm tilt";
+    if (smap && smap._leaflet_id) {{
+      smap.invalidateSize();
+      snShow();
+    }}
+  }}
+  function bootSeasonMap() {{
+    if (smap) return;
+    smap = L.map("seasonMap", {{ zoomSnap: 0.5, maxZoom: 12 }}).setView([38.5, -88], 4.5);
+    /* plain OSM tiles + the container's .map-dark invert: a second map on
+       this page must NOT go through addMapControls(), which would rewire
+       the page-global baseSel switcher and home marker onto it */
+    L.tileLayer("https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png",
+      {{ maxNativeZoom: 12, maxZoom: 12, attribution: "&copy; OpenStreetMap contributors" }}).addTo(smap);
+    snShow();
+    ["Warm","Cold","Wet","Dry","Snow"].forEach(k => {{
+      const el = document.getElementById("sn" + k);
+      if (el) el.onchange = snShow;
+    }});
+    document.querySelectorAll(".sntab").forEach(el =>
+      el.onclick = () => snPick(+el.dataset.w));
+    snPick(Math.min(1, SEASON.windows.length - 1));
+  }}
+  if (document.getElementById("seasonMap")) bootSeasonMap();
+}})();
+}}
+}}
 </script>
 """
     return _page("Winter", "winter.html", body)
