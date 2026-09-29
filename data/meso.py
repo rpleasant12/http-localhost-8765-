@@ -59,7 +59,13 @@ FIELD_GROUPS = [
         ("lfch", "LFC Height"),
         ("lr3c", "0-3 km Lapse Rate"),
         ("lllr", "Low-Level Lapse Rate"),
-        ("laps", "700-500 mb Lapse Rate"),
+        # SPC's own viewer labels 'laps' MID-LEVEL Lapse Rates (850-500 mb);
+        # it was wrongly labeled "700-500 mb" here, hiding the field users
+        # asked for (2026-09-18). maxlr = Max 2-6 km AGL Lapse Rate.
+        ("laps", "Mid-Level Lapse Rate (850-500 mb)"),
+        # maxlr publishes ONLY the contour-labeled variant (no _sf fill) -
+        # keep it OUT of FILLED or its fetch 404s (verified 2026-09-18)
+        ("maxlr", "Max 2-6 km Lapse Rate"),
         ("ttd", "Sfc Temp / Dewpoint"),
         ("pwtr", "Precipitable Water"),
         ("fzlv", "Freezing Level"),
@@ -77,6 +83,10 @@ FIELD_GROUPS = [
         ("stpc", "Significant Tornado (STP)"),
         ("scp", "SCP (classic)"),
         ("sigh", "Significant Hail Parameter"),
+        # SPC dropped EHI from the mesoanalysis lineup (verified 2026-09-24);
+        # served from the site's own SPC-paletted HRRR EHI wall so the
+        # composite family stays complete and the palette stays shared.
+        ("ehi", "Energy Helicity Index (HRRR wall)"),
         ("thea", "Theta-E Advection"),
         ("mcon", "Moisture Convergence"),
         ("qlcs1", "QLCS Tornado Prob (0-1 km)"),
@@ -459,16 +469,29 @@ def zoom_east_tn(src_sector=None, force=False):
 
     def _do(name):
         try:
-            im = Image.open(os.path.join(sdir, name)).convert("RGBA")
+            im = Image.open(os.path.join(sdir, name)).convert("RGB")
             crop = im.crop((x0, y0, x1, y1))
             if crop.width < 8 or crop.height < 8:
                 return False
             out = crop.resize((IMG_W, IMG_H), Image.LANCZOS)
             _draw_states(out, x0, y0, x1 - x0, y1 - y0)
             _draw_cities(out, x0, y0, x1 - x0, y1 - y0)
+            # Palette-quantize: SPC fields have <128 distinct colors, and the
+            # RGBA PNGs this replaced ran ~550 KB each - 37 live + 216 archive
+            # files blew docs/ past the 950 MB publish cap (2026-09-20 23:52,
+            # "build too large - skipping"). Measured 27% of the RGBA size,
+            # visually identical at map scale.
+            out = out.quantize(colors=128, method=Image.MEDIANCUT,
+                               dither=Image.FLOYDSTEINBERG)
+            # quantize carries an RGB-tuple transparency into P-mode where
+            # PNG save compares tuple<int and TypeErrors (measured) - these
+            # renders are opaque, so drop the key entirely.
+            t = out.info.get("transparency")
+            if not isinstance(t, int):
+                out.info.pop("transparency", None)
             dst = os.path.join(odir, name[:-4] + ".png")
             tmp = dst + ".tmp"
-            out.save(tmp, "PNG")
+            out.save(tmp, "PNG", optimize=True)
             os.replace(tmp, dst)
             return True
         except Exception:  # noqa: BLE001
@@ -509,7 +532,7 @@ def _archive_url(sector, code, dt_utc):
     return f"{BASE}/s{sector}/{code}/{code}_{stamp}.gif"
 
 
-def refresh_history(sector, fields, hours=6):
+def refresh_history(sector, fields, hours=4):
     """Download the past `hours` hourly archive frames for these fields."""
     import datetime as dt
     sdir = os.path.join(OUT_DIR, f"s{sector}")
@@ -528,6 +551,54 @@ def refresh_history(sector, fields, hours=6):
     return ok
 
 
+def _prune_archive(keep=4):
+    """Delete archive frames older than the newest `keep` hourly stamps.
+
+    refresh_history skips files it already has, so old stamps accumulated
+    forever - docs/meso/ alone hit 275 MB and pushed the build past the
+    publish size cap (2026-09-20 23:52). Runs at the end of each meso_bundle
+    render; a field whose live+4 archive frames the page animates is untouched.
+    """
+    import re as _re
+    removed = 0
+    try:
+        for sec in os.listdir(OUT_DIR):
+            sdir = os.path.join(OUT_DIR, sec)
+            if not os.path.isdir(sdir) or not sec.startswith("s"):
+                continue
+            by_field = {}
+            for f in os.listdir(sdir):
+                m = _re.match(r"^(.+)_(\d{8})\.(?:gif|png)$", f)
+                if m:
+                    by_field.setdefault(m.group(1), []).append((m.group(2), f))
+            for field, frames in by_field.items():
+                frames.sort(reverse=True)
+                for _stamp, f in frames[keep:]:
+                    try:
+                        os.remove(os.path.join(sdir, f))
+                        removed += 1
+                    except OSError:
+                        continue
+    except Exception:                          # noqa: BLE001 - never break render
+        return removed
+    return removed
+
+
+def _analysis_hour_et(raw):
+    """SPC sfctime.txt ('09/10/26 23 UTC') -> '09/10/26 7 PM ET' (raw on any surprise)."""
+    try:
+        from zoneinfo import ZoneInfo
+        import datetime as _dt
+        from data._tz import to_et
+        utc = _dt.datetime.strptime(raw.strip(), "%m/%d/%y %H UTC").replace(
+            tzinfo=_dt.timezone.utc)
+        e = to_et(utc)
+        hr, ampm = ((e.hour % 12) or 12), ("AM" if e.hour < 12 else "PM")
+        return f"{e.month:02d}/{e.day:02d}/{e.year % 100:02d} {hr} {ampm} ET"
+    except (ValueError, AttributeError):
+        return raw
+
+
 def _analysis_hour(sector):
     try:
         r = requests.get(f"{BASE}/s{sector}/sfctime.txt", headers=UA, timeout=10)
@@ -538,6 +609,23 @@ def _analysis_hour(sector):
     return ""
 
 
+def _fetch_field(sector, code, out_dir):
+    """Download one field's filled variant, falling back to the labeled one.
+
+    SPC historically published `{code}_sf.gif` (color-filled) for most
+    fields, but has been removing `_sf` for some (scp, sigh, eshr, srh1
+    verified 2026-09-24) while the labeled `{code}.gif` stays up. Trying
+    the fill first and falling back keeps every field alive whatever SPC
+    does next; the labeled variant reads fine stacked under overlays.
+    """
+    filled = code in FILLED or code in EXTRA
+    out_path = os.path.join(out_dir, f"{code}.gif")
+    if filled and code not in EXTRA:
+        if _fetch_one(f"{BASE}/s{sector}/{code}/{code}_sf.gif", out_path):
+            return True
+    return _fetch_one(f"{BASE}/s{sector}/{code}/{code}.gif", out_path)
+
+
 def refresh(sector, fields):
     """Download the given field set for one sector into static/meso/s{NN}/."""
     sdir = os.path.join(OUT_DIR, f"s{sector}")
@@ -545,15 +633,60 @@ def refresh(sector, fields):
     jobs = []
     with ThreadPoolExecutor(max_workers=12) as ex:
         for code in fields:
-            filled = code in FILLED or code in EXTRA
-            suffix = "_sf" if (filled and code not in EXTRA) else ""
-            url = f"{BASE}/s{sector}/{code}/{code}{suffix}.gif"
-            jobs.append(ex.submit(_fetch_one, url, os.path.join(sdir, f"{code}.gif")))
+            jobs.append(ex.submit(_fetch_field, sector, code, sdir))
         for oname, (ocode, _) in OVERLAYS.items():
             jobs.append(ex.submit(_fetch_one, f"{BASE}/s{sector}/{ocode}/{ocode}.gif",
                                   os.path.join(sdir, f"{oname}.gif")))
         ok = sum(1 for j in as_completed(jobs) if j.result())
     return ok
+
+
+def _inject_wall_ehi(sectors, et_ok=False):
+    """Add the site's HRRR EHI wall render as an `ehi` field in every sector.
+
+    SPC removed EHI from the mesoanalysis lineup, so the composite family
+    would be incomplete on the viewer. The Models-page EHI wall is already
+    rendered hourly in the shared SPC palette - the native sectors show the
+    US tile, the ET zoom shows the East-Tennessee tile. Newest cycle wins;
+    if no tile exists yet the field is simply absent (page never breaks).
+    """
+    mdir = os.path.join("static", "model_maps")
+    try:
+        names = os.listdir(mdir)
+    except OSError:
+        return
+
+    # Prefer HRRR (CAM, matches the hourly-analysis feel); any other
+    # SPC-paletted EHI wall works as fallback while the render rotation
+    # backfills the catalog (ehi tiles may not exist for every model yet).
+    def newest(model, region):
+        rx = re.compile(rf"^{model}_ehi_f(\d+)_(\d{{10}})_{region}\.png$")
+        best = None
+        for n in names:
+            m = rx.match(n)
+            if m:
+                key = (m.group(2), int(m.group(1)))
+                if best is None or key > best[0]:
+                    best = (key, n)
+        return best[1] if best else None
+
+    us_png = et_png = None
+    for model in ("HRRR", "SREF", "HREF", "REFS", "GFS"):
+        us_png = us_png or newest(model, "us")
+        et_png = et_png or (newest(model, "etn") if et_ok else None)
+        if us_png and (et_png or not et_ok):
+            break
+    entry = {"label": "Energy Helicity Index (HRRR wall)",
+             "url": f"../model_maps/{us_png}"} if us_png else None
+    for sec, info in sectors.items():
+        if not isinstance(info, dict) or "fields" not in info:
+            continue
+        if sec == ET_CODE:
+            if et_png:
+                info["fields"]["ehi"] = {"label": "Energy Helicity Index (HRRR wall)",
+                                         "url": f"../model_maps/{et_png}"}
+        elif entry:
+            info["fields"]["ehi"] = dict(entry)
 
 
 def meso_bundle(force=False):
@@ -578,7 +711,7 @@ def meso_bundle(force=False):
                 c for c in ("sbcp", "mlcp", "mucp", "eshr", "srh1", "stor",
                             "stpc", "sigh", "effh", "pwtr", "bigsfc")]
             futs[ex.submit(refresh, sec, wanted)] = (sec, True)
-            futs[ex.submit(refresh_history, sec, wanted, 6)] = (sec, False)
+            futs[ex.submit(refresh_history, sec, wanted, 4)] = (sec, False)
         for fut in as_completed(futs):
             try:
                 fut.result()
@@ -623,13 +756,15 @@ def meso_bundle(force=False):
             sectors[ET_CODE] = {"name": ET_NAME, "fields": et_fields, "overlays": et_over,
                                 "zoom": True, "source": f"s{et_src}"}
             order = [ET_CODE] + order
+    _inject_wall_ehi(sectors, et_ok=bool(et_src))
+    _prune_archive()
     data = {
-        "analysis": hour,
+        "analysis": _analysis_hour_et(hour),
         "generated": time.strftime("%Y-%m-%d %H:%M"),
         "sectorOrder": order,
         "sectorNames": {**SECTORS, ET_CODE: ET_NAME} if et_src else SECTORS,
         "fieldGroups": [[name, fields] for name, fields in FIELD_GROUPS],
-        "historyHours": 6,
+        "historyHours": 4,
         "sectors": sectors,
     }
     _META["t"] = now

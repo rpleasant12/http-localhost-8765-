@@ -46,14 +46,30 @@ def get_hourly(lat, lon):
 
 
 def get_current_conditions(lat, lon):
-    """Nearest current-conditions observation, or None if no station nearby."""
+    """Nearest current-conditions observation with actual data, or None.
+
+    Some stations publish 'latest' observations without temperature/
+    humidity values, which would render the home tile as --/n/a/0%.
+    Try up to 5 nearby stations and return the first whose observation
+    carries a temperature; fall back to the nearest otherwise.
+    """
     try:
         stations = _get(f"{NWS_API}/points/{lat:.4f},{lon:.4f}/stations")
-        station_id = stations["features"][0]["properties"]["stationIdentifier"]
-        obs = _get(f"{NWS_API}/stations/{station_id}/observations/latest")
-        return obs["properties"]
+        candidates = [f["properties"]["stationIdentifier"]
+                      for f in stations.get("features", [])][:5]
     except (requests.RequestException, KeyError, IndexError):
         return None
+    first = None
+    for sid in candidates:
+        try:
+            obs = _get(f"{NWS_API}/stations/{sid}/observations/latest")["properties"]
+        except (requests.RequestException, KeyError, IndexError):
+            continue
+        if first is None:
+            first = obs
+        if (obs.get("temperature") or {}).get("value") is not None:
+            return obs
+    return first
 
 
 def get_active_alerts(lat, lon):
@@ -82,13 +98,23 @@ def get_active_alerts(lat, lon):
 
 
 def city_forecasts(cities=None, max_periods=14):
-    """NWS point forecast for every East TN city, fetched in parallel.
+    """NWS point forecast for every city on the board, fetched in parallel.
 
     Returns [{'city','lat','lon','periods': [NWS day/night periods]}] -
     max_periods=14 covers the full 7-day day/night sequence. Periods carry
     name/temp(F)/wind/shortForecast/detailedForecast/pop. Cities whose
     forecast fails come back with periods=[] (rendered as '-').
+
+    Cached 30 min in-process: the NWS point forecast updates ~hourly, and
+    each city costs 2 api.weather.gov requests (point lookup + forecast).
+    With the 40+-city board and the updater's ~2-minute build cycle that is
+    the difference between ~280 and ~40 requests per build.
     """
+    now = _FC_CLOCK()
+    key = tuple(sorted(cities)) if cities else None
+    hit = _FC_CACHE.get(key)
+    if hit and now - hit[0] < _FC_TTL_S:
+        return hit[1]
     cities = cities or EAST_TN_CITIES
 
     def work(kv):
@@ -107,4 +133,16 @@ def city_forecasts(cities=None, max_periods=14):
         return {"city": city, "lat": lat, "lon": lon, "periods": periods}
 
     with ThreadPoolExecutor(max_workers=8) as ex:
-        return list(ex.map(work, cities.items()))
+        out = list(ex.map(work, cities.items()))
+    if out:
+        _FC_CACHE[key] = (now, out)
+    return out
+
+
+def _FC_CLOCK():
+    import time
+    return time.time()
+
+
+_FC_TTL_S = 1800
+_FC_CACHE = {}

@@ -420,14 +420,16 @@ def _render_future_frame(descriptor, max_px=1400):
         r.raise_for_status()
         with open(tmp, "wb") as f:
             f.write(r.content)
-        ds = xr.open_dataset(tmp, engine="cfgrib", backend_kwargs={"indexpath": ""})
-        var = "refc" if "refc" in ds else list(ds.data_vars)[0]
-        raw = np.asarray(ds[var].values, dtype=float)
-        if descriptor.get("model") == "nam":
-            lat_src = np.asarray(ds["latitude"].values, dtype=float)
-            lon_src = np.asarray(ds["longitude"].values, dtype=float)
-            if lat_src.ndim == 1:
-                lon_src, lat_src = np.meshgrid(lon_src, lat_src)
+        from data import griblock
+
+        with griblock.open_dataset(tmp, {"indexpath": ""}) as ds:
+            var = "refc" if "refc" in ds else list(ds.data_vars)[0]
+            raw = np.asarray(ds[var].values, dtype=float)
+            if descriptor.get("model") == "nam":
+                lat_src = np.asarray(ds["latitude"].values, dtype=float)
+                lon_src = np.asarray(ds["longitude"].values, dtype=float)
+                if lat_src.ndim == 1:
+                    lon_src, lat_src = np.meshgrid(lon_src, lat_src)
         os.remove(tmp)
 
         if descriptor.get("model") == "nam":
@@ -544,6 +546,15 @@ def render_future_frames(descriptors, max_hours=None):
     if max_hours:
         descriptors = descriptors[-max_hours:]
     reg = _prune_registry(_load_registry())
+    # Truth is the DISK, not the registry: the disk sweeper can delete PNGs
+    # the registry still calls "done" (bit us 2026-09-18 - future radar sat at
+    # ready=0 forever while the registry claimed 392 done frames). Re-render
+    # anything whose PNG is missing.
+    for fid, entry in list(reg.items()):
+        if entry.get("status") == "done" and not os.path.isfile(
+                os.path.join(FRAME_DIR, fid + ".png")):
+            entry["status"] = "pending"
+            reg[fid] = entry
     _save_registry(reg)
     pending = [d for d in descriptors if reg.get(_frame_id(d), {}).get("status") != "done"]
     for d in pending:
@@ -571,7 +582,9 @@ def start_future_renderer(max_hours=48):
                 _save_descriptors(descriptors)
                 render_future_frames(descriptors)
             except Exception:  # noqa: BLE001 - background worker must not crash app
-                pass
+                # never silent: the updater log is the only place these show
+                import traceback
+                traceback.print_exc()
             time.sleep(300)
 
     _RENDERER_THREAD = threading.Thread(target=_worker, daemon=True, name="hrrr-renderer")

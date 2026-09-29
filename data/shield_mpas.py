@@ -37,10 +37,25 @@ STATIC_DIR = os.path.join("static", "aimodels")
 os.makedirs(STATIC_DIR, exist_ok=True)
 
 # NCAR MPAS: var -> (label, product key). conus domains run hourly to F120.
+# Variable list read from the archive's own Plot Options dropdown (index.php) -
+# every name below verified live against get-files.php (121 frames on conus).
 MPAS_PRODUCTS = {
     "wspd":  {"label": "10 m Wind Speed", "key": "mpas_wind"},
     "t2m":   {"label": "2 m Temperature", "key": "mpas_t2m"},
     "cape":  {"label": "Surface-Based CAPE", "key": "mpas_cape"},
+    "shear": {"label": "Wind Shear", "key": "mpas_shear"},
+    "refl10cm_1km": {"label": "Radar Reflectivity + SLP + Wind", "key": "mpas_refl"},
+    "brightnessT":  {"label": "IR Brightness Temp (satellite)", "key": "mpas_irt"},
+    "precipw":      {"label": "Precipitable Water", "key": "mpas_pwat"},
+    "winds_250hPa": {"label": "250 mb Winds (jet level)", "key": "mpas_w250"},
+    "winds_500hPa": {"label": "500 mb Winds", "key": "mpas_w500"},
+    "relhum_500hPa": {"label": "500 mb RH + Height + Wind", "key": "mpas_rh500"},
+    "relhum_700hPa": {"label": "700 mb RH + Height + Wind", "key": "mpas_rh700"},
+    "vorticity_500hPa": {"label": "500 mb Vorticity + Height + Wind", "key": "mpas_vort500"},
+    "vorticity_850hPa": {"label": "850 mb Vorticity + Height + Wind", "key": "mpas_vort850"},
+    "acpc1":  {"label": "1 h Accum. Precipitation", "key": "mpas_apcp1"},
+    "acpc6":  {"label": "6 h Accum. Precipitation", "key": "mpas_apcp6"},
+    "acpc24": {"label": "24 h Accum. Precipitation", "key": "mpas_apcp24"},
 }
 MPAS_DOMAINS = {"atl": "Atlantic", "epac": "E Pacific", "wpac": "W Pacific",
                 "conus": "CONUS", "global": "Global"}
@@ -60,6 +75,20 @@ SHIELD_PRODUCTS = {
     "uh25max_swath":         {"label": "Max Updraft Helicity 2-5 km", "key": "shield_uh"},
     "shr06":                 {"label": "0-6 km Bulk Shear", "key": "shield_shear"},
     "maxwind10m":            {"label": "Maximum 10 m Wind", "key": "shield_gust"},
+    # --- extended catalog (verified against shield_fields('CONUS'), 2026-09-10) ---
+    "DPT2m":                 {"label": "2 m Dew Point", "key": "shield_dpt"},
+    "t850_hgt_wind":         {"label": "850 mb Temp + Heights + Wind", "key": "shield_t850"},
+    "vort850_hgt500_wind200": {"label": "850 mb Vort + 500 mb Hgt + 200 mb Wind", "key": "shield_vort850"},
+    "pcpn_slp_thk":          {"label": "Precip + MSLP + Thickness", "key": "shield_pcpn"},
+    "precip_snow_slp_wind":  {"label": "Rain/Mix/Snow + MSLP + Wind", "key": "shield_ptype"},
+    "shear_slp":             {"label": "Wind Shear + MSLP", "key": "shield_shearslp"},
+    "maxwind10m_swath":      {"label": "Run-Max 10 m Wind Swath", "key": "shield_gustmax"},
+    "maxuvv":                {"label": "Max Updraft Velocity", "key": "shield_uvv"},
+    "cond":                  {"label": "Total Condensate + VIL", "key": "shield_cond"},
+    "iwlw_slp_wind":         {"label": "Ice/Liquid Water Path + MSLP", "key": "shield_iwlw"},
+    "BRN":                   {"label": "Bulk Richardson Number", "key": "shield_brn"},
+    "windspeed":             {"label": "Surface Wind Speed", "key": "shield_wsfc"},
+    "wind10m":               {"label": "10 m Wind + Barbs", "key": "shield_w10m"},
 }
 SHIELD_REGIONS = {"CONUS": "Continental US", "nestNE": "Northeastern US",
                   "nestMA": "Mid-Atlantic US", "nestSE": "Southeastern US",
@@ -91,22 +120,55 @@ def _get(url, params=None, timeout=25):
     return r
 
 
-def _post(url, data, timeout=25):
+def _post(url, data, timeout=25, base=None):
+    if base:
+        url = base + url.rsplit("/", 1)[-1]
     r = requests.post(url, data=data, headers=UA, timeout=timeout)
     r.raise_for_status()
     return r
 
 
 # ----------------------------------------------------------------- MPAS
+def _mpas_experiment_base():
+    """Base URL of the newest live MPAS experiment on NCAR's server.
+
+    The 2025/fall real-time run ended in Oct 2025 (demonstration season). When
+    NCAR starts the next experiment it will appear as <year>/<season>/ under
+    real-time-forecasts/ - probe the candidates so the site adopts it
+    automatically; until then keep serving the 2025/fall archive.
+    """
+    def _probe():
+        seasons = ("fall", "winter", "spring", "summer")
+        for year in (2026, 2027):
+            for season in seasons:
+                base = f"https://project.mmm.ucar.edu/real-time-forecasts/{year}/{season}/"
+                try:
+                    r = _post(MPAS_GET, {"d": "2026010100", "v": "wspd",
+                                         "o": "conus", "m": "mpas"}, base=base)
+                    txt = (r.text or "").strip()
+                    if txt and txt != '"BLANK"':
+                        pics = json.loads(txt)
+                        if isinstance(pics, list) and pics:
+                            return base
+                except Exception:  # noqa: BLE001 - probe must never raise
+                    pass
+                time.sleep(0.2)
+        return MPAS_BASE
+    return _cached("mpas_exp_base", _probe)
+
+
 def _mpas_latest_init():
     """Newest archived MPAS init that still returns frames (demo ended 2025-10)."""
+    base = _mpas_experiment_base()
+
     def _probe():
         # the fall-2025 archive ran Sept-Oct 2025; walk back from Oct 14
         for i in range(20):
             d = dt.datetime(2025, 10, 14) - dt.timedelta(days=i)
             stamp = d.strftime("%Y%m%d") + "00"
             try:
-                r = _post(MPAS_GET, {"d": stamp, "v": "wspd", "o": "conus", "m": "mpas"})
+                r = _post(MPAS_GET, {"d": stamp, "v": "wspd", "o": "conus", "m": "mpas"},
+                          base=base)
                 txt = r.text.strip()
                 if txt and txt != '"BLANK"':
                     pics = json.loads(txt)
@@ -117,6 +179,15 @@ def _mpas_latest_init():
             time.sleep(0.4)
         return None
     return _cached("mpas_init", _probe)
+
+
+def mpas_is_archive():
+    """True while the newest MPAS frames come from the ended 2025 experiment."""
+    init = _mpas_latest_init()
+    try:
+        return bool(init) and dt.datetime.strptime(init, "%Y%m%d%H") < dt.datetime(2026, 1, 1)
+    except ValueError:
+        return False
 
 
 def mpas_frames(var, domain="conus"):
@@ -183,10 +254,11 @@ def mpas_product(var, domain="conus", max_frames=25):
         except Exception:  # noqa: BLE001 - skip failed frame, keep the loop
             continue
         valid = dt.datetime.strptime(init, "%Y%m%d%H") + dt.timedelta(hours=f["hour"])
+        from data._tz import day_hm
         out.append({
             "hour": f["hour"],
             "file": f"/app/static/aimodels/{fname}",
-            "label": f"F{f['hour']:03d} \u00b7 {valid:%a %HZ}",
+            "label": f"F{f['hour']:03d} \u00b7 {day_hm(valid)} ET",
         })
     if not out:
         return None
@@ -254,10 +326,11 @@ def shield_product(field, region="CONUS", max_frames=25):
         except Exception:  # noqa: BLE001
             continue
         valid = dt.datetime.strptime(init, "%Y%m%d%H") + dt.timedelta(hours=f["hour"])
+        from data._tz import day_hm
         out.append({
             "hour": f["hour"],
             "file": f"/app/static/aimodels/{fname}",
-            "label": f"F{f['hour']:03d} \u00b7 {valid:%a %HZ}",
+            "label": f"F{f['hour']:03d} \u00b7 {day_hm(valid)} ET",
         })
     if not out:
         return None

@@ -141,15 +141,16 @@ def psu_hrrr_loop(max_frames=24):
             _download(url, dest)
         except requests.RequestException:
             continue
+        from data._tz import day_hm, full
         out.append({
             "file": f"/app/static/psu_hrrr/{fname}",
-            "label": f"F{fh:04.1f} \u00b7 {valid:%a %H:%MZ}",
+            "label": f"F{fh:04.1f} \u00b7 {day_hm(valid)} ET",
             "time": valid.strftime("%Y-%m-%dT%H:%M:%SZ"),
         })
     if not out:
         return None
     return {
-        "init": init.strftime("%Y-%m-%d %HZ"),
+        "init": full(init),
         "cycle": init.strftime("%Y%m%d%H"),
         "frames": out,
     }

@@ -500,13 +500,14 @@ def upper_air_maps():
                 continue
             seen.add(key)
             valid = dt.datetime.strptime("20" + ymd + hh, "%Y%m%d%H")
+            from data._tz import day_hm
             maps.append({
                 "level": level,
                 "levelLabel": UA_LEVELS.get(level, level + " mb"),
                 "time": valid.strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "url": f"{OBSWX_URL}{level}_{ymd}_{hh}.gif",
                 "title": (f"SPC {UA_LEVELS.get(level, level)} analysis - "
-                          f"{valid:%a %H:%M}Z"),
+                          f"{day_hm(valid)} ET"),
             })
     except (requests.RequestException, ValueError):
         maps = []

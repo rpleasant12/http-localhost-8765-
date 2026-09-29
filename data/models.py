@@ -447,6 +447,8 @@ def _decode_blob(blob, want_short=None, level_sub=None):
     import tempfile
     import xarray as xr
 
+    from data import griblock
+
     tmp = os.path.join(tempfile.gettempdir(), f"tnwx_ser_{abs(hash(blob[:64])) % 999999}.grib2")
     try:
         with open(tmp, "wb") as f:
@@ -455,30 +457,30 @@ def _decode_blob(blob, want_short=None, level_sub=None):
         tol = _level_type(level_sub)
         if tol:
             backend["filter_by_keys"] = {"typeOfLevel": tol}
-        ds = xr.open_dataset(tmp, engine="cfgrib", backend_kwargs=backend)
-        # eccodes names fields differently from idx shortNames (UGRD -> u10/u)
-        aliases = {"UGRD": ("u10", "u"), "VGRD": ("v10", "v"), "TMP": ("t", "t2m", "2t"),
-                   "HGT": ("gh", "z"), "RH": ("r",), "PRMSL": ("msl", "prmsl"),
-                   "MSLMA": ("msl", "prmsl"), "PWAT": ("tcw",), "TCDC": ("tcc",),
-                   "DPT": ("dpt", "2d"), "WEASD": ("sdwe", "snod")}
-        cands = [want_short] + (list(aliases.get(want_short, ())) if want_short else [])
-        var = next((c for c in cands if c and c in ds.data_vars), None)
-        if var is None:
-            var = next((v for v in ds.data_vars
-                        if np.asarray(ds[v].values).ndim >= 2 and v not in ("latitude", "longitude")), None)
-        arr = np.asarray(ds[var].values, dtype=float)
-        if arr.ndim == 3:
-            coord = next((c for c in ("isobaricInhPa", "heightAboveGround")
-                          if c in ds[var].coords or c in ds.coords), None)
-            if coord is not None:
-                levels = np.asarray(ds[coord].values, dtype=float)
-                arr = arr[int(np.argmin(np.abs(levels - (_target_level(level_sub) or levels[0]))))]
-            else:
-                arr = arr[0]
-        values = np.squeeze(arr)
-        glat = np.asarray(ds["latitude"].values, dtype=float)
-        glon = np.asarray(ds["longitude"].values, dtype=float)
-        del ds
+        with griblock.open_dataset(tmp, backend) as ds:
+            # eccodes names fields differently from idx shortNames (UGRD -> u10/u)
+            aliases = {"UGRD": ("u10", "u"), "VGRD": ("v10", "v"), "TMP": ("t", "t2m", "2t"),
+                       "HGT": ("gh", "z"), "RH": ("r",), "PRMSL": ("msl", "prmsl"),
+                       "MSLMA": ("msl", "prmsl"), "PWAT": ("tcw",), "TCDC": ("tcc",),
+                       "DPT": ("dpt", "2d"), "WEASD": ("sdwe", "snod")}
+            cands = [want_short] + (list(aliases.get(want_short, ())) if want_short else [])
+            var = next((c for c in cands if c and c in ds.data_vars), None)
+            if var is None:
+                var = next((v for v in ds.data_vars
+                            if np.asarray(ds[v].values).ndim >= 2 and v not in ("latitude", "longitude")), None)
+            arr = np.asarray(ds[var].values, dtype=float)
+            if arr.ndim == 3:
+                coord = next((c for c in ("isobaricInhPa", "heightAboveGround")
+                              if c in ds[var].coords or c in ds.coords), None)
+                if coord is not None:
+                    levels = np.asarray(ds[coord].values, dtype=float)
+                    arr = arr[int(np.argmin(np.abs(levels - (_target_level(level_sub) or levels[0]))))]
+                else:
+                    arr = arr[0]
+            values = np.squeeze(arr)
+            glat = np.asarray(ds["latitude"].values, dtype=float)
+            glon = np.asarray(ds["longitude"].values, dtype=float)
+            del ds
     finally:
         try:
             os.remove(tmp)
@@ -790,7 +792,7 @@ def get_series(model, var_key, lat, lon, max_hours=None, fresh=False, stride=1):
         "variable": var["label"],
         "var_key": var_key,
         "unit": var["unit"],
-        "cycle": cycle.strftime("%Y-%m-%d %H:%M UTC"),
+        "cycle": __import__('data._tz', fromlist=['full']).full(cycle),
         "points": points,
     }
     os.makedirs(CACHE_DIR, exist_ok=True)

@@ -95,6 +95,8 @@ def _decode_one(blob, kind):
     import tempfile
     import xarray as xr
 
+    from data import griblock
+
     tmp = os.path.join(tempfile.gettempdir(), f"tnwx_snd_{abs(hash(blob[:64])) % 99999}.grib2")
     try:
         with open(tmp, "wb") as f:
@@ -106,20 +108,20 @@ def _decode_one(blob, kind):
             backend["filter_by_keys"] = {"typeOfLevel": "heightAboveGround"}
         elif kind == "sfc":
             backend["filter_by_keys"] = {"typeOfLevel": "surface"}
-        ds = xr.open_dataset(tmp, engine="cfgrib", backend_kwargs=backend)
-        out = {}
-        for var in ds.data_vars:
-            sn = str(ds[var].attrs.get("GRIB_shortName", var)).upper()
-            sn = _CANON.get(sn, sn)
-            arr = np.asarray(ds[var].values, dtype=float)
-            arr = np.squeeze(arr)
-            lev = None
-            if kind == "iso" and "isobaricInhPa" in ds[var].coords:
-                lev = float(np.asarray(ds[var]["isobaricInhPa"].values).reshape(-1)[0])
-            out[sn] = (arr, lev)
-        g_lat = np.asarray(ds["latitude"].values, dtype=float)
-        g_lon = np.asarray(ds["longitude"].values, dtype=float)
-        del ds
+        with griblock.open_dataset(tmp, backend) as ds:
+            out = {}
+            for var in ds.data_vars:
+                sn = str(ds[var].attrs.get("GRIB_shortName", var)).upper()
+                sn = _CANON.get(sn, sn)
+                arr = np.asarray(ds[var].values, dtype=float)
+                arr = np.squeeze(arr)
+                lev = None
+                if kind == "iso" and "isobaricInhPa" in ds[var].coords:
+                    lev = float(np.asarray(ds[var]["isobaricInhPa"].values).reshape(-1)[0])
+                out[sn] = (arr, lev)
+            g_lat = np.asarray(ds["latitude"].values, dtype=float)
+            g_lon = np.asarray(ds["longitude"].values, dtype=float)
+            del ds
         return out, g_lat, g_lon
     except Exception:  # noqa: BLE001 - a bad message must not kill the sounding
         return {}, None, None
@@ -184,7 +186,8 @@ def _render_skewt(prof, path, place=""):
     ax.set_xlim(-45, 45)
     ax.set_xlabel("Temperature (°C)")
     ax.set_ylabel("Pressure (hPa)")
-    ax.set_title(f"RAP Skew-T · {place} · {prof['valid']:%Y-%m-%d %H:%M UTC}".replace("·", "-"),
+    _full = __import__('data._tz', fromlist=['full']).full
+    ax.set_title(f"RAP Skew-T · {place} · {_full(prof['valid'])}".replace("·", "-"),
                  fontsize=11)
     cape_v = getattr(sbcape, "magnitude", sbcape)
     cin_v = getattr(sbcin, "magnitude", sbcin)
@@ -203,8 +206,9 @@ def build_sounding(lat, lon, fh=0, place=""):
     """Fetch, decode, render. Returns {'png','meta','error'} (png = static path)."""
     cycle, fh_eff = _cycle(fh)
     png = _sounding_cache_path(cycle, fh_eff, lat, lon)
-    meta = {"cycle": cycle.strftime("%Y-%m-%d %H:%M UTC"), "fh": fh_eff,
-            "valid": (cycle + dt.timedelta(hours=fh_eff)).strftime("%Y-%m-%d %H:%M UTC")}
+    _full = __import__('data._tz', fromlist=['full']).full
+    meta = {"cycle": _full(cycle), "fh": fh_eff,
+            "valid": _full(cycle + dt.timedelta(hours=fh_eff))}
     if os.path.exists(png) and os.path.getsize(png) > 10_000:
         return {"png": png, "meta": meta}
     try:

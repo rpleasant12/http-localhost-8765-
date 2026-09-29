@@ -256,17 +256,18 @@ def _render_mrms_frame(desc, prod_key="cref", max_px=2400):
     try:
         import xarray as xr
 
+        from data import griblock
+
         r = requests.get(f"{BUCKET}/{desc['key']}", headers=UA, timeout=90)
         r.raise_for_status()
         raw = gzip.decompress(r.content)
         tmp = os.path.join(FRAME_DIR, fid + ".grib2")
         with open(tmp, "wb") as f:
             f.write(raw)
-        ds = xr.open_dataset(tmp, engine="cfgrib", backend_kwargs={"indexpath": ""})
-        var = list(ds.data_vars)[0]
-        values = np.asarray(ds[var].values, dtype=float)
-        ny, nx = values.shape
-        ds.close()
+        with griblock.open_dataset(tmp, {"indexpath": ""}) as ds:
+            var = list(ds.data_vars)[0]
+            values = np.asarray(ds[var].values, dtype=float)
+            ny, nx = values.shape
         os.remove(tmp)
 
         values[values < 0] = np.nan            # -3/-99 = no coverage
