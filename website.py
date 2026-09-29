@@ -11606,12 +11606,17 @@ function onDataRefresh(d2) {{
 
 
 def page_fire(d):
-    """Fire weather: SPC fire outlooks, red-flag warnings, fire-danger HRRR fields."""
+    """Fire weather: SPC fire outlooks (days 1-8), VIIRS satellite fire
+    detections, US Drought Monitor, red-flag warnings, fire alerts."""
     try:
         from data.fire import fire_bundle
-        fw = fire_bundle()
+        fw = fire_bundle(home=(config.LATITUDE, config.LONGITUDE))
     except Exception:                              # noqa: BLE001
         fw = {}
+    spc38 = fw.get("spc38") or []
+    firms = fw.get("firms") or {}
+    drought = fw.get("drought") or {}
+    near = firms.get("nearHome") or {}
     rfw = fw.get("redFlag") or {{}} if False else (fw.get("redFlag") or {})
     rfw_n = rfw.get("usCount") or 0
     rfw_rows = "".join(
@@ -11636,9 +11641,16 @@ def page_fire(d):
     # refs are invisible to its scanner - images 404'd, 2026-09-20)
     d1u = d1.replace("/app/static/", "../") if d1 else ""
     d2u = d2.replace("/app/static/", "../") if d2 else ""
+    spc38_tiles = "".join(
+        f'<figure class="wpcfig"><img loading="lazy" src="{p["url"].replace("/app/static/", "../")}" alt="{html.escape(p["label"])}"/'
+        f'<figcaption>{html.escape(p["label"])}</figcaption></figure>'
+        for p in spc38)
+    usdm_u = (drought.get("url") or "").replace("/app/static/", "../") \
+        if drought.get("ok") else ""
+    firms_js = json.dumps(firms.get("tn") or [])
     body = f"""
 <header class="hero"><h1>🔥 Fire Weather</h1>
-<div class="sub">SPC Fire Weather Outlooks · Red Flag Warnings · fire-danger forecasts · updated {d["generated"]}</div></header>
+<div class="sub">SPC Fire Weather Outlooks (days 1-8) · VIIRS satellite fire detections · US Drought Monitor · Red Flag Warnings — updated {d["generated"]}</div></header>
 
 <div class="card">
   <div class="kpis">
@@ -11650,6 +11662,31 @@ def page_fire(d):
     {f'<figure class="wpcfig"><img loading="lazy" src="{d1u}" alt="Day 1 fire outlook"/><figcaption>Day 1 Fire Weather Outlook (SPC)</figcaption></figure>' if d1u else ''}
     {f'<figure class="wpcfig"><img loading="lazy" src="{d2u}" alt="Day 2 fire outlook"/><figcaption>Day 2 Fire Weather Outlook (SPC)</figcaption></figure>' if d2u else ''}
   </div>
+  <div class="src">Days 1-2 are SPC's operational fire outlooks: critical fire-weather areas (dry fuels + strong wind + low humidity). Day 1 = today through tonight; Day 2 = tomorrow.</div>
+</div>
+
+<div class="card"><h2>🗓️ Days 3-8 fire outlooks (SPC experimental) + drought</h2>
+<div class="src">The extended-range fire view: daily fire-weather probability graphics through day 8 plus the days 3-8 composite - watch these when a dry, breezy pattern is building. The US Drought Monitor (updated weekly) is the fuel-dryness context: drought areas are where any ignition burns hottest and longest.</div>
+<div class="ltg-row">{spc38_tiles}</div>
+<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px">
+  {f'<figure class="wpcfig"><img loading="lazy" src="{usdm_u}" alt="US Drought Monitor current week"/><figcaption>US Drought Monitor - current week (National Drought Mitigation Center)</figcaption></figure>' if usdm_u else ''}
+</div>
+</div>
+
+<div class="card"><h2>🛰️ Satellite fire detections - last 24 hours (NASA VIIRS)</h2>
+<div class="kpis">
+  <div class="kpi"><span>Detections CONUS</span><b style="color:#ff7043">{firms.get("usCount", 0):,}</b></div>
+  <div class="kpi"><span>Tennessee region</span><b>{firms.get("tnCount", 0):,}</b></div>
+  <div class="kpi"><span>Closest to {html.escape(d.get("place") or "home")}</span><b style="color:{'#ff1744' if near and near.get('closestMi', 999) < 15 else '#ffb74d'}">{f"{near.get('closestMi')} mi" if near else "-"}</b></div>
+  <div class="kpi"><span>Newest detection</span><b>{html.escape((firms.get("freshest") or "-")[:16])}</b></div>
+</div>
+<div id="firemap" class="map-dark" style="height:420px"></div>
+<div class="legend" style="margin-top:6px">
+  <span><i style="background:#ff1744"></i>high confidence</span>
+  <span><i style="background:#ff9f43"></i>nominal</span>
+  <span><i style="background:#ffd54f"></i>low confidence</span>
+</div>
+<div class="src">VIIRS 375 m active-fire detections (Suomi-NPP) - the same near-real-time feed forestry agencies use. Click a dot for heat output (brightness K), fire radiative power and acquisition time. Detection = heat signature, not a confirmed wildfire; cached 1 h. Source: {firms.get('ok') and 'NASA FIRMS' or 'temporarily unavailable'}.</div>
 </div>
 
 <div class="card"><h2>🚒 Fire alerts</h2>
@@ -11660,6 +11697,26 @@ def page_fire(d):
 </div>
 
 <div class="src">Wildfire safety: never burn on dry, windy days - embers travel. If a wildfire threatens, follow Tennessee Division of Forestry and local emergency-management evacuation orders immediately.</div>
+
+<script>
+const FIRMS = {firms_js};
+async function fireBoot() {{
+  DATA = await (await fetch(dataUrl(), {{cache: "no-store"}})).json();
+  document.title = DATA.pageName + " - Fire";
+  {_mapbox_token_js()}
+  if (!document.getElementById("firemap") || typeof L === "undefined" || !FIRMS.length) return;
+  const map = L.map("firemap", {{ zoomSnap: 0.5, maxZoom: 21 }}).setView([35.9, -86.0], 6);
+  addMapControls(map, [35.9, -86.0], 6);
+  const col = c => (c === "h" || parseInt(c, 10) >= 80) ? "#ff1744"
+    : (c === "l" || (c !== "n" && parseInt(c, 10) < 50)) ? "#ffd54f" : "#ff9f43";
+  const pts = FIRMS.filter(f => f.lat && f.lon).map(f =>
+    L.circleMarker([f.lat, f.lon], {{ radius: 5, color: "#1b2027", weight: 1,
+      fillColor: col(f.conf), fillOpacity: .9 }})
+      .bindPopup(`<b>Satellite fire detection</b><br/>Heat: <b>${{f.bright}} K</b> · FRP ${{f.frp}} MW<br/>${{f.when}} UTC (${{f.night ? "night" : "day"}})<br/>confidence: ${{f.conf}}`));
+  L.layerGroup(pts).addTo(map);
+}}
+fireBoot();
+</script>
 """
     return _page("Fire", "fire.html", body)
 
