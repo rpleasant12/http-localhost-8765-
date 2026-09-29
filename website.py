@@ -5157,7 +5157,7 @@ def _archive_bundle(sid, name, cls):
 
 def page_index(d):
     cur = d["current"]
-    alerts = d["alerts"]
+    alerts = d.get("alerts") or []
     spc = d.get("spc") or {}
     storm = d.get("storm") or {}
     cells = storm.get("cells") or []
@@ -8185,7 +8185,7 @@ def page_tropical(d):
 </div>
 
 <script>
-const TROP = {json.dumps(trop)};
+const TROP = null; /* tropical ships once (data.json); page boot fetches it */
 let map, layers = [];
 function toggle(id, lyr) {{
   const on = document.getElementById(id).checked;
@@ -8482,7 +8482,7 @@ def page_tropmodels(d):
 <div class="card" id="tblCard"><h2>🧭 Guidance members</h2><div id="tbl"></div></div>
 
 <script>
-const TMS = {json.dumps(tm)};
+const TMS = null; /* tropModels ships once (data.json); boot + soft refresh fetch it */
 const FAMCOL = {json.dumps(_FAMCOL)};
 let map, famGroups = {{}}, curBasin = "all", lastBasinEmpty = null;
 const KT_COL = kt => kt >= 137 ? "#d32f2f" : kt >= 113 ? "#e64a19" : kt >= 96 ? "#f57c00"
@@ -8574,7 +8574,7 @@ function setBasinEmpty(on) {{
   }}
 }}
 function applyBasin() {{
-  const T = (typeof DATA !== "undefined" && DATA && (DATA.tropModels || TMS)) || TMS;
+  const T = (typeof DATA !== "undefined" && DATA && DATA.tropModels) || TMS || {{}};
   const best = fillStormPicker(T);
   if (basinEmpty(T) || best < 0) {{
     setBasinEmpty(true);
@@ -10488,7 +10488,7 @@ def page_severe(d):
 {md_html}
 
 <script>
-const SEV = {json.dumps(sev)};
+const SEV = null; /* severe ships once (data.json); boot + 90s soft refresh fetch it */
 let map, layers = {{}};
 const SPC_FILL = {{"TSTM":"#c1e9c1","MRGL":"#66cdaa","SLGT":"#ffff00","ENH":"#ff8c00","MDT":"#ff0000","HIGH":"#ff00ff","0.02":"#adff2f","0.05":"#ffff00","0.10":"#ff8c00","0.15":"#ff0000","0.30":"#ff00ff","0.45":"#7fffd4","0.60":"#ff00ff"}};
 function styleWW(f) {{
@@ -11279,7 +11279,7 @@ def page_winter(d):
 </div>
 
 <script>
-const WNT = {json.dumps(wnt)};
+const WNT = null; /* winter ships once (data.json); page boot fetches it */
 let map, wLayer = null;
 async function boot() {{
   DATA = await (await fetch(dataUrl(), {{cache: "no-store"}})).json();
@@ -11673,6 +11673,8 @@ function table() {{
 }}
 async function boot() {{
   DATA = await (await fetch(dataUrl(), {{cache: "no-store"}})).json();
+  const _rv = DATA.rivers || {{}};
+  GAUGES = _rv.gauges || GAUGES;   /* hydrate: gauges ship once, in data.json */
   document.title = DATA.pageName + " - Rivers";
   {_mapbox_token_js()}
   map = L.map("map", {{ zoomSnap: 0.5, maxZoom: 21 }}).setView([35.9, -84.2], 6);
@@ -12785,12 +12787,12 @@ def page_forecast(d):
         for day in d["days"][:7])
     hourly_html = "".join(
         f'<div class="hr"><span>{h["t"]}</span><b>{h["temp"]}°F</b><span>💧{h["pop"]}%</span></div>'
-        for h in d["hourly"][:24])
-    if d["alerts"]:
+        for h in (d.get("hourly") or [])[:24])
+    if d.get("alerts"):
         alerts_html = "".join(
             f'<div class="alert" style="border-left-color:{_alert_color(a["event"])}">'
             f'<b>{html.escape(a["event"])}</b><span>{html.escape(a["areaDesc"])} · until {a["expires"] or "further notice"}</span></div>'
-            for a in d["alerts"])
+            for a in (d.get("alerts") or []))
     else:
         alerts_html = '<div class="alert ok">No active alerts for this area.</div>'
     # ---- every East TN city: expandable 7-day card ----
@@ -13307,6 +13309,22 @@ def generate_site():
             "status.html": page_status(d),
         }
         os.makedirs(SITE_DIR, exist_ok=True)
+        # Payload dedup (2026-09-29 audit): these keys are consumed only by
+        # the page builders above (they ride to the browser inline on the
+        # page that renders them, or ship as server-rendered HTML) - no page
+        # JS reads them from data.json, verified across every built page.
+        # Popping them AFTER the pages are built but BEFORE the json.dump
+        # keeps builders working while cutting data.json by ~960 KB.
+        for _dead in (
+            "afd", "alerts", "climate", "dashboard", "elNino",
+            "forecastCharts", "gefs", "gefsTracks", "gefsVerify",
+            "hailCase", "heatIndex", "hourly", "marine", "mos",
+            "mpasShield", "nbmPct", "pageUrl", "pivotEtn", "pivotRegions",
+            "pivotUs", "psu", "rapNowcast", "roadCams", "roadRisk",
+            "seasonSummary", "sounding", "space", "stormArchive", "sun",
+            "wpcText",
+        ):
+            d.pop(_dead, None)
         tmp = os.path.join(SITE_DIR, "data.json.tmp")
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(d, f)
