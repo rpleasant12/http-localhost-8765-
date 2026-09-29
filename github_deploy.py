@@ -25,12 +25,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 SITE_DIR = os.path.join("static", "site")
 DOCS_DIR = "docs"
 
-# asset dirs the pages may reference; anything found is copied wholesale
-ASSET_DIRS = ["model_maps", "hrrr", "nam", "mrms", "nws", "goes",
-              "star", "psu_hrrr", "satellite", "meso", "nowcast", "aimodels",
-              "sevmaps", "winter", "wbgt", "tropics", "climate", "fire",
-              "space", "hail_ed", "wpcmaps", "nbm_pct", "rapnow", "gefs"]
-COPY_EXT = (".png", ".gif", ".jpg", ".jpeg", ".webp")
+# NOTE: the old ASSET_DIRS wholesale-copy list ("asset dirs the pages may
+# reference; anything found is copied wholesale") lived here as dead config
+# for months - it was never imported by any caller, so data.json frame
+# references were the ONLY mechanism shipping imagery. The safety net it
+# implied did not exist. Deleted 2026-09-29; the real back-stop is now the
+# publish smoke test in publish_site.py (smoke_frames), which FAILS the
+# publish when any frame URL in data.json is missing from docs/.
 
 # ../hrrr/x.png  ../../hrrr/x.png  /app/static/hrrr/x.png  static/hrrr/x.png
 _REF = re.compile(

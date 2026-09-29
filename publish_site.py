@@ -23,6 +23,57 @@ import urllib.request
 
 REPO_API = "https://api.github.com/repos/rpleasant12/http-localhost-8765-"
 
+# --- publish smoke test: every frame URL in data.json must exist in docs/ ---
+# The wholesale ASSET_DIRS copy this used to back-stop was never wired in
+# (defined in github_deploy.py, never imported): data.json frame references
+# are the ONLY mechanism that ships imagery, so one silently-dropped frame
+# dir = a broken feature on the live site (see the 2026-09-17 satellite
+# incident in github_deploy._walk_json). Verify instead of assume.
+_FRAME_URL_KEYS = ("pngUrl", "url")
+_IMG_EXTS = (".png", ".gif", ".jpg", ".jpeg", ".webp")
+
+
+def _smoke_walk(o, path, docs, misses, seen):
+    """Collect local image URLs missing under docs/, with JSON paths."""
+    if isinstance(o, dict):
+        for k, v in o.items():
+            _smoke_walk(v, f"{path}.{k}", docs, misses, seen)
+    elif isinstance(o, list):
+        for i, v in enumerate(o):
+            _smoke_walk(v, f"{path}[{i}]", docs, misses, seen)
+    elif isinstance(o, str) and o.lower().endswith(_IMG_EXTS) \
+            and "/" in o \
+            and not o.startswith(("http://", "https://", "data:")):
+        # bare filenames ("file": "sfc_wpc.gif") are fragments pages compose
+        # client-side - same rule as github_deploy._frame_file, which returns
+        # None for them. Only refs with a directory component are URLs.
+        rel = o.replace("\\", "/").lstrip("/")
+        if rel in seen:
+            return
+        seen.add(rel)
+        if not os.path.isfile(os.path.join(docs, rel)):
+            misses.append((path, rel))
+
+
+def smoke_frames(docs="docs"):
+    """True when every local frame URL in docs/data.json exists in docs/.
+
+    Returns (ok, misses) with misses as (json_path, url) pairs, capped at
+    25 reported so the log stays readable on a systemic failure.
+    """
+    dj = os.path.join(docs, "data.json")
+    if not os.path.isfile(dj):
+        return True, []          # no payload: nothing to verify here
+    try:
+        with open(dj, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError) as exc:
+        return False, [("data.json", f"unparseable: {exc}")]
+    misses, seen = [], set()
+    for k, v in data.items():
+        _smoke_walk(v, k, docs, misses, seen)
+    return (not misses), misses
+
 # CREATE_NO_WINDOW: a console-less publisher spawning git/tasklist would
 # flash a visible console box per call - dozens per publish (2026-09-21).
 NOWIN = 0x08000000 if os.name == "nt" else 0
@@ -320,8 +371,18 @@ def publish(check_only=False):
     if total > MAX_SIZE_MB:
         print(f"publish: build too large ({total:.0f} MB) - skipping")
         return False
+    ok, misses = smoke_frames("docs")
+    if not ok:
+        print(f"publish: smoke test FAILED - {len(misses)} frame URL(s) in "
+              f"data.json missing from docs/:")
+        for path, rel in misses[:25]:
+            print(f"  {path} -> {rel}")
+        if len(misses) > 25:
+            print(f"  ... and {len(misses) - 25} more")
+        return False
     if check_only:
-        print(f"publish: build ok ({total:.0f} MB, age {int(age)}s)")
+        print(f"publish: build ok ({total:.0f} MB, age {int(age)}s, "
+              f"frame URLs verified)")
         return True
     if not _acquire_publish_lock():
         return False
