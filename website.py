@@ -5351,6 +5351,12 @@ def page_satellite(d):
   </div>
   <div class="src" style="margin-top:3px">Satellite NDVI shows the whole season at a glance; the links above are the human ground truth - rangers and foresters who stand next to the trees. Reports run weekly from mid-September through early November.</div>
 </div>
+<div id="peakLadder" style="margin-top:14px">
+  <div class="src" style="margin-bottom:4px"><b>Peak-color ladder - typical weeks per elevation band</b> (East TN / high country): color starts on the highest peaks and falls downslope roughly 1,000 ft a week, so each band gets its moment. The band(s) inside their typical window today are highlighted.</div>
+  <div id="ladderRows"></div>
+  <div class="src" style="margin-top:3px" id="ladderNow"></div>
+  <div class="src" style="margin-top:3px">Windows after the classic Grandfather Mountain / Blue Ridge high-country guides (Howie Neufeld's week-by-week elevation ladder), clipped to East Tennessee landmarks - a compass, not a clock: any band can swing a week either way with the year's weather. Pair with the satellite layers above and the weekly reports to see where the wave actually is.</div>
+</div>
 </div>
 
 <div class="card"><h2>📖 Reading the bands - which layer for what</h2>
@@ -5572,6 +5578,50 @@ function onDataRefresh(d) { refresh(d); }
       fcRaf = requestAnimationFrame(() => { fcRaf = 0; fcShow(fcLastEvt); });
     });
   }
+  /* ---- peak-color ladder: typical peak windows per elevation band,
+     after the Grandfather Mountain / Blue Ridge high-country guides.
+     Pure render - no fetches. Today's date highlights the band(s) in
+     their typical window; before/after the season says so honestly. */
+  (function peakLadderInit() {
+    const MMM = ["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const LADDER = [
+      ["above 5,500 ft", "Mt. LeConte summit, Roan high balds", 9, 26, 10, 9],
+      ["4,500 - 5,500 ft", "Newfound Gap, high crest ridges", 10, 3, 10, 16],
+      ["3,500 - 4,500 ft", "mid-slopes, Cherohala Skyway", 10, 10, 10, 23],
+      ["2,000 - 3,500 ft", "valleys & foothill towns", 10, 17, 10, 30],
+      ["below 2,000 ft", "Tennessee River valley floor", 10, 24, 11, 6]];
+    const rows = document.getElementById("ladderRows");
+    if (!rows) return;
+    const now = new Date(), yr = now.getFullYear(), t = now.getTime();
+    const states = LADDER.map(([band, where, m1, d1, m2, d2]) => {
+      const s = new Date(yr, m1 - 1, d1).getTime();
+      const e = new Date(yr, m2 - 1, d2, 23, 59, 59).getTime();
+      return { band, where, win: MMM[m1] + " " + d1 + " \u2013 " + MMM[m2] + " " + d2, on: t >= s && t <= e };
+    });
+    rows.innerHTML = states.map(st => `
+      <div style="display:grid;grid-template-columns:auto 1fr auto;gap:3px 12px;align-items:baseline;padding:6px 10px;margin-bottom:4px;border-radius:8px;border:1px solid ${st.on ? "#e08c3a" : "#2b3441"};background:${st.on ? "rgba(224,140,58,.13)" : "#10151f"}">
+        <b>${st.band}</b><span style="color:#9fb0c0">${st.where}</span>
+        <span style="color:${st.on ? "#e08c3a" : "#cfd8e3"};font-weight:${st.on ? 700 : 400};white-space:nowrap">${st.win}</span>
+      </div>`).join("");
+    const onIdx = states.map((s, i) => s.on ? i : -1).filter(i => i >= 0);
+    const today = now.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const nowLine = document.getElementById("ladderNow");
+    if (nowLine) {
+      let tail;
+      if (!onIdx.length) {
+        tail = t < new Date(yr, 8, 26).getTime()
+          ? "too early — the high country is still green; the wave starts on the 5,500 ft peaks in late September."
+          : "the color wave has moved off the mountains — last color lingers on the valley floor into early November.";
+      } else if (onIdx[onIdx.length - 1] === 0) {
+        tail = "the wave is just starting at the top — lower bands still green.";
+      } else if (onIdx[onIdx.length - 1] === states.length - 1) {
+        tail = "this is the last stop — the wave is on the valley floor.";
+      } else {
+        tail = "higher bands past peak, lower bands still turning — mid-ladder is the place to be.";
+      }
+      nowLine.innerHTML = `<b>${today}:</b> peak window open now for ${onIdx.map(i => "<b>" + states[i].band + "</b>").join(" and ") || "no band"} — ${tail}`;
+    }
+  })();
   if (document.getElementById("fallMap")) bootFall();
 })();
 </script>
