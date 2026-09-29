@@ -11216,6 +11216,14 @@ def page_winter(d):
   <label><input type="checkbox" id="snDry"/> drier</label>
   <label><input type="checkbox" id="snSnow" checked/> snow chance</label>
 </div>
+<div class="src" style="margin-top:10px"><b>Compare with the short range</b> - CPC's 6-10 and 8-14 day outlooks on the same map. Same color language as the seasonal layers: blues = below-normal, browns = above-normal temperature, greens = wetter, tans = drier. Line styles tell the forecast range apart: <b>solid</b> = seasonal tilts, coarse dashes = seasonal snow chance, fine dots = the 6-14 day short range.</div>
+<div class="ctl" id="snW2wCtl" style="display:none">
+  <label><input type="checkbox" id="snW2w610T"/> 6-10 day temp</label>
+  <label><input type="checkbox" id="snW2w610P"/> 6-10 day precip</label>
+  <label><input type="checkbox" id="snW2w814T"/> 8-14 day temp</label>
+  <label><input type="checkbox" id="snW2w814P"/> 8-14 day precip</label>
+  <span class="src" id="snW2wIssued"></span>
+</div>
 <div id="snTabs" style="margin-top:12px">{sn_html}</div>
 </div>
 
@@ -11394,13 +11402,17 @@ if (SEASON && SEASON.ok) {{
   const SNP = {{ warm:"#c96a3f", cold:"#4f9be8", wet:"#3fae6a", dry:"#d7b45a" }};
   let smap = null;
   const layers = {{ warm:null, cold:null, wet:null, dry:null, snow:null }};
-  function featLayer(feats, base) {{
+  const w2wLayers = {{ w2w_610temp:null, w2w_610prcp:null, w2w_814temp:null, w2w_814prcp:null }};
+  /* checkbox id per product key (ids are hand-written in the HTML above) */
+  const W2W_IDS = {{ w2w_610temp: "snW2w610T", w2w_610prcp: "snW2w610P",
+                    w2w_814temp: "snW2w814T", w2w_814prcp: "snW2w814P" }};
+  function featLayer(feats, dash, weight) {{
     if (!feats || !feats.length) return null;
     return L.geoJSON({{ type:"FeatureCollection", features:feats }}, {{
       style: f => ({{
         color: f.properties.fill || SNP[f.properties.layer] || "#888",
-        weight: 1, fillColor: f.properties.fill || SNP[f.properties.layer],
-        fillOpacity: 0.34, dashArray: base ? null : "4 4"
+        weight: weight || 1, fillColor: f.properties.fill || SNP[f.properties.layer],
+        fillOpacity: 0.34, dashArray: dash
       }}),
       onEachFeature: (f, ly) => {{
         const p = f.properties || {{}};
@@ -11419,8 +11431,23 @@ if (SEASON && SEASON.ok) {{
       if (built) built.remove();
       layers[k] = null;
       if (want && want.checked && (SEASON.windows[snIdx].layers[k] || []).length) {{
-        layers[k] = featLayer(SEASON.windows[snIdx].layers[k], k !== "snow");
+        layers[k] = featLayer(SEASON.windows[snIdx].layers[k],
+                              k === "snow" ? "4 4" : null);
         if (layers[k]) layers[k].addTo(smap);
+      }}
+    }}
+    /* week-2 comparison layers: independent toggles, solid outlines so the
+       6-14 day contours read against the dotted seasonal ones */
+    for (const key of Object.keys(w2wLayers)) {{
+      if (w2wLayers[key]) {{ w2wLayers[key].remove(); w2wLayers[key] = null; }}
+      const el = document.getElementById(W2W_IDS[key]);
+      if (!el || !el.checked) continue;
+      const prod = ((SEASON.week2 || {{}}).products || []).find(p => p.key === key);
+      if (prod && prod.layers.length) {{
+        /* fine dots + slightly heavier stroke: reads distinct from the
+           seasonal tilts (solid) and the snow-chance layer (coarse dashes) */
+        w2wLayers[key] = featLayer(prod.layers, "1 3", 1.8);
+        if (w2wLayers[key]) w2wLayers[key].addTo(smap);
       }}
     }}
   }}
@@ -11452,6 +11479,17 @@ if (SEASON && SEASON.ok) {{
       const el = document.getElementById("sn" + k);
       if (el) el.onchange = snShow;
     }});
+    /* week-2 toggles: only shown when the payload actually has products */
+    if (((SEASON.week2 || {{}}).ok) && ((SEASON.week2.products || []).length)) {{
+      const ctl = document.getElementById("snW2wCtl");
+      if (ctl) ctl.style.display = "";
+      const iss = document.getElementById("snW2wIssued");
+      if (iss && SEASON.week2.issued) iss.textContent = "issued " + SEASON.week2.issued;
+      for (const key of Object.keys(w2wLayers)) {{
+        const el = document.getElementById(W2W_IDS[key]);
+        if (el) el.onchange = snShow;
+      }}
+    }}
     document.querySelectorAll(".sntab").forEach(el =>
       el.onclick = () => snPick(+el.dataset.w));
     snPick(Math.min(1, SEASON.windows.length - 1));

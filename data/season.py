@@ -252,7 +252,121 @@ def _score(points_by_layer, lat, lon):
     return out
 
 
-# ------------------------------------------------------------ build
+# ------------------------------------------------- weeks 2-4 (6-10/8-14 day)
+def _w2w_fetch(kind):
+    """CPC 6-10 / 8-14 day GIS shapefile zip (<kind>_latest.zip; the FTP dir
+    also carries per-issue-date copies, 'latest' always points at the
+    newest). Cached on disk like the seasonal zips (6 h TTL)."""
+    fn = f"{OUT_DIR}/{kind}_latest.zip"
+    try:
+        fresh = os.path.getsize(fn) > 50_000 and             time.time() - os.stat(fn).st_mtime < 21_600
+    except OSError:
+        fresh = False
+    if not fresh:
+        r = requests.get(f"{BASE}/{kind}_latest.zip", headers=UA, timeout=120)
+        if not r.ok or len(r.content) < 50_000:
+            return None
+        with open(fn + ".part", "wb") as f:
+            f.write(r.content)
+        os.replace(fn + ".part", fn)
+    return fn
+
+
+def _w2w_contours(zf, var):
+    """Contours from a 6-10/8-14 day shapefile zip.
+
+    These zips name the shapefile '<kind>_latest.shp' (unlike the seasonal
+    zips' '<lead>_<seas>_<var>' scheme), so read whatever .shp is present.
+    Same Cat/Prob dbf schema. Returns {cat: [(prob, [ring, ...])]}.
+    """
+    import shapefile  # pyshp
+
+    stems = [n[:-4] for n in zf.namelist() if n.endswith(".shp")]
+    if not stems:
+        return {}
+    r = shapefile.Reader(shp=io.BytesIO(zf.read(stems[0] + ".shp")),
+                         dbf=io.BytesIO(zf.read(stems[0] + ".dbf")))
+    flds = [f[0] for f in r.fields[1:]]
+    if "Cat" not in flds or "Prob" not in flds:
+        return {}
+    icat, iprob = flds.index("Cat"), flds.index("Prob")
+    out = {}
+    for i in range(r.numRecords):
+        rec = r.record(i)
+        cat, prob = str(rec[icat]), rec[iprob]
+        if cat in ("EC", "Normal") or prob is None or float(prob) <= 33.0:
+            continue
+        shp = r.shape(i)
+        pts = shp.points
+        parts = list(shp.parts) + [len(pts)]
+        rings = []
+        for a, b in zip(parts[:-1], parts[1:]):
+            ring = pts[a:b]
+            if len(ring) >= 40:                    # drop specks
+                rings.append([(round(x, 2), round(y, 2)) for x, y in ring])
+        if rings:
+            out.setdefault(cat, []).append((float(prob), rings))
+    return out
+
+
+def _w2w_issued(zf):
+    """Fcst_Date from the zip's dbf, if present."""
+    try:
+        import shapefile  # pyshp
+
+        stems = [n[:-4] for n in zf.namelist() if n.endswith(".shp")]
+        r = shapefile.Reader(shp=io.BytesIO(zf.read(stems[0] + ".shp")),
+                             dbf=io.BytesIO(zf.read(stems[0] + ".dbf")))
+        flds = [f[0] for f in r.fields[1:]]
+        rec = r.record(0)
+        for fld in ("Fcst_Date", "Start_Date"):
+            if fld in flds:
+                return str(rec[flds.index(fld)])
+    except Exception:                              # noqa: BLE001
+        pass
+    return None
+
+
+def w2w_bundle():
+    """6-10 day and 8-14 day temperature/precipitation tilt contours as
+    GeoJSON for the seasonal tilt map's extra toggles. Same Cat/Prob
+    shapefile schema as the long-lead product, so tilt colors stay
+    consistent; snow-chance intersection is deliberately NOT derived here -
+    it is a months-scale concept that means nothing on a 6-14 day window.
+    Never raises: ok:False simply leaves the map with the seasonal layers.
+    """
+    try:
+        products = []
+        issued = None
+        for kind, label, var in (("610temp", "6-10 day temperature", "temp"),
+                                 ("610prcp", "6-10 day precipitation", "prcp"),
+                                 ("814temp", "8-14 day temperature", "temp"),
+                                 ("814prcp", "8-14 day precipitation", "prcp")):
+            fn = _w2w_fetch(kind)
+            if not fn:
+                continue
+            try:
+                zf = zipfile.ZipFile(fn)
+            except zipfile.BadZipFile:
+                continue
+            contours = _w2w_contours(zf, var)
+            if not contours:
+                continue
+            issued = issued or _w2w_issued(zf)
+            feats = []
+            cats = (("Below", "cold"), ("Above", "warm")) if var == "temp"                 else (("Above", "wet"), ("Below", "dry"))
+            for cat, layer in cats:
+                feats.extend(_tilt_features(_to_geom(contours.get(cat, [])), layer))
+            if feats:
+                products.append({"key": f"w2w_{kind}", "label": label,
+                                 "layers": feats})
+        if not products:
+            return {"ok": False, "reason": "no CPC week-2 products available"}
+        return {"ok": True, "issued": issued, "products": products}
+    except Exception:                          # noqa: BLE001 - never kill the build
+        return {"ok": False, "reason": "week-2 product error"}
+
+
 def _build():
     os.makedirs(OUT_DIR, exist_ok=True)
     ym = f"{dt.datetime.now(dt.timezone.utc):%Y%m}"
@@ -320,7 +434,15 @@ def _build():
         })
     if not windows:
         return {"ok": False, "reason": "no winter windows in CPC zips"}
+    # 6-10 / 8-14 day contours ride in the same payload so the seasonal
+    # tilt map can offer them as comparison toggles (separate cache to
+    # keep their 6 h refresh independent of the seasonal build)
+    try:
+        w2w = w2w_bundle()
+    except Exception:                          # noqa: BLE001
+        w2w = {"ok": False}
     return {"ok": True, "issued": issued, "windows": windows,
+            "week2": w2w,
             "generated": time.strftime("%Y-%m-%d %H:%M")}
 
 
