@@ -7343,6 +7343,7 @@ def page_tropical(d):
     m_gulf = marine.get("gulfWorst") or {}
     m_sst = marine.get("sst") or {}
     m_gs = marine.get("gulfStream") or {}
+    m_sw = marine.get("swell") or {}
     m_beaches = marine.get("beachRisk") or []
     m_beach_rows = "".join(
         f'<tr><td><b>{html.escape(r["beach"])}</b></td>'
@@ -7365,6 +7366,7 @@ def page_tropical(d):
         f'<tr><td><b>{html.escape(b["id"])}</b></td><td>{html.escape(b["name"])}</td>'
         f'<td>{_fmt(b.get("wvht"), ".1f", " m")}</td>'
         f'<td>{_fmt(b.get("dpd"), ".0f", " s")}</td>'
+        f'<td><span class="chip" style="background:{html.escape(b.get("bandColor") or "#555")};color:#fff">{html.escape(b.get("band") or "-")}</span></td>'
         f'<td>{_fmt(b.get("mwd"), ".0f", "&deg;")}</td>'
         f'<td>{_fmtF(b.get("wtmp"))}</td></tr>'
         for b in m_buoys if b.get("ok"))
@@ -7374,6 +7376,11 @@ def page_tropical(d):
     m_worst_h = "-" if not m_worst else f"{m_worst.get('wvht') or 0:.1f} m"
     m_gulf_h = "-" if not m_gulf else f"{m_gulf.get('wvht') or 0:.1f} m"
     m_n_ok = marine.get("nOk", 0)
+    _swb = (m_sw.get("best") or {}).get("dpd") or 0
+    _swc = "#7c4dff" if _swb >= 13 else ("#5c6bc0" if _swb >= 10 else "#26c6da")
+    m_swell_kpi = (f'<span class="chip" style="background:{_swc};color:#fff">'
+                   f'{m_sw.get("long", 0)}/{m_sw.get("nSurf", 0)}</span>'
+                   if m_sw.get("nSurf") else "-")
     gt_storms = gt.get("storms") or []
     gt_cards = ""
     if gt_storms:
@@ -7455,6 +7462,7 @@ def page_tropical(d):
   <div class="kpi"><span>Buoys reporting</span><b>{m_n_ok}/{len(m_buoys)}</b></div>
   <div class="kpi"><span>Worst seas</span><b>{m_state_chip} {m_worst_h}</b></div>
   <div class="kpi"><span>Gulf of Mexico</span><b>{m_gulf_h}</b></div>
+  <div class="kpi"><span>Long swell 10 s+</span><b>{m_swell_kpi}</b></div>
 </div>
 <div id="ripWrap" style="overflow-x:auto;margin-bottom:10px"><table class="minitable" style="min-width:660px">
 <tr><th>Southeast beach</th><th>Rip-current risk</th><th>Waves at the nearest buoy</th><th>Guidance</th></tr>
@@ -7469,14 +7477,19 @@ def page_tropical(d):
   <span><i style="background:#d32f2f"></i>4-6 m heavy</span>
   <span><i style="background:#7b1fa2"></i>6 m+ violent</span>
   <span><i style="background:#555555"></i>&#8599; wave direction arrow</span>
+  <span><i style="border:2px dotted #90a4ae;border-radius:50%"></i>chop &lt;7 s</span>
+  <span><i style="border:2px dotted #26c6da;border-radius:50%"></i>windswell 7-10 s</span>
+  <span><i style="border:2px dotted #5c6bc0;border-radius:50%"></i>long swell 10-13 s</span>
+  <span><i style="border:2px dotted #7c4dff;border-radius:50%"></i>groundswell 13 s+</span>
 </div>
 <div class="ctl">
   <label><input type="checkbox" id="wvArrow" checked/> direction arrows</label>
+  <label><input type="checkbox" id="wvSwell"/> swell-period rings</label>
   <label><input type="checkbox" id="wvTab" checked/> report table</label>
 </div>
-<div class="src">Live NDBC buoy observations (hourly reports): marker color = significant wave height, arrow = mean wave direction, tooltip = height/period/direction/water temp. The long swells that reach Tennessee's mountains start here - and the swells that outrun a storm into the Southeast coast are the first signal of a hurricane offshore. Values marked - were not reported (NDBC's MM sentinel is never guessed). Rip-current one-liners are qualitative guidance derived from the nearest buoy's wave height and period (bigger surf and long-period swell drive stronger rip currents) - they are not a substitute for the beach warning flags or your local NWS forecast: <b>check the flags and talk to a lifeguard before swimming.</b></div>
+<div class="src">Live NDBC buoy observations (hourly reports): marker color = significant wave height, arrow = mean wave direction, tooltip = height/period/direction/water temp. Toggle <b>swell-period rings</b> to color each buoy by period band - wind chop (&lt;7 s) is disorganized and closes out fast, while 10 s+ long-period swell is organized energy that wraps into beach breaks, and 13 s+ groundswell is the early head-up that a hurricane swell train is arriving before the storm does (swell outruns its storm, period outruns the swell). The long swells that reach Tennessee's mountains start here - and the swells that outrun a storm into the Southeast coast are the first signal of a hurricane offshore. Values marked - were not reported (NDBC's MM sentinel is never guessed). Rip-current one-liners are qualitative guidance derived from the nearest buoy's wave height and period (bigger surf and long-period swell drive stronger rip currents) - they are not a substitute for the beach warning flags or your local NWS forecast: <b>check the flags and talk to a lifeguard before swimming.</b></div>
 <div id="wvTableWrap" style="overflow-x:auto"><table class="minitable" style="min-width:560px">
-<tr><th>Buoy</th><th>Location</th><th>Wave height</th><th>Period</th><th>Direction</th><th>Water</th></tr>
+<tr><th>Buoy</th><th>Location</th><th>Wave height</th><th>Period</th><th>Swell band</th><th>Direction</th><th>Water</th></tr>
 {m_buoy_rows}
 </table></div>
 </div>
@@ -7604,6 +7617,7 @@ const GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best";
       + (b.wtmp != null ? "<br/>Water temp: <b>" + Math.round(b.wtmp * 1.8 + 32) + "&deg;F</b> (" + b.wtmp.toFixed(1) + "&deg;C)" : "")
       + (b.wvht != null ? "<br/>Waves: " + b.wvht.toFixed(1) + " m" : "")
       + (b.dpd != null ? " @ " + Math.round(b.dpd) + " s" : "")
+      + (b.band ? "<br/><b style=color:" + b.bandColor + ">" + b.band + "</b>" : "")
       + (b.ts ? "<br/><span class=src>reported " + b.ts.slice(5, 16).replace("T", " ") + "Z</span>" : "");
   }}
   function drawSstBuoys() {{
@@ -7646,6 +7660,17 @@ const GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best";
      both the height markers and (optionally) the direction arrows - the
      first draft toggled layers and wiped every marker with it. */
   const wvLayer = L.layerGroup();
+  const gsLayer = L.layerGroup();   /* swell-period rings (off by default) */
+  function drawSwellRings() {{
+    gsLayer.clearLayers();
+    if (!document.getElementById("wvSwell").checked) return;
+    buoys.forEach(b => {{
+      if (!b.ok || b.dpd == null) return;
+      L.circleMarker([b.lat, b.lon], {{ radius: 13, stroke: true,
+        color: b.bandColor || "#555", weight: 2, dashArray: "2 4",
+        fill: false }}).bindTooltip(buoyTip(b)).addTo(gsLayer);
+    }});
+  }}
   function arrowIcon(b) {{
     const deg = b.mwd - 180;
     return L.divIcon({{ className: "", iconSize: [26, 26],
@@ -7666,7 +7691,10 @@ const GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best";
   }}
   wvBuild();
   wvLayer.addTo(wmap);
+  gsLayer.addTo(wmap);
+  drawSwellRings();
   document.getElementById("wvArrow").onchange = wvBuild;
+  document.getElementById("wvSwell").onchange = drawSwellRings;
   document.getElementById("wvTab").onchange = () => {{
     document.getElementById("wvTableWrap").style.display =
       document.getElementById("wvTab").checked ? "" : "none";

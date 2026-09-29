@@ -358,6 +358,25 @@ def _sea_state(wvht):
     return ("calm", "calm seas - beach weather on the water")
 
 
+def _swell_band(dpd):
+    """Surf-convention period band. Period = swell quality: wind chop
+    (<7 s) is disorganized and closes out fast; windswell (7-10 s) is
+    rideable but bumpy; 10 s+ is real groundswell that wraps into beach
+    breaks; 13 s+ is the long-period stuff that outruns storms - the early
+    head-up that a hurricane swell train is arriving before the storm
+    does. Cool colors = longer period, deliberately unlike the warm
+    height ramp on the markers."""
+    if dpd is None:
+        return ("unknown", "#8b97a5")
+    if dpd >= 13:
+        return ("groundswell 13 s+", "#7c4dff")
+    if dpd >= 10:
+        return ("long swell 10-13 s", "#5c6bc0")
+    if dpd >= 7:
+        return ("windswell 7-10 s", "#26c6da")
+    return ("chop <7 s", "#90a4ae")
+
+
 def _fetch_station(sid):
     try:
         r = requests.get(f"https://www.ndbc.noaa.gov/data/realtime2/{sid}.txt",
@@ -376,11 +395,13 @@ def _build():
         wvht = obs.get("wvht")
         col = _wave_color(wvht)
         state, word = _sea_state(wvht)
+        band, band_col = _swell_band(obs.get("dpd"))
         buoys.append({
             "id": sid, "name": name, "lat": lat, "lon": lon,
             "wvht": wvht, "dpd": obs.get("dpd"), "apd": obs.get("apd"),
             "mwd": obs.get("mwd"), "wtmp": obs.get("wtmp"),
             "color": col, "state": state, "word": word,
+            "band": band, "bandColor": band_col,
             "ts": obs.get("ts"), "ok": bool(obs),
         })
     ok = [b for b in buoys if b["ok"]]
@@ -391,7 +412,17 @@ def _build():
     gulf = [b for b in ok if 18.5 <= b["lat"] <= 30.5
             and -98.0 <= b["lon"] <= -80.5 and b["wvht"] is not None]
     gulf_worst = max(gulf, key=lambda b: b["wvht"], default=None)
+    # Surf-relevant long-period energy: how many reporting buoys see 10 s+
+    # dominant period, and the longest-period report on the board (height
+    # says how big, period says whether it is organized swell or chop).
+    surf = [b for b in ok if b["wvht"] is not None and b["dpd"] is not None]
+    best = max(surf, key=lambda b: b["dpd"], default=None)
     return {
+        "swell": {"nSurf": len(surf),
+                  "long": sum(1 for b in surf if b["dpd"] >= 10),
+                  "best": ({"id": best["id"], "name": best["name"],
+                            "dpd": best["dpd"], "wvht": best["wvht"],
+                            "band": best["band"]} if best else None)},
         "ok": bool(ok),
         "buoys": buoys,
         "nOk": len(ok),
@@ -437,6 +468,7 @@ if __name__ == "__main__":
     g = gs_bundle()
     print("gs axis:", g.get("ok"), g.get("date"), g.get("n"), "pts, max",
           g.get("maxSpd"), "m/s")
+    print("swell:", b.get("swell"))
     for x in b["buoys"][:6]:
         print("  ", x["id"], x["name"][:28].ljust(28),
               f"wvht={x['wvht']} dpd={x['dpd']} mwd={x['mwd']} wtmp={x['wtmp']}",
