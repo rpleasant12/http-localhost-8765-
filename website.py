@@ -5461,6 +5461,27 @@ def page_satellite(d):
 </div>
 </div>
 
+<div class="card"><h2>🪞 Same scene, two lenses - raw band vs STAR product</h2>
+<style>
+  .cmp-wrap { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  @media (max-width:760px){ .cmp-wrap { grid-template-columns:1fr; } }
+  .cmp-map { height:340px; border-radius:8px; border:1px solid #2b3441; background:#0b0f14; }
+  .cmp-base { filter:invert(1) hue-rotate(180deg); }
+  .cmp-tag { position:absolute; top:6px; left:6px; z-index:500; background:rgba(10,14,20,.85); border:1px solid #2b3441; color:#cfd8e3; padding:2px 8px; border-radius:8px; font-size:11.5px; }
+</style>
+<div class="ctl">
+  <select id="cmpAbi" title="Raw ABI band (left map)"></select>
+  <select id="cmpStar" title="NOAA STAR product (right map)"></select>
+  <button id="cmpPlay">⏵</button>
+  <span class="frame" id="cmpFrame">--:--</span>
+</div>
+<div class="cmp-wrap">
+  <div style="position:relative"><div id="cmpMapA" class="cmp-map"></div><div class="cmp-tag" id="cmpTagA">raw ABI</div></div>
+  <div style="position:relative"><div id="cmpMapB" class="cmp-map"></div><div class="cmp-tag" id="cmpTagB">STAR</div></div>
+</div>
+<div class="src">Left: the <b>raw ABI band</b>, decoded locally from NOAA open data - exactly what the sensor measured. Right: <b>NOAA STAR's ready-made product</b> built from the same feed. Frames pair by valid time (labels show the offset when the two sides have no exact shared minute); pan or zoom either map and the other follows. If the raw band's structure shows up honestly in the product, the product earns your trust - that is the whole point of this card.</div>
+</div>
+
 <div class="card"><h2>📖 Reading the bands - which layer for what</h2>
 <div class="src">
 <b>Water vapor (high / mid / low)</b> - moisture at three heights of the atmosphere. Swirls here are the storms of tomorrow: a plume pulling in from the Gulf or a dry slot boring into the Tennessee Valley shows up hours before clouds form. The <b>GINI full-disk</b> style is the classic weather-broadcast look.<br/><br/>
@@ -5725,6 +5746,118 @@ function onDataRefresh(d) { refresh(d); }
     }
   })();
   if (document.getElementById("fallMap")) bootFall();
+})();
+
+/* ---- side-by-side: raw ABI band vs NOAA STAR product. Both frame sets
+   are already in data.json (satBands / starBands, same frame shape), so
+   this is pure render: two linked Leaflet maps, one unified timeline,
+   frames paired by nearest valid time. Starts after boot() delivers DATA. */
+(function () {
+  const elA = document.getElementById("cmpMapA");
+  if (!elA) return;
+  const cvt = f => (typeof f.time === "number") ? f.time * 1000
+    : Date.parse(((f.time || "") + "").replace("Z", "+00:00"));
+  let mA, mB, lA = [], lB = [], timeline = [], tIdx = 0, cmpTimer = null, playing = false;
+  const nearest = (frames, tMs) => {
+    let bi = -1, bd = Infinity;
+    frames.forEach((f, i) => { const d = Math.abs(cvt(f) - tMs); if (d < bd) { bd = d; bi = i; } });
+    return { i: bi, gap: bd };
+  };
+  function arm() {
+    const abis = [], stars = [];
+    for (const [k, v] of Object.entries(DATA.satBands || {}))
+      if ((v.frames || []).length >= 2) abis.push([k, v.label || k]);
+    for (const [k, v] of Object.entries(DATA.starBands || {}))
+      if ((v.frames || []).length >= 2) stars.push([k, v.label || k]);
+    if (!abis.length || !stars.length) return false;
+    const selA = document.getElementById("cmpAbi"), selB = document.getElementById("cmpStar");
+    selA.innerHTML = abis.map(([k, l]) => `<option value="${k}">${l}</option>`).join("");
+    selB.innerHTML = stars.map(([k, l]) => `<option value="${k}">${l}</option>`).join("");
+    selA.value = abis.some(([k]) => k === "ir") ? "ir" : abis[0][0];
+    selB.value = stars.some(([k]) => k === "star_geo") ? "star_geo" : stars[0][0];
+    mA = L.map("cmpMapA", { attributionControl: false, zoomControl: false, center: [35.8, -86.5], zoom: 5 });
+    mB = L.map("cmpMapB", { attributionControl: false, zoomControl: false, center: [35.8, -86.5], zoom: 5 });
+    for (const m of [mA, mB])
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { className: "cmp-base", maxZoom: 21 }).addTo(m);
+    let syncing = false;
+    const link = (from, to) => () => {
+      if (syncing) return; syncing = true;
+      to.setView(from.getCenter(), from.getZoom(), { animate: false });
+      syncing = false;
+    };
+    mA.on("move", link(mA, mB)); mB.on("move", link(mB, mA));
+    selA.onchange = selB.onchange = () => { rebuild(); };
+    document.getElementById("cmpPlay").onclick = () => playing ? cmpPause() : cmpPlay();
+    window.addEventListener("resize", () => { mA.invalidateSize(); mB.invalidateSize(); });
+    rebuild();
+    return true;
+  }
+  function cur() {
+    return { A: ((DATA.satBands || {})[document.getElementById("cmpAbi").value] || {}).frames || [],
+             B: ((DATA.starBands || {})[document.getElementById("cmpStar").value] || {}).frames || [] };
+  }
+  function rebuild() {
+    const { A, B } = cur();
+    const ts = new Set();
+    A.forEach(f => { const t = cvt(f); if (!isNaN(t)) ts.add(t); });
+    B.forEach(f => { const t = cvt(f); if (!isNaN(t)) ts.add(t); });
+    timeline = [...ts].sort((x, y) => x - y);
+    tIdx = Math.max(0, timeline.length - 1);
+    showPair();
+  }
+  function put(m, frames, tMs, arr) {
+    const { i, gap } = nearest(frames, tMs);
+    if (i < 0) return null;
+    const f = frames[i], b = f.bounds;
+    const lb = (Array.isArray(b) && !Array.isArray(b[0])) ? L.latLngBounds([[b[0], b[1]], [b[2], b[3]]]) : b;
+    while (arr.length) m.removeLayer(arr.pop());
+    const ly = L.imageOverlay(f.pngUrl, lb, { opacity: 0.85, interactive: false, maxZoom: 21 }).addTo(m);
+    arr.push(ly);
+    return { f, gapMin: Math.round(gap / 60000) };
+  }
+  function showPair() {
+    if (!mA || !timeline.length) return;
+    const { A, B } = cur();
+    const t = timeline[tIdx];
+    const ra = put(mA, A, t, lA), rb = put(mB, B, t, lB);
+    const tag = (id, r) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = (r && r.f && r.f.label ? r.f.label : "--") + (r && r.gapMin > 0 ? " (nearest ±" + r.gapMin + "m)" : "");
+    };
+    tag("cmpTagA", ra); tag("cmpTagB", rb);
+    const fe = document.getElementById("cmpFrame");
+    if (fe) fe.textContent = new Date(t).toISOString().slice(11, 16) + "Z";
+  }
+  function cmpPlay() {
+    playing = true;
+    document.getElementById("cmpPlay").textContent = "⏸";
+    cmpTimer = setInterval(() => { tIdx = (tIdx + 1) % timeline.length; showPair(); }, 1400);
+  }
+  function cmpPause() {
+    playing = false;
+    document.getElementById("cmpPlay").textContent = "⏵";
+    if (cmpTimer) { clearInterval(cmpTimer); cmpTimer = null; }
+  }
+  /* boot() fills DATA asynchronously - arm when it lands. DATA is null
+     (not merely empty) until boot's fetch resolves, so the readiness
+     check must be null-safe: dereferencing DATA.satBands here used to
+     throw and kill the whole IIFE, leaving the card inert. */
+  const cmpReady = () => !!DATA && !!DATA.satBands && Object.keys(DATA.satBands).length > 0;
+  if (cmpReady()) { arm(); }
+  else {
+    let n = 0;
+    const iv = setInterval(() => {
+      if (++n > 48) { clearInterval(iv); return; }
+      if (cmpReady() && arm()) clearInterval(iv);
+    }, 250);
+  }
+  /* soft auto-refresh replaces DATA - keep the timeline current */
+  if (typeof window.onDataRefresh === "function") {
+    const _prev = window.onDataRefresh;
+    window.onDataRefresh = d => { _prev(d); try { if (mA) rebuild(); } catch (_e) {} };
+  }
+  /* debug/test handle (harmless in prod): lets ops drive the pair */
+  window.__cmp = { get A() { return mA; }, get B() { return mB; }, rebuild, showPair };
 })();
 </script>
 """
