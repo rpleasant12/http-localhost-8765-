@@ -11219,6 +11219,52 @@ def page_winter(d):
 <div id="snTabs" style="margin-top:12px">{sn_html}</div>
 </div>
 
+<div class="card"><h2>📖 Winter almanac - what a normal winter looks like here</h2>
+<div class="src">The climatological baselines behind the forecasts above: NOAA's 1991-2020 U.S. Climate Normals and period-of-record storm records for East Tennessee's four anchor stations. "First/last freeze" is the median date the temperature first/last drops to 32&deg;F; "biggest storm" is the largest single-storm snowfall on record at the station.</div>
+<div style="overflow-x:auto">
+<table style="width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px">
+  <thead><tr style="color:#9fb0c0;text-align:left;border-bottom:1px solid #2b3441">
+    <th style="padding:6px 8px">Station</th>
+    <th style="padding:6px 8px">Avg seasonal snowfall</th>
+    <th style="padding:6px 8px">First freeze (median)</th>
+    <th style="padding:6px 8px">Last freeze (median)</th>
+    <th style="padding:6px 8px">Biggest single storm</th>
+  </tr></thead>
+  <tbody>
+    <tr style="border-bottom:1px solid #1d2430">
+      <td style="padding:7px 8px"><b>Knoxville</b> <span style="color:#9fb0c0">(TYS, since 1871)</span></td>
+      <td style="padding:7px 8px"><b>4.6"</b></td>
+      <td style="padding:7px 8px">Nov 2</td>
+      <td style="padding:7px 8px">Apr 1</td>
+      <td style="padding:7px 8px"><b>17.5"</b> - Feb 13, 1960</td>
+    </tr>
+    <tr style="border-bottom:1px solid #1d2430">
+      <td style="padding:7px 8px"><b>Chattanooga</b> <span style="color:#9fb0c0">(CHA, since 1879)</span></td>
+      <td style="padding:7px 8px"><b>3.6"</b></td>
+      <td style="padding:7px 8px">Nov 9</td>
+      <td style="padding:7px 8px">Mar 24</td>
+      <td style="padding:7px 8px"><b>18.5"</b> - Mar 13, 1993 (Superstorm)</td>
+    </tr>
+    <tr style="border-bottom:1px solid #1d2430">
+      <td style="padding:7px 8px"><b>Tri-Cities</b> <span style="color:#9fb0c0">(TRI, since 1937)</span></td>
+      <td style="padding:7px 8px"><b>9.2"</b></td>
+      <td style="padding:7px 8px">Oct 24</td>
+      <td style="padding:7px 8px">Apr 16</td>
+      <td style="padding:7px 8px"><b>16.2"</b> - Nov 21, 1952</td>
+    </tr>
+    <tr>
+      <td style="padding:7px 8px"><b>Crossville</b> <span style="color:#9fb0c0">(CSV, Cumberland Plateau, ~1,860 ft)</span></td>
+      <td style="padding:7px 8px"><b>~6-7"</b> <span style="color:#9fb0c0">(station reports spotty; derived from daily sums)</span></td>
+      <td style="padding:7px 8px">Oct 23</td>
+      <td style="padding:7px 8px">Apr 12</td>
+      <td style="padding:7px 8px"><b>18.0"</b> - Mar 13, 1993 (Superstorm)</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+<div class="src" style="margin-top:6px">Read it like an East Tennessean: the Plateau and Tri-Cities run 2-3 weeks ahead of Knoxville and Chattanooga into winter and a week behind coming out - freeze is a daily occurrence up there by late October. And the Superstorm of March 1993 appearing in two rows of the same table is no coincidence: the biggest storm in most of Tennessee's recorded history did not care about elevation. The row inside its current first-freeze window is highlighted. Sources: NWS Morristown climate pages (weather.gov/mrx: Knoxville, Chattanooga, Tri-Cities normals &amp; records) and NOAA's ACIS climate database (Crossville daily records); normals period 1991-2020.</div>
+</div>
+
 <div class="card"><h2>📅 Weeks 2-4: CPC extended outlooks</h2>
 <div class="src">Climate Prediction Center 6-10 and 8-14 day outlooks - the standard extended-range winter guidance. Below-normal temperatures (blues) + a wet signal = the pattern that produces Tennessee Valley snow.</div>
 <div class="ltg-row">{cpc_tiles}</div>
@@ -11290,6 +11336,24 @@ async function boot() {{
     if (row) row.style.display = "none";
   }}
 }}
+/* ---- winter almanac: highlight the anchor row whose median first-freeze
+   window we are inside right now (pure render; data is 1991-2020 normals
+   + period-of-record storm records, so it never needs a fetch). */
+(function () {{
+  const today = new Date();
+  const mmdd = (today.getMonth() + 1) * 100 + today.getDate();
+  const bands = [[1102, 324, 0], [1109, 324, 1], [1024, 416, 2], [1023, 412, 3]];
+  const rows = document.querySelectorAll("table tbody tr");
+  for (const [start, end, i] of bands) {{
+    const inWindow = (start <= end) ? (mmdd >= start && mmdd <= end)
+                                    : (mmdd >= start || mmdd <= end);
+    if (inWindow && rows[i]) {{
+      rows[i].style.background = "rgba(79,155,232,.10)";
+      rows[i].style.outline = "1px solid #4f9be8";
+      break;
+    }}
+  }}
+}})();
 boot();
 </script>
 <style>
