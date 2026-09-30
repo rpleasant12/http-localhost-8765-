@@ -5615,8 +5615,60 @@ def page_satellite(d):
 <b>Infrared (10.3 / 11.2 / dirty 12.3)</b> - cloud-top temperature, day and night. Colder = higher = stronger convection; the dirty-IR split with 11.2 helps separate low clouds from fog.<br/><br/>
 <b>Visible bands (day only)</b> - red visible is the crisp daytime picture; blue and near-IR (veggie) see haze and vegetation; <b>cirrus</b> picks out thin high cloud the others miss; <b>snow/ice</b> makes winter surfaces pop; <b>cloud particle size</b> distinguishes water droplets from ice.<br/><br/>
 <b>Shortwave IR (fire/hot spots)</b> - glows at wildfire lines and industrial heat day or night; <b>CO2 / cloud top height</b> helps gauge how deep storms reach.<br/><br/>
-<b>NOAA STAR quick-look</b> - pre-built combinations: <b>GeoColor</b> (true-color by day, city-lights IR by night), <b>AirMass</b> (jet-stream and air-mass boundaries), <b>Sandwich</b> (visible + IR coldest tops combined), <b>Dust</b> (pink airborne dust), <b>Fire Temperature</b> (thermal detection), and STAR's own layered water vapor.
+<b>NOAA STAR quick-look</b> - pre-built band combinations from NOAA's STAR program, one per row in the table below.
 </div>
+<div style="overflow-x:auto">
+<table style="width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px">
+  <thead><tr style="color:#9fb0c0;text-align:left;border-bottom:1px solid #2b3441">
+    <th style="padding:6px 8px">Product</th>
+    <th style="padding:6px 8px">What you are looking at</th>
+    <th style="padding:6px 8px">Reach for it when&hellip;</th>
+  </tr></thead>
+  <tbody>
+    <tr style="border-bottom:1px solid #1d2430">
+      <td style="padding:7px 8px"><b>GeoColor</b></td>
+      <td style="padding:7px 8px">True-color by day (natural vegetation, rivers, terrain), city lights and moonlit cloud by night.</td>
+      <td style="padding:7px 8px">Sharing the big picture - storms, river fog, smoke, snow cover - with someone who does not read satellite imagery. The default first look, day or night.</td>
+    </tr>
+    <tr style="border-bottom:1px solid #1d2430">
+      <td style="padding:7px 8px"><b>Water Vapor (3 layers)</b></td>
+      <td style="padding:7px 8px">Moisture at three heights: mid and low layers track where rain-producing moisture actually sits, not just the pretty high-altitude swirls.</td>
+      <td style="padding:7px 8px">The classic full-disk swirl looks impressive but nothing is reaching the ground - check mid/low to see if the moisture column connects to your weather.</td>
+    </tr>
+    <tr style="border-bottom:1px solid #1d2430">
+      <td style="padding:7px 8px"><b>Infrared</b></td>
+      <td style="padding:7px 8px">Cloud-top temperature in a clean NWS-style palette, day and night.</td>
+      <td style="padding:7px 8px">Judging storm strength at night or in winter - the coldest tops here are the same signal as the raw 10.3&nbsp;&mu;m band, just readable at a glance.</td>
+    </tr>
+    <tr style="border-bottom:1px solid #1d2430">
+      <td style="padding:7px 8px"><b>Red Visible</b> <span style="color:#9fb0c0">(day)</span></td>
+      <td style="padding:7px 8px">What your eye would see from orbit - 500 m red-band visible, crisp and natural.</td>
+      <td style="padding:7px 8px">Daytime detail work: fog banks in valleys, cumulus streets, snow on the Plateau, shelf clouds. Useless after dark.</td>
+    </tr>
+    <tr style="border-bottom:1px solid #1d2430">
+      <td style="padding:7px 8px"><b>Air Mass</b></td>
+      <td style="padding:7px 8px">Air-mass boundaries from red/green/blue channel ratios: warm-moist greens, cold-dry blues, stratospheric intrusion reds.</td>
+      <td style="padding:7px 8px">Chasing jet-stream dynamics and troughs days out - a dark-red dry slot boring into the ridge is a severe-weather ingredient arriving early.</td>
+    </tr>
+    <tr style="border-bottom:1px solid #1d2430">
+      <td style="padding:7px 8px"><b>Sandwich</b></td>
+      <td style="padding:7px 8px">Visible underneath with coldest IR tops overlaid in color, so texture and strength share one image.</td>
+      <td style="padding:7px 8px">Convection at its most readable: you see the storm's texture <i>and</i> which cell owns the coldest, strongest tops without flipping layers.</td>
+    </tr>
+    <tr style="border-bottom:1px solid #1d2430">
+      <td style="padding:7px 8px"><b>Fire Temperature</b></td>
+      <td style="padding:7px 8px">Shortwave-IR tuned so fire lines and industrial heat glow white-hot against cool terrain.</td>
+      <td style="padding:7px 8px">Wildfire monitoring day or night - the hottest pixels are the active head of the fire, and the glow cuts through smoke where visible fails.</td>
+    </tr>
+    <tr style="border-bottom:1px solid #1d2430">
+      <td style="padding:7px 8px"><b>Dust</b></td>
+      <td style="padding:7px 8px">Daytime dust and ash split out in pink by the same band math that separates it from cloud.</td>
+      <td style="padding:7px 8px">Saharan outbreaks and local blowing dust - also useful for faint plumes that look like nothing in GeoColor until they are on top of you.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+<div class="src" style="margin-top:6px">These are STAR's ready-made composites - same GOES-19 feed the raw bands above are decoded from, just pre-combined and pre-colored by the scientists at NOAA/NESDIS STAR. The pair in the compare card (raw band + STAR product) is the sanity check: when the raw band shows the same structure, the product is telling the truth. Cadence and coverage match the quick-look picker (5-minute updates, 1-hour loops).</div>
 </div>
 <script>
 """ + _player_js("{}") + """
