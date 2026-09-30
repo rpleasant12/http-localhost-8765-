@@ -3474,9 +3474,18 @@ def _enso_safe():
     """El Nino / ENSO bundle - refreshes ~3 h, never regresses to empty."""
     try:
         from data.enso import bundle
-        v = bundle(max_age=_CLIMATE_REFRESH)
+        v = dict(bundle(max_age=_CLIMATE_REFRESH))
         if not (v and (v.get("oni") or v.get("figures") or v.get("enso"))):
             raise RuntimeError("bundle came back empty")
+        # record book + analog years + NAO/PNA winter tags (own fetches +
+        # own 6-h cache; failure drops just the extra cards, never the page)
+        try:
+            from data.enso_records import bundle as _enso_records_bundle
+            rec = _enso_records_bundle(max_age=_CLIMATE_REFRESH)
+            if rec:
+                v["records"] = rec
+        except Exception as exc:                   # noqa: BLE001
+            print(f"enso records failed ({type(exc).__name__}: {exc})", flush=True)
         _ENSO_LAST_GOOD.update(t=time.time(), v=v)
         return v
     except Exception as exc:                       # noqa: BLE001
@@ -9268,6 +9277,31 @@ def page_cfsv2(d):
     weekly_html = _figs(weekly) or '<div class="alert">CFSv2 weekly maps unavailable this cycle.</div>'
     monthly_html = _figs(monthly) or '<div class="alert">CFSv2 monthly maps unavailable this cycle.</div>'
 
+    # compact analog-years card: the historical winters closest to the current
+    # ENSO state (rides the elNino payload; absent -> no card)
+    rec = ((d.get("elNino") or {}).get("records") or {})
+    cur, an = (rec.get("current") or {}), (rec.get("analogs") or [])
+    analog_html = ""
+    if an:
+        arows = "".join(
+            f'<tr><td style="font-weight:700">{html.escape(a["years"])}</td>'
+            f'<td style="color:{"#ef5350" if a["kind"] == "El Nino" else "#42a5f5"}">{a["anom"]:+.2f}&deg;C</td>'
+            f'<td class="src">{a["diff"]:+.2f}</td></tr>' for a in an[:5])
+        cur_line = (f'<div style="margin-bottom:6px">Current ENSO: <b>{html.escape(cur.get("season", "?"))}</b> '
+                    f'ONI <b>{(cur.get("anom") or 0):+.2f}&deg;C</b> '
+                    f'<span class="src">({html.escape(cur.get("phase") or "neutral")})</span></div>') if cur else ""
+        analog_html = (f'<div class="card"><h2>🎯 Analog winters - past seasons like this ENSO state</h2>{cur_line}'
+                       '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;'
+                       'font-size:13.5px;min-width:480px">'
+                       '<thead><tr style="color:#9fb0c0;text-align:left;border-bottom:1px solid #2b3441">'
+                       '<th style="padding:6px 8px">Winter</th><th style="padding:6px 8px">DJF ONI</th>'
+                       '<th style="padding:6px 8px">Diff from now</th></tr></thead>'
+                       f'<tbody>{arows}</tbody></table></div>'
+                       '<div class="src" style="margin-top:6px">When CFSv2\'s weeks 3-4 and monthly maps '
+                       'look uncertain, the closest historical analog winters are the reality check: what '
+                       'actually happened when the Pacific sat where it sits now. Full record book + NAO/PNA '
+                       'tags on the El Niño page.</div></div>')
+
     body = f"""
 <header class="hero"><h1>🌐 CFSv2 - Long-Range Forecasts</h1>
 <div class="sub">NOAA's Climate Forecast System v2: weekly North America maps + monthly outlooks
@@ -9287,7 +9321,8 @@ def page_cfsv2(d):
 <div class="ltg-row">{monthly_html}</div>
 </div>
 
-<div class="card"><span class="src">Source: NOAA CPC CFSv2 weekly & monthly products (cpc.ncep.noaa.gov), mirrored every update cycle. Related on this site: CPC 6-10/8-14 day outlooks (Climate page), seasonal tilt map (Winter page), ENSO status (Climate page).</span></div>
+{analog_html}
+<div class="card"><span class="src">Source: NOAA CPC CFSv2 weekly & monthly products (cpc.ncep.noaa.gov), mirrored every update cycle. Related on this site: CPC 6-10/8-14 day outlooks (Climate page), seasonal tilt map (Winter page), ENSO record book + analog years (El Niño page).</span></div>
 
 <script>
 async function boot() {{
@@ -9409,6 +9444,97 @@ def page_enso(d):
 
     enso_paras = "".join(f'<p style="margin:6px 0">{html.escape(p)}</p>' for p in paras[:3])
 
+    # ---- record book: strongest/longest episodes + analog years + NAO/PNA
+    rec = en.get("records") or {}
+    eps_all = rec.get("episodes") or []
+
+    def _rec_rows(items):
+        out = ""
+        for e in items or []:
+            col = "#ef5350" if e["kind"] == "El Nino" else "#42a5f5"
+            tags = " ".join(t for t in (e.get("naoTag"), e.get("pnaTag")) if t)
+            out += (f'<tr><td style="color:{col};font-weight:700">{html.escape(e["years"])}</td>'
+                    f'<td>{e["peakAnom"]:+.2f}&deg;C</td>'
+                    f'<td>{html.escape(e["strength"])}</td>'
+                    f'<td class="src">{e["startSeason"]}&ndash;{e["endSeason"]} ({e["nSeasons"]} seasons)</td>'
+                    f'<td>{tags or "<span class=src>n/a</span>"}</td></tr>')
+        return out
+
+    def _records_card(title, strongest, longest):
+        if not (strongest or longest):
+            return ""
+        rows = _rec_rows(strongest) + _rec_rows(longest)
+        return (f'<div class="card"><h2>{title}</h2>'
+                '<div style="overflow-x:auto"><table style="width:100%;'
+                'border-collapse:collapse;font-size:13.5px;min-width:640px">'
+                '<thead><tr style="color:#9fb0c0;text-align:left;border-bottom:1px solid #2b3441">'
+                '<th style="padding:6px 8px">Winter</th><th style="padding:6px 8px">Peak ONI</th>'
+                '<th style="padding:6px 8px">Strength</th><th style="padding:6px 8px">Run</th>'
+                '<th style="padding:6px 8px">Winter teleconnections</th></tr></thead>'
+                f'<tbody>{rows}</tbody></table></div>'
+                '<div class="src" style="margin-top:6px">Official CPC episode detection: 5+ consecutive '
+                '3-month seasons beyond &plusmn;0.5&deg;C in Nino 3.4; strength graded at the peak '
+                '(moderate &plusmn;1.0, strong &plusmn;1.5, very strong &plusmn;2.0). NAO/PNA are '
+                'Dec&ndash;Feb means of CPC\'s standardized monthly indices - the extra cards that '
+                'split otherwise-similar ENSO winters into very different outcomes.</div></div>')
+
+    def _tag_chip(t, good=""):                      # good unused; kept for color hooks
+        return (f'<span style="background:#101826;border:1px solid #2b4a6b;border-radius:14px;'
+                f'padding:2px 10px;font-weight:700;font-size:12.5px">{html.escape(t)}</span>')
+
+    # the record lists sit one level down (records.records.*): the outer key
+    # carries bundle metadata (current/analogs/winters), _records nests the
+    # lists - flip to a flat view once so the card builder doesn't care
+    rec_l = rec.get("records") or rec
+    rec_card = _records_card('🏆 The record book - strongest since 1950',
+                             rec_l.get("elNinoStrongest"), rec_l.get("laNinaStrongest"))
+    long_card = _records_card('⏳ The marathons - longest runs',
+                              rec_l.get("elNinoLongest"), rec_l.get("laNinaLongest"))
+
+    cur = rec.get("current") or {}
+    analogs_html = ""
+    if rec.get("analogs"):
+        arows = "".join(
+            f'<tr><td style="font-weight:700">{html.escape(a["years"])}</td>'
+            f'<td style="color:{"#ef5350" if a["kind"] == "El Nino" else "#42a5f5"}">{a["anom"]:+.2f}&deg;C</td>'
+            f'<td class="src">{a["diff"]:+.2f}</td></tr>' for a in rec["analogs"])
+        cur_line = (f'<div style="margin-bottom:6px">Current: <b>{html.escape(cur.get("season", "?"))}</b> '
+                    f'ONI <b>{(cur.get("anom") or 0):+.2f}&deg;C</b> '
+                    f'<span class="src">({html.escape(cur.get("phase") or "neutral")})</span>'
+                    '</div>') if cur else ""
+        analogs_html = (f'<div class="card"><h2>🎯 Seasons like this one - analog years</h2>{cur_line}'
+                        '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;'
+                        'font-size:13.5px;min-width:480px">'
+                        '<thead><tr style="color:#9fb0c0;text-align:left;border-bottom:1px solid #2b3441">'
+                        '<th style="padding:6px 8px">Winter</th><th style="padding:6px 8px">DJF ONI</th>'
+                        '<th style="padding:6px 8px">Diff from now</th></tr></thead>'
+                        f'<tbody>{arows}</tbody></table></div>'
+                        '<div class="src" style="margin-top:6px">The historical winters whose ENSO state '
+                        'sat closest to today\'s - the analogs a forecaster checks first. Find their winters '
+                        'in the table below to see what NAO/PNA did on top of the ENSO signal.</div></div>')
+
+    winters_html = ""
+    if rec.get("winters"):
+        wrows = "".join(
+            f'<tr><td style="font-weight:700">{html.escape(w["years"])}</td>'
+            f'<td style="color:{"#ef5350" if w["oni"] >= 0.5 else "#42a5f5" if w["oni"] <= -0.5 else "inherit"}">{w["oni"]:+.2f}&deg;C</td>'
+            f'<td>{w["nao"]:+.2f}</td><td>{_tag_chip(w["naoTag"]) if w.get("naoTag") else "<span class=src>n/a</span>"}</td>'
+            f'<td>{w["pna"]:+.2f}</td><td>{_tag_chip(w["pnaTag"]) if w.get("pnaTag") else "<span class=src>n/a</span>"}</td></tr>'
+            for w in rec["winters"])
+        winters_html = ('<div class="card"><h2>🧭 Last 15 winters: ENSO &times; NAO &times; PNA</h2>'
+                        '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;'
+                        'font-size:13.5px;min-width:640px">'
+                        '<thead><tr style="color:#9fb0c0;text-align:left;border-bottom:1px solid #2b3441">'
+                        '<th style="padding:6px 8px">Winter</th><th style="padding:6px 8px">DJF ONI</th>'
+                        '<th style="padding:6px 8px">NAO</th><th style="padding:6px 8px"></th>'
+                        '<th style="padding:6px 8px">PNA</th><th style="padding:6px 8px"></th></tr></thead>'
+                        f'<tbody>{wrows}</tbody></table></div>'
+                        '<div class="src" style="margin-top:6px">Tags: + beyond +0.5, &minus; beyond '
+                        '&minus;0.5, ~ neutral in between (CPC standardized monthly indices, '
+                        'Dec&ndash;Feb mean). Same ENSO, different NAO: 2015-16 (strong El Niño + NAO+) '
+                        'and 2009-10 (moderate El Niño + NAO&minus;) delivered very different eastern-US '
+                        'winters.</div></div>')
+
     body = f"""
 <header class="hero"><h1>🌊 El Niño &amp; La Niña</h1>
 <div class="sub">ENSO status, forecast, and the story behind the Pacific's biggest swing
@@ -9436,6 +9562,11 @@ def page_enso(d):
   <div id="oniChart"></div>
   <div class="src">Oceanic Nino Index - 3-month running mean Nino 3.4 anomaly. Red = El Niño seasons, blue = La Niña. The biggest events (1982-83, 1997-98, 2015-16) reshaped global weather; the labeled marks call out the strongest on record.</div>
 </div>
+
+{analogs_html}
+{rec_card}
+{long_card}
+{winters_html}
 
 <div class="card">
   <h2>🔮 The forecast</h2>
