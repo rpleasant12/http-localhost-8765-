@@ -412,7 +412,8 @@ def _closings_card(c):
         + f'<a href="{html.escape(_q(nm + " school closings delays"), quote=True)}">closings</a></td>'
         f'</tr>'
         for cty, nm, url in (c.get("districts") or []))
-    dist_tbl = (f'<details><summary style="cursor:pointer;color:#4da3ff">'
+    dist_tbl = (f'<details data-desk="districts"'
+                f'><summary style="cursor:pointer;color:#4da3ff">'
                 f'School districts ({len(c.get("districts") or [])}) - '
                 f'tap for each district\'s own call</summary>'
                 f'<div style="overflow-x:auto;max-height:340px;overflow-y:auto">'
@@ -434,7 +435,8 @@ def _closings_card(c):
         + f'<a href="{html.escape(_q(q), quote=True)}">outage map</a></td>'
         f'</tr>'
         for nm, area, url, q in (c.get("utilities") or []))
-    util_tbl = (f'<details><summary style="cursor:pointer;color:#4da3ff">'
+    util_tbl = (f'<details data-desk="utilities"'
+                f'><summary style="cursor:pointer;color:#4da3ff">'
                 f'Power & utilities ({len(c.get("utilities") or [])}) - '
                 f'live outage maps + report numbers</summary>'
                 f'<div style="overflow-x:auto;max-height:340px;overflow-y:auto">'
@@ -446,8 +448,32 @@ def _closings_card(c):
                 + util_rows + '</tbody></table></div></details>'
                 if util_rows else '')
 
+    # Expand-tracker: fires a GoatCounter event (only when analytics is
+    # enabled) the FIRST time a visitor opens the district or utility
+    # list - the signal that a winter event has them hunting closings or
+    # outage info. First-expand-per-session via sessionStorage, so a
+    # toggle-spammer is one event, not forty. Silent no-op without
+    # analytics or on localhost (the shared guard in _page's beacon
+    # doesn't apply here, so this carries its own hostname check).
+    desk_js = (
+        '<script>(function(){'
+        'if(location.hostname==="localhost"||'
+        'location.hostname==="127.0.0.1")return;'
+        'document.addEventListener("toggle",function(e){'
+        'var d=e.target;if(!d||!d.hasAttribute("data-desk")||!d.open)return;'
+        'var k="tnwxDeskX:"+d.getAttribute("data-desk");'
+        'try{if(sessionStorage.getItem(k))return;'
+        'sessionStorage.setItem(k,"1");}catch(err){}'
+        'var tries=0;(function go(){'
+        'if(window.goatcounter&&goatcounter.count){'
+        'goatcounter.count({path:"desk-expand-"+'
+        'd.getAttribute("data-desk"),event:true,title:d.getAttribute('
+        '"data-desk")+" list expanded"});}'
+        'else if(++tries<25)setTimeout(go,400);}'
+        ')();},true);})();</script>'
+    )
     return (f'<div class="card"><h2>🗄️ Winter storm desk - closings & '
-            f'power outages</h2>{head}{chip_tbl}{dist_tbl}{util_tbl}</div>')
+            f'power outages</h2>{head}{chip_tbl}{dist_tbl}{util_tbl}{desk_js}</div>')
 
 
 def _road_risk(hourly):
