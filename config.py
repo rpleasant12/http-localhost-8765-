@@ -7,6 +7,12 @@ PAGE_URL = "https://www.facebook.com/tennesseeweathernetwork"
 # viewed locally - sharing a localhost link on Facebook is useless.
 PUBLIC_SITE_URL = "https://rpleasant12.github.io/http-localhost-8765-/"
 
+# Visitor analytics (optional). Set to your GoatCounter site URL, e.g.
+# "https://MYSITE.goatcounter.com" (free for non-commercial sites, no
+# cookies, no personal data, localhost views ignored). Empty string =
+# no tracking script is emitted on any page.
+ANALYTICS_SITE = ""
+
 # Initial location: Greeneville, East Tennessee
 DEFAULT_LOCATION_NAME = "Greeneville, TN"
 LATITUDE = 36.1627

@@ -4479,6 +4479,35 @@ def _page(title, active, body, extra_head=""):
   <div class="dHead">{html.escape(config.PAGE_NAME)}<button id="navClose" aria-label="Close menu">\u00d7</button></div>
   {drawer}
 </div>"""
+    # visitor analytics (optional, config.ANALYTICS_SITE): a single
+    # cookie-free beacon on every page. Empty config = zero script emitted.
+    # Auto-counting is OFF because the site hard-reloads every ~90 s (the
+    # auto-refresh cycle) - one visitor would look like 40 pageviews/hour.
+    # Instead: count on real navigations only (Navigation Timing exposes
+    # reloads), with a 5-min throttle as a safety net, and never on localhost.
+    analytics_site = getattr(config, "ANALYTICS_SITE", "")
+    if analytics_site:
+        ANALYTICS_HTML = (
+            # no_onload must exist BEFORE the async loader boots
+            '<script>window.goatcounter={no_onload:true};</script>\n'
+            '<script data-goatcounter="' + html.escape(analytics_site, quote=True)
+            + '/count" async src="//gc.zgo.at/count.js"></script>\n'
+            '<script>(function(){'
+            'if(location.hostname==="localhost"||'
+            'location.hostname==="127.0.0.1")return;'
+            'try{var n=performance.getEntriesByType("navigation")[0];'
+            'if(n&&n.type==="reload")return;}catch(e){}'
+            'try{var now=Date.now(),k="tnwxVisit:"+location.pathname;'
+            'if(now-(+localStorage.getItem(k)||0)<3e5)return;'
+            'window.addEventListener("load",function(){'
+            'var tries=0;(function go(){'
+            'if(window.goatcounter&&goatcounter.count){'
+            'goatcounter.count({path:location.pathname,title:document.title});'
+            'try{localStorage.setItem(k,""+Date.now());}catch(e){}}'
+            'else if(++tries<25)setTimeout(go,400);})();});}catch(e){}})();</script>'
+        )
+    else:
+        ANALYTICS_HTML = ""
     return f"""<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -4499,7 +4528,7 @@ def _page(title, active, body, extra_head=""):
 {MAPBOX_JS}{extra_head}
 <style>{_CSS}</style>
 </head><body>
-<nav><div class="wrap">
+{ANALYTICS_HTML}<nav><div class="wrap">
   <a class="brand" href="index.html">🌧️ <span>{html.escape(config.PAGE_NAME)}</span></a>
   {nav}
   <div class="navctl">
