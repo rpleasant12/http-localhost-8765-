@@ -354,6 +354,102 @@ def _snowtrack_safe():
         return {"ok": False, "reason": "snowtrack module unavailable"}
 
 
+def _closings_safe():
+    """Winter closings/outage desk (data/closings.py) - NWS outage must not
+    kill the build; the panel degrades to an honest notice."""
+    try:
+        from data.closings import collect_closings
+        return collect_closings() or {"ok": False, "reason": "no data"}
+    except Exception:                              # noqa: BLE001
+        return {"ok": False, "reason": "closings module unavailable"}
+
+
+def _closings_card(c):
+    """Winter storm desk card: county closure signals + district/utility
+    directory. Server-rendered - the data changes at alert cadence, not
+    per-minute, so no client fetch is needed."""
+    import urllib.parse
+    upd = c.get("updated") or ""
+    counties = c.get("counties") or {}
+    if not c.get("ok"):
+        head = ('<div class="alert">' + html.escape(c.get("note") or
+                "Signal feed unavailable this cycle.") + '</div>')
+    else:
+        head = (f'<div class="src">Signals as of <b>{html.escape(upd)}</b> '
+                f'- {html.escape(c.get("note") or "")}</div>')
+        if not counties:
+            head += ('<div class="alert ok">No closure-relevant NWS alerts '
+                     'in East Tennessee right now - a quiet board. When '
+                     'winter alerts fire, each county lights up here '
+                     'automatically.</div>')
+    chips = "".join(
+        f'<tr style="border-bottom:1px solid #1d2430">'
+        f'<td style="padding:6px 8px"><b>{html.escape(k)} County</b></td>'
+        f'<td style="padding:6px 8px"><span style="color:{html.escape(v.get("color") or "#9fb0c0")}">'
+        f'{html.escape(v.get("event") or "")}</span></td>'
+        f'<td style="padding:6px 8px"><b>{html.escape(v.get("label") or "")}</b></td>'
+        f'<td style="padding:6px 8px;color:#9fb0c0">{html.escape((v.get("until") or "")[:16].replace("T", " "))}</td>'
+        f'</tr>'
+        for k, v in counties.items())
+    chip_tbl = (f'<div style="overflow-x:auto"><table style="width:100%;'
+                f'border-collapse:collapse;font-size:13.5px;min-width:520px">'
+                '<thead><tr style="color:#9fb0c0;text-align:left;'
+                'border-bottom:1px solid #2b3441">'
+                '<th style="padding:6px 8px">County</th><th style="padding:6px 8px">Active alert</th>'
+                '<th style="padding:6px 8px">Closure signal</th><th style="padding:6px 8px">Through (UTC)</th>'
+                '</tr></thead><tbody>' + chips + '</tbody></table></div>' if chips else '')
+
+    def _q(name):
+        return "https://www.google.com/search?q=" + urllib.parse.quote_plus(name)
+
+    dist_rows = "".join(
+        f'<tr style="border-bottom:1px solid #1d2430">'
+        f'<td style="padding:6px 8px"><b>{html.escape(nm)}</b></td>'
+        f'<td style="padding:6px 8px;color:#9fb0c0">{html.escape(cty)}</td>'
+        f'<td style="padding:6px 8px">'
+        + (f'<a href="{html.escape(url, quote=True)}">site</a> &middot; '
+           if url else '')
+        + f'<a href="{html.escape(_q(nm + " school closings delays"), quote=True)}">closings</a></td>'
+        f'</tr>'
+        for cty, nm, url in (c.get("districts") or []))
+    dist_tbl = (f'<details><summary style="cursor:pointer;color:#4da3ff">'
+                f'School districts ({len(c.get("districts") or [])}) - '
+                f'tap for each district\'s own call</summary>'
+                f'<div style="overflow-x:auto;max-height:340px;overflow-y:auto">'
+                f'<table style="width:100%;border-collapse:collapse;font-size:13px;min-width:520px">'
+                '<thead><tr style="color:#9fb0c0;text-align:left;'
+                'border-bottom:1px solid #2b3441">'
+                '<th style="padding:6px 8px">District</th><th style="padding:6px 8px">County</th>'
+                '<th style="padding:6px 8px">Check status</th></tr></thead><tbody>'
+                + dist_rows + '</tbody></table></div></details>'
+                if dist_rows else '')
+
+    util_rows = "".join(
+        f'<tr style="border-bottom:1px solid #1d2430">'
+        f'<td style="padding:6px 8px"><b>{html.escape(nm)}</b></td>'
+        f'<td style="padding:6px 8px;color:#9fb0c0">{html.escape(area)}</td>'
+        f'<td style="padding:6px 8px">'
+        + (f'<a href="{html.escape(url, quote=True)}">site</a> &middot; '
+           if url else '')
+        + f'<a href="{html.escape(_q(q), quote=True)}">outage map</a></td>'
+        f'</tr>'
+        for nm, area, url, q in (c.get("utilities") or []))
+    util_tbl = (f'<details><summary style="cursor:pointer;color:#4da3ff">'
+                f'Power & utilities ({len(c.get("utilities") or [])}) - '
+                f'live outage maps + report numbers</summary>'
+                f'<div style="overflow-x:auto;max-height:340px;overflow-y:auto">'
+                f'<table style="width:100%;border-collapse:collapse;font-size:13px;min-width:520px">'
+                '<thead><tr style="color:#9fb0c0;text-align:left;'
+                'border-bottom:1px solid #2b3441">'
+                '<th style="padding:6px 8px">Utility</th><th style="padding:6px 8px">Primary area</th>'
+                '<th style="padding:6px 8px">Outage info</th></tr></thead><tbody>'
+                + util_rows + '</tbody></table></div></details>'
+                if util_rows else '')
+
+    return (f'<div class="card"><h2>🗄️ Winter storm desk - closings & '
+            f'power outages</h2>{head}{chip_tbl}{dist_tbl}{util_tbl}</div>')
+
+
 def _road_risk(hourly):
     """Road-conditions outlook for the next ~18 h from the NWS hourly.
 
@@ -11131,6 +11227,7 @@ def page_winter(d):
     WPC winter desks, CPC extended outlooks, winter alerts."""
     wnt = d.get("winter") or {}
     snowtrack = _snowtrack_safe()
+    closings_card = _closings_card(_closings_safe())
     snowtrack_json = json.dumps(snowtrack, separators=(",", ":"))
     frames = wnt.get("frames") or {}
     alerts = wnt.get("alerts") or {}
@@ -11376,6 +11473,8 @@ def page_winter(d):
 <div class="src">Climate Prediction Center 6-10 and 8-14 day outlooks - the standard extended-range winter guidance. Below-normal temperatures (blues) + a wet signal = the pattern that produces Tennessee Valley snow.</div>
 <div class="ltg-row">{cpc_tiles}</div>
 </div>
+
+{closings_card}
 
 <script>
 const WNT = null; /* winter ships once (data.json); page boot fetches it */
