@@ -158,6 +158,53 @@ def _records(eps):
     return out
 
 
+# ------------------------------------------------ curated notable winters
+# Landmark winters a record book of ENSO winters is incomplete without.
+# Nothing here is hardcoded but the titles/notes: every value is re-derived
+# each cycle from the same live CPC pulls as the rest of the payload, so the
+# note can never contradict the data. The March 1993 Superstorm is the
+# reason this section exists: DJF 1993 was NEUTRAL (+0.13) - the storm rode
+# the tail of the strong 1991-92 El Nino under a strongly positive NAO, so
+# the episode rule will never list it, and an ONI-only record book would
+# miss the most famous winter storm in modern US history.
+_NOTABLE_WINTERS = [
+    ("1992-93", "The Storm of the Century (Mar 12-13, 1993)",
+     "A hurricane-scale blizzard covering ~1.3 million square miles from the "
+     "Gulf Coast to Canada - thundersnow in Tennessee, record lows in its "
+     "wake. Officially a NEUTRAL winter (DJF ONI +0.13): the "
+     "tail of the strong 1991-92 El Nino plus a strongly positive NAO (Mar "
+     "1993 +0.67). ENSO set the stage; the NAO threw the punch."),
+    ("1995-96", "Blizzard of '96 (Jan 1996)",
+     "The East Coast classic - up to 30in on NYC/DC - in a moderate La Nina "
+     "winter (DJF -0.88) with negative-NAO blocking; the La Nina + blocking "
+     "combo that can bury the East even without El Nino."),
+    ("2009-10", "Snowmageddon (Feb 2010)",
+     "Washington DC's back-to-back 20in+ storms during a strong El Nino "
+     "(+1.47) with one of the strongest negative NAOs on record (-1.67) - "
+     "the textbook case of the NAO card beating the ENSO card for who gets "
+     "the snow."),
+]
+
+
+def _notable(oni_by, nao, pna):
+    """Live values for the curated landmark winters (skip if data missing)."""
+    out = []
+    for label, title, note in _NOTABLE_WINTERS:
+        y0 = int(label.split("-")[0])                # '1992-93' -> Dec 1992 + JF 1993
+        oni_v = oni_by.get("DJF %d" % (y0 + 1))
+        n = _djf_tele(nao, y0)
+        p = _djf_tele(pna, y0)
+        if oni_v is None or n is None or p is None:
+            continue
+        out.append({
+            "years": label, "title": title, "note": note, "oni": oni_v,
+            "phase": _strength(oni_v) if abs(oni_v) >= 0.5 else "neutral",
+            "nao": n, "pna": p,
+            "naoTag": _tag(n, "NAO"), "pnaTag": _tag(p, "PNA"),
+        })
+    return out
+
+
 # ------------------------------------------------------------------ bundle
 
 def bundle(max_age=MAX_AGE):
@@ -200,6 +247,7 @@ def bundle(max_age=MAX_AGE):
             "episodes": eps,
             "records": _records(eps),
             "analogs": _analogs(oni, cur["anom"]),
+            "notable": _notable({r["season"]: r["anom"] for r in oni}, nao, pna),
             "winters": winters,
             "nSeasons": len(oni),
             "generated": time.strftime("%Y-%m-%d %H:%M"),
@@ -237,4 +285,6 @@ if __name__ == "__main__":
     print("strongest La Nina:", [(e["years"], e["peakAnom"], e["naoTag"], e["pnaTag"])
                                  for e in b["records"]["laNinaStrongest"]])
     print("analogs:", [(a["years"], a["anom"], a["diff"]) for a in b["analogs"]])
+    print("notable:", [(w["years"], w["oni"], w["phase"], w["naoTag"], w["pnaTag"])
+                       for w in b.get("notable") or []])
     print("last winter:", (b.get("winters") or [None])[-1])

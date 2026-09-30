@@ -9535,6 +9535,29 @@ def page_enso(d):
                         'and 2009-10 (moderate El Niño + NAO&minus;) delivered very different eastern-US '
                         'winters.</div></div>')
 
+    notable_html = ""
+    if rec.get("notable"):
+        nblocks = ""
+        for w in rec["notable"]:
+            ncol = "#ef5350" if w["oni"] >= 0.5 else "#42a5f5" if w["oni"] <= -0.5 else "inherit"
+            nblocks += (
+                f'<div style="border-left:3px solid #2b4a6b;padding:6px 12px;margin:10px 0">'
+                f'<div style="font-weight:800"><span style="color:{ncol}">{html.escape(w["years"])}</span>'
+                f' &middot; {html.escape(w["title"])}</div>'
+                f'<div style="margin:4px 0">'
+                f'<span style="color:{ncol};font-weight:700">ENSO {html.escape(w["phase"])} '
+                f'({w["oni"]:+.2f}&deg;C)</span>'
+                f' &nbsp; <b>NAO</b> {w["nao"]:+.2f} {_tag_chip(w["naoTag"]) if w.get("naoTag") else ""}'
+                f' &nbsp; <b>PNA</b> {w["pna"]:+.2f} {_tag_chip(w["pnaTag"]) if w.get("pnaTag") else ""}</div>'
+                f'<div class="src">{html.escape(w["note"])}</div></div>')
+        notable_html = ('<div class="card"><h2>🏔️ Landmark winters - when history was made</h2>'
+                        + nblocks +
+                        '<div class="src" style="margin-top:6px">Curated companions to the tables above: '
+                        'famous winters whose full ENSO/NAO/PNA context the episode rule alone cannot show. '
+                        'The Storm of the Century struck in an officially NEUTRAL winter - proof the '
+                        'teleconnection tags, not just the ENSO phase, decide who gets the history-making '
+                        'storm.</div></div>')
+
     body = f"""
 <header class="hero"><h1>🌊 El Niño &amp; La Niña</h1>
 <div class="sub">ENSO status, forecast, and the story behind the Pacific's biggest swing
@@ -9567,6 +9590,7 @@ def page_enso(d):
 {rec_card}
 {long_card}
 {winters_html}
+{notable_html}
 
 <div class="card">
   <h2>🔮 The forecast</h2>
