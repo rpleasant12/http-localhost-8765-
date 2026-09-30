@@ -143,6 +143,32 @@ def _get(url, timeout=30):
     return r
 
 
+# ------------------------------------------------------------
+# Circuit breaker: when NOAA's bucket is down (every request timing
+# out or 404ing), 32 members x 21 leads would each burn their full
+# timeout and spam the log for hours. After this many consecutive
+# failures the run stops asking until the next bundle() call.
+# ------------------------------------------------------------
+BREAKER_AFTER = 40
+_breaker_fails = 0
+_breaker_open = False
+
+
+def _fail():
+    global _breaker_fails, _breaker_open
+    _breaker_fails += 1
+    if _breaker_fails >= BREAKER_AFTER and not _breaker_open:
+        _breaker_open = True
+        print(f"gefs_tracks: circuit breaker OPEN after "
+              f"{_breaker_fails} consecutive failures - skipping the "
+              f"rest of this run (resets next cycle)", flush=True)
+
+
+def _ok():
+    global _breaker_fails
+    _breaker_fails = 0
+
+
 def _file_size(url, timeout=15):
     """Total size via 1-byte range GET (mirrors data/gefs.py's probe)."""
     try:
@@ -205,6 +231,9 @@ def _absv850(cycle, member, fh):
     One idx + one ~230 KB range GET (ABSV@850 ships once per b-file).
     """
     from data.model_maps import _decode_grib_bytes, _fetch_range
+    global _breaker_open
+    if _breaker_open:
+        return None                       # this run is dead; stop asking
     try:
         base = (_gefs_url(cycle, member, fh)
                 .replace("pgrb2ap5", "pgrb2bp5")
@@ -244,10 +273,13 @@ def _absv850(cycle, member, fh):
         fin = v[np.isfinite(v)]
         if not fin.size or not (-1e-2 <= fin.min() and fin.max() <= 5e-2):
             return None                   # sanity: torn/absurd decode
+        _ok()
         return v, lat, lon
     except Exception as exc:  # noqa: BLE001 - one bad fetch skips
-        print(f"gefs_tracks: absv {member} f{fh:03d} failed "
-              f"({type(exc).__name__}: {exc})", flush=True)
+        _fail()
+        if not _breaker_open:            # breaker prints its own line, once
+            print(f"gefs_tracks: absv {member} f{fh:03d} failed "
+                  f"({type(exc).__name__}: {exc})", flush=True)
         return None
 
 
@@ -480,9 +512,12 @@ def refresh():
     except (OSError, ValueError, KeyError):
         pass
 
+    global _breaker_open, _breaker_fails
     cycle = find_gefs_cycle()
     if cycle is None:
         return None, [], 0
+    _breaker_open = False                # fresh run: breaker resets
+    _breaker_fails = 0
     storms_in = _nhc_atlantic_storms()
     out = []
     for st in storms_in:

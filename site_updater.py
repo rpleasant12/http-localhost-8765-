@@ -8,6 +8,29 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 os.chdir(ROOT)
 sys.path.insert(0, ROOT)
 
+# ------------------------------------------------------------
+# NETWORK + HANG GUARDS (the 2026-09-29 "updater dies silently
+# mid-collect" family: ~25 requests call sites passed no timeout,
+# so one stalled NOAA/GEFS socket parked the whole cycle forever)
+# ------------------------------------------------------------
+try:
+    import data._net as _net
+    _net.install()
+except Exception as _nexc:                               # noqa: BLE001
+    print(f"net-shim install failed: {_nexc}", flush=True)
+
+try:
+    import data._watchdog as _hangdog
+except Exception as _wexc:                               # noqa: BLE001
+    _hangdog = None
+    print(f"hang-watchdog import failed: {_wexc}", flush=True)
+
+# One full cycle must finish well inside this. Typical cycles are 2-6 min;
+# the first-after-gap cycle (model-map backlog) can legitimately take much
+# longer, so the budget is generous - but it is FINITE, and breaching it
+# now produces a thread-stack dump in the log instead of a silent hang.
+CYCLE_BUDGET_S = 45 * 60
+
 # CREATE_NO_WINDOW: console tools spawned by a console-less parent allocate a
 # VISIBLE console box on the user's screen (2026-09-21 complaint). Suppress it.
 NOWIN = 0x08000000 if os.name == "nt" else 0
@@ -720,6 +743,11 @@ def main():
     while True:
         started = time.time()
 
+        # Hang budget for this cycle: breach = full thread-stack dump in
+        # the log, then os._exit(3) -> external watchdog restarts clean.
+        if _hangdog is not None:
+            _hangdog.budget(CYCLE_BUDGET_S)
+
         try:
             # ------------------------------------------------
             # LIVE RADAR / SATELLITE
@@ -931,6 +959,8 @@ def main():
         # ----------------------------------------------------
         # WAIT
         # ----------------------------------------------------
+        if _hangdog is not None:
+            _hangdog.cancel()   # cycle finished inside budget
         elapsed = time.time() - started
         wait = max(1, SITE_INTERVAL - elapsed)
 
