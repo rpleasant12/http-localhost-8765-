@@ -1141,6 +1141,7 @@ def collect_data():
         "winter": winter_bundle(),
         "season": _season_safe(),
         "rivers": _rivers_safe(),
+        "flooding": _flooding_safe(),
         "dashboard": _dashboard_safe(),
         "space": _space_safe(),
         "wbgt": _wbgt_bundle_safe(),
@@ -3875,6 +3876,17 @@ def _rivers_safe():
         return rivers_bundle()
     except Exception:                              # noqa: BLE001
         return {"ok": False, "gauges": []}
+
+
+def _flooding_safe():
+    """Flooding-maps bundle (NWM exports; never breaks the build)."""
+    try:
+        from data.flooding import refresh
+        return refresh() or {"ok": False, "layers": []}
+    except Exception as exc:                       # noqa: BLE001
+        print(f"flooding bundle failed ({type(exc).__name__}: {exc}); "
+              f"continuing without it", flush=True)
+        return {"ok": False, "layers": []}
 
 
 def _space_safe():
@@ -11890,6 +11902,10 @@ build();
 def page_rivers(d):
     """River gauges: NWS NWPS (AHPS) stages, flood status, map + table."""
     rv = d.get("rivers") or {}
+    fl = d.get("flooding") or {}
+    fl_layers = fl.get("layers") or []
+    fl_js = json.dumps(fl_layers, separators=(",", ":"))
+    fl_updated = html.escape(fl.get("updated") or "")
     gauges = rv.get("gauges") or []
     counts = rv.get("counts") or {}
     flood_n = rv.get("floodCount") or 0
@@ -11910,6 +11926,11 @@ def page_rivers(d):
     <div class="kpi"><span>Categories</span><b>{" \u00b7 ".join(f"{v} {k.replace('_', ' ')}" for k, v in sorted(counts.items(), key=lambda kv: -kv[1])[:4])}</b></div>
   </div>
   <div id="map" class="map-dark" style="height:470px"></div>
+  <div class="ctl" style="margin-top:8px" id="flCtl">
+    <label><input type="checkbox" id="flNow"/> Rivers right now vs normal (NWM)</label>
+    <label><input type="checkbox" id="flOut"/> 5-day high-flow outlook (NWM)</label>
+    <span class="src" id="flStamp"></span>
+  </div>
   <div class="legend">
     <span><i style="background:#d32f2f"></i>major</span>
     <span><i style="background:#ef6c00"></i>moderate</span>
@@ -11924,6 +11945,10 @@ def page_rivers(d):
 <div class="card"><h2>📏 All gauges - worst first</h2>
 <div class="ctl"><label>Filter river: <select id="riverSel"><option value="">All rivers</option></select></label></div>
 <div id="tbl"></div>
+</div>
+
+<div class="card"><h2>🗺️ Flooding forecast maps - NWM streamflow + WPC rain</h2>
+<div class="src">Toggle the two National Water Model overlays on the map above: <b>Rivers right now</b> (current flow vs normal, percentile classes) and the <b>5-day high-flow outlook</b> (peak flow next 5 days as annual exceedance probability - 2% is a 50-year-class peak). Colors paint whole river networks, so empty rivers are normal outside flood events. Updated {fl_updated}. For the rain driving it, the WPC QPF days 1-5 charts are on the National page, and gauges below give the ground truth.</div>
 </div>
 
 <script>
@@ -11968,6 +11993,37 @@ async function boot() {{
   }});
   sel.onchange = table;
   table();
+  /* ---- flooding forecast overlays (NWM exports, static bounds) ---- */
+  const FLL = {fl_js};
+  const flStamp = document.getElementById("flStamp");
+  if (flStamp && DATA.flooding && DATA.flooding.updated) flStamp.textContent = "updated " + DATA.flooding.updated;
+  window._flLayers = {{}};
+  const layerByKey = {{}};
+  FLL.forEach(l => layerByKey[l.key] = l);
+  function flToggle(chkId, key) {{
+    const chk = document.getElementById(chkId);
+    if (!chk) return;
+    chk.onchange = () => {{
+      const l = layerByKey[key];
+      if (!l) {{ chk.checked = false; return; }}   /* layer unavailable this cycle */
+      if (chk.checked && !window._flLayers[key]) {{
+        const b = l.bounds;
+        /* payload refs use the app-route form (survives the dead-frame
+           stripper + packager rewrite); pages are served one level under
+           /static/site, so ../static/... is the served path */
+        const src = l.pngUrl.replace("/app/static/", "../");
+        window._flLayers[key] = L.imageOverlay(src,
+          L.latLngBounds([[b[0], b[1]], [b[2], b[3]]]),
+          {{ opacity: .75, interactive: false, maxZoom: 21 }}).addTo(map);
+      }} else if (!chk.checked && window._flLayers[key]) {{
+        map.removeLayer(window._flLayers[key]);
+        delete window._flLayers[key];
+      }}
+    }};
+    if (!layerByKey[key]) chk.disabled = true;
+  }}
+  flToggle("flNow", "nowAnomaly");
+  flToggle("flOut", "outlook5day");
 }}
 boot();
 /* soft auto-refresh: stages and flood categories move with every NWS gauge
