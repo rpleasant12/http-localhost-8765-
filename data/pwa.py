@@ -6,7 +6,8 @@ static/site/ so the packager ships them at the Pages root, and every URL
 is relative so the GitHub Pages subpath (http-localhost-8765-) works.
 
 The service worker is deliberately conservative for a live-weather site:
-  - precaches only the shell (start URL, offline notice, icons, manifest)
+  - precaches the shell plus every stable page, so an OFFLINE DEEP-LINK
+    (bookmark, home-screen shortcut) serves the page you asked for
   - network-first on navigations and data.json with an offline fallback,
     so live pages NEVER show stale content while a connection exists
   - every other request (tiles, gifs, leaflet CDN) passes through untouched
@@ -18,6 +19,22 @@ import os
 import zlib
 
 SITE_DIR = os.path.join("static", "site")
+
+# Stable pages precached by the service worker so OFFLINE DEEP-LINKS SERVE
+# THE RIGHT PAGE (not a dashboard fallback). storm_*.html are deliberately
+# excluded - they are transient (retired when a storm dissipates), and one
+# dead URL in addAll fails the whole SW install.
+STABLE_PAGES = [
+    "index.html", "radar.html", "satellite.html", "forecast.html",
+    "severe.html", "tropical.html", "tropmodels.html", "winter.html",
+    "fire.html", "traffic.html", "models.html",
+    "rivers.html", "obs.html", "national.html", "climate.html",
+    "storms.html", "dashboard.html", "charts.html",
+    "hrrr.html", "gefs.html", "meso.html", "fronts.html", "enso.html",
+    "education.html", "fieldguide.html", "history.html", "status.html",
+]
+# SW cache version: bump when the caching policy changes so clients swap SWs.
+SW_VERSION = "tnwx-pwa-v2-pages"
 
 THEME = "#0e1117"          # --bg from the site stylesheet
 ACCENT = "#4da3ff"
@@ -125,11 +142,14 @@ _SW = """/* Tennessee Weather Network service worker.
    pages + data.json are network-first with offline fallback, and tiles,
    gifs and CDN assets pass through untouched - stale radar is never
    served while a connection exists. */
-const VER = "tnwx-pwa-v1";
+const VER = "%s";
 const SHELL = ["./index.html", "./offline.html", "./icon-192.png",
                "./icon-512.png", "./manifest.webmanifest"];
+const PAGES = %s;
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(VER).then((c) => c.addAll(SHELL))
+  const all = SHELL.concat(PAGES.map((p) => "./" + p))
+    .filter((u, i, a) => a.indexOf(u) === i);   // addAll rejects duplicates
+  e.waitUntil(caches.open(VER).then((c) => c.addAll(all))
     .then(() => self.skipWaiting()));
 });
 self.addEventListener("activate", (e) => {
@@ -155,8 +175,9 @@ self.addEventListener("fetch", (e) => {
     }).catch(() =>
       isData ? new Response(JSON.stringify({ offline: true }),
         { headers: { "Content-Type": "application/json" } })
-      : caches.match("./index.html").then((hit) => hit
-          || caches.match("./offline.html")))
+      : caches.match("./" + new URL(e.request.url).pathname.split("/").pop())
+          .then((hit) => hit || caches.match("./index.html")
+            .then((dash) => dash || caches.match("./offline.html"))))
   );
 });
 """
@@ -196,7 +217,18 @@ def build_pwa():
         json.dump(_manifest(), f, indent=1)
     out["manifest"] = "manifest.webmanifest"
     with open(os.path.join(SITE_DIR, "sw.js"), "w", encoding="utf-8") as f:
-        f.write(_SW)
+        # precache the stable pages present in THIS build (SW stays installable
+        # even if a page is later retired - PAGES is filtered to what exists)
+        pages = [p for p in STABLE_PAGES
+                 if p not in ("index.html", "offline.html")  # already in SHELL
+                 and os.path.isfile(os.path.join(SITE_DIR, p))]
+        # version derives from the page list: adding/removing a page bumps
+        # the cache name, so installed SWs refresh instead of keeping the
+        # old precache forever
+        import hashlib
+        ver = "%s-%s" % (SW_VERSION,
+                         hashlib.sha1(json.dumps(pages).encode()).hexdigest()[:8])
+        f.write(_SW % (ver, json.dumps(pages)))
     out["sw"] = "sw.js"
     with open(os.path.join(SITE_DIR, "offline.html"), "w",
               encoding="utf-8") as f:
