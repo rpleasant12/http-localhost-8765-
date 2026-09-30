@@ -9531,7 +9531,7 @@ def page_enso(d):
                         f'<tbody>{wrows}</tbody></table></div>'
                         '<div class="src" style="margin-top:6px">Tags: + beyond +0.5, &minus; beyond '
                         '&minus;0.5, ~ neutral in between (CPC standardized monthly indices, '
-                        'Dec&ndash;Feb mean). Same ENSO, different NAO: 2015-16 (strong El Niño + NAO+) '
+                        'Dec&ndash;Feb mean). Same ENSO, different NAO: 2015-16 (very strong El Niño + NAO+) '
                         'and 2009-10 (moderate El Niño + NAO&minus;) delivered very different eastern-US '
                         'winters.</div></div>')
 
