@@ -1142,6 +1142,7 @@ def collect_data():
         "season": _season_safe(),
         "rivers": _rivers_safe(),
         "flooding": _flooding_safe(),
+        "cfsv2": _cfsv2_safe(),
         "dashboard": _dashboard_safe(),
         "space": _space_safe(),
         "wbgt": _wbgt_bundle_safe(),
@@ -3889,6 +3890,17 @@ def _flooding_safe():
         return {"ok": False, "layers": []}
 
 
+def _cfsv2_safe():
+    """CFSv2 long-range maps bundle (never breaks the build)."""
+    try:
+        from data.cfsv2 import refresh
+        return refresh() or {"ok": False, "weekly": [], "monthly": []}
+    except Exception as exc:                       # noqa: BLE001
+        print(f"cfsv2 bundle failed ({type(exc).__name__}: {exc}); "
+              f"continuing without it", flush=True)
+        return {"ok": False, "weekly": [], "monthly": []}
+
+
 def _space_safe():
     """Space-weather bundle (never breaks the site build)."""
     try:
@@ -4582,6 +4594,7 @@ def _page(title, active, body, extra_head=""):
         ("Models", (
             ("models.html", "Models"), ("gefs.html", "GEFS"),
             ("hrrr.html", "HRRR · RRFS"), ("tropmodels.html", "Trop Models"),
+            ("cfsv2.html", "CFSv2 · Long Range"),
             ("meso.html", "Mesoanalysis"), ("charts.html", "Charts & MOS"))),
         ("Storms & Seasons", (
             ("severe.html", "Severe"), ("storms.html", "Storms"),
@@ -9233,6 +9246,60 @@ function onDataRefresh(d2) {{
     return _page("Tropical Models", "tropmodels.html", body)
 
 
+def page_cfsv2(d):
+    """CFSv2 long-range: CPC weekly (weeks 1-4) + monthly maps, mirrored."""
+    c = d.get("cfsv2") or {}
+    weekly = c.get("weekly") or []
+    monthly = c.get("monthly") or []
+    month_lbl = html.escape(c.get("month") or "the current month")
+
+    def _figs(items):
+        out = ""
+        for it in items:
+            src = (it.get("url") or "").replace("/app/static/", "../")
+            cap = it.get("caption") or ""
+            out += (f'<figure class="wpcfig"><img loading="lazy" src="{html.escape(src, quote=True)}" '
+                    f'alt="{html.escape(it.get("label") or "")}"/'
+                    f'<figcaption>{html.escape(it.get("label") or "")}</figcaption>'
+                    + (f'<div class="src" style="max-width:100%">{html.escape(cap)}</div>' if cap else "")
+                    + '</figure>')
+        return out
+
+    weekly_html = _figs(weekly) or '<div class="alert">CFSv2 weekly maps unavailable this cycle.</div>'
+    monthly_html = _figs(monthly) or '<div class="alert">CFSv2 monthly maps unavailable this cycle.</div>'
+
+    body = f"""
+<header class="hero"><h1>🌐 CFSv2 - Long-Range Forecasts</h1>
+<div class="sub">NOAA's Climate Forecast System v2: weekly North America maps + monthly outlooks
+\u00b7 updated {html.escape(c.get("updated") or d["generated"])}</div></header>
+
+<div class="card"><h2>What CFSv2 is, and how far to trust it</h2>
+<div class="src">CFSv2 is NOAA's coupled ocean-atmosphere model (the same model behind CPC's official monthly and seasonal outlooks). Unlike HRRR/GFS, it is built for <b>weeks-to-months</b>: it shows <b>anomalies</b> - how temperature or rain compares to normal - rather than exact weather. <b>Weeks 1-2</b> have real skill and often line up with the CPC 6-10/8-14 outlooks. <b>Weeks 3-4</b> and <b>monthly</b> are trends only: a blue blob means "cooler-than-normal is favored", not "it rains Tuesday". Compare against the CPC outlooks on the Climate page - agreement between them is a much stronger signal than either alone.</div>
+</div>
+
+<div class="card"><h2>📅 Weekly North America maps (weeks 1-4)</h2>
+<div class="src">Updated every model cycle from CPC's CFSv2 weekly product. Temperature panels show the anomaly (\u00b0F from normal); precipitation panels show the wet/dry signal.</div>
+<div class="ltg-row">{weekly_html}</div>
+</div>
+
+<div class="card"><h2>🗓️ Monthly outlook - {month_lbl}</h2>
+<div class="src">Ensemble-mean anomalies plus probability maps for the calendar month, from the CFSv2 monthly product. The probability panels answer "how confident is the model" - wide plumes mean low confidence.</div>
+<div class="ltg-row">{monthly_html}</div>
+</div>
+
+<div class="card"><span class="src">Source: NOAA CPC CFSv2 weekly & monthly products (cpc.ncep.noaa.gov), mirrored every update cycle. Related on this site: CPC 6-10/8-14 day outlooks (Climate page), seasonal tilt map (Winter page), ENSO status (Climate page).</span></div>
+
+<script>
+async function boot() {{
+  DATA = await (await fetch(dataUrl(), {{cache: "no-store"}})).json();
+  document.title = DATA.pageName + " - CFSv2";
+}}
+boot();
+</script>
+"""
+    return _page("CFSv2 Long Range", "cfsv2.html", body)
+
+
 def page_climate(d):
     cl = d.get("climate") or {}
     groups = cl.get("groups") or []
@@ -13617,6 +13684,7 @@ def generate_site():
             "fronts.html": page_fronts(d),
             "hrrr.html": page_hrrr(d),
             "tropmodels.html": page_tropmodels(d),
+            "cfsv2.html": page_cfsv2(d),
             "climate.html": page_climate(d),
             "enso.html": page_enso(d),
             "severe.html": page_severe(d),
