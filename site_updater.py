@@ -40,6 +40,21 @@ FB_INTERVAL = 300
 
 PIDFILE = os.path.join(".freebuff", "site-updater.pid")
 LOGFILE = os.path.join(".freebuff", "site-updater.log")
+# Liveness heartbeat: bumped at startup + every cycle boundary. The external
+# startup_task watchdog trusts this over docs/data.json mtime, because a
+# COLD generate legitimately runs 25-45 min with no new build (frame cache
+# emptied by the disk budget) - mtime-only staleness murdered every cold
+# cycle mid-flight on 2026-09-30 (kill/restart loop).
+HEARTBEAT = os.path.join(".freebuff", "updater.heartbeat")
+
+
+def _beat():
+    """Touch the heartbeat file; never let it break the cycle."""
+    try:
+        with open(HEARTBEAT, "w", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S") + f" {time.time():.0f}\n")
+    except OSError:
+        pass
 
 # ------------------------------------------------------------
 # PUBLIC-SITE FRESHNESS WATCHDOG
@@ -725,6 +740,7 @@ def main():
     import github_deploy
 
     log("TNWN automatic updater started.")
+    _beat()   # liveness proof for the external watchdog from minute zero
 
     # Start the actual image renderers BEFORE the first site build.
     start_live_renderers()
@@ -747,6 +763,7 @@ def main():
         # the log, then os._exit(3) -> external watchdog restarts clean.
         if _hangdog is not None:
             _hangdog.budget(CYCLE_BUDGET_S)
+        _beat()   # cycle boundary - external watchdog sees the loop turn over
 
         try:
             # ------------------------------------------------
