@@ -13023,7 +13023,7 @@ def page_national(d):
   </div>
   {f'<div style="display:flex;align-items:flex-end;gap:2px;height:32px;margin:6px 0">{kp_pts}</div><div class="src">Kp, past 48 h (3-h values). Kp 7+ means the auroral oval can reach Tennessee&apos;s latitude - look north after dark.</div>' if kp_n else '<div class="src">Space-weather feed unavailable right now.</div>'}
   {f'<div class="src">SWPC 3-day outlook: {html.escape(fcst_txt or fcst.get("headline", ""))}</div>' if (fcst_txt or fcst.get("headline")) else ""}
-  <figure style="margin:10px 0 0"><img loading="lazy" src="{(sp.get("ovationUrl") or "").replace("/app/static/", "")}" alt="OVATION aurora nowcast" style="max-width:100%;border-radius:10px"/>
+  <figure style="margin:10px 0 0"><img loading="lazy" src="{(sp.get("ovationUrl") or "").replace("/app/static/", "../")}" alt="OVATION aurora nowcast" style="max-width:100%;border-radius:10px"/>
   <figcaption class="src">OVATION aurora forecast (view from the north) - mirrored from SWPC each update.</figcaption></figure>
 </div>
 
