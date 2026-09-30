@@ -47,6 +47,23 @@ LOGFILE = os.path.join(".freebuff", "site-updater.log")
 # cycle mid-flight on 2026-09-30 (kill/restart loop).
 HEARTBEAT = os.path.join(".freebuff", "updater.heartbeat")
 
+# Rolling cycle-duration stats: one grep ("cycle completed in") answers "is
+# the updater healthy and how long do cycles take" without a watch session.
+_CYCLE_TIMES = []
+_CYCLE_AVG_N = 10
+
+
+def _log_cycle_done(elapsed, ok):
+    """Log this cycle's duration + rolling average of the last N cycles."""
+    try:
+        _CYCLE_TIMES.append(elapsed)
+        del _CYCLE_TIMES[:-_CYCLE_AVG_N]
+        avg = sum(_CYCLE_TIMES) / len(_CYCLE_TIMES)
+        log(f"{'cycle completed' if ok else 'cycle FAILED'} in {int(elapsed)}s "
+            f"(rolling avg {int(avg)}s over {len(_CYCLE_TIMES)} cycles)")
+    except Exception:                              # noqa: BLE001 - stats never break the loop
+        pass
+
 
 def _beat():
     """Touch the heartbeat file; never let it break the cycle."""
@@ -956,6 +973,7 @@ def main():
 
         except Exception as exc:
             log(f"UPDATE ERROR: {exc}")
+            _log_cycle_done(time.time() - started, ok=False)
 
         # ----------------------------------------------------
         # FACEBOOK
@@ -979,6 +997,7 @@ def main():
         if _hangdog is not None:
             _hangdog.cancel()   # cycle finished inside budget
         elapsed = time.time() - started
+        _log_cycle_done(elapsed, ok=True)
         wait = max(1, SITE_INTERVAL - elapsed)
 
         log(f"Next weather update in {int(wait)} seconds.")
