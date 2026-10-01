@@ -1004,9 +1004,25 @@ def main():
         _log_cycle_done(elapsed, ok=True)
         wait = max(1, SITE_INTERVAL - elapsed)
 
+        # Wait on a wall-clock DEADLINE, not a fixed nap: time.sleep() does
+        # not account for system sleep, so a PC asleep for hours used to
+        # leave the site frozen for that long AFTER wake too. Sleeping in
+        # short slices and re-checking the deadline means a sleep longer
+        # than the interval collapses to an immediate catch-up cycle, and
+        # the suspension shows up as an overshoot we can log.
+        deadline = time.time() + wait
         log(f"Next weather update in {int(wait)} seconds.")
-
-        time.sleep(wait)
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            _pre = time.time()
+            time.sleep(min(2.0, remaining))
+            _slept = time.time() - _pre
+            if _slept > 60 and remaining > 30:
+                log(f"resumed after system sleep (~{int(_slept / 60)} min) "
+                    f"- starting catch-up cycle now", flush=True)
+                break
 
 
 if __name__ == "__main__":
