@@ -454,6 +454,41 @@ def prune_published_local():
     return removed
 
 
+def selfheal_scheduled_task():
+    """Re-enable the supervisor task if something disabled it.
+
+    Seen 2026-10-01 ~11:19: TNWN-WeatherCenter found DISABLED between task
+    runs - nothing would have restarted the updater if it died. The updater
+    runs independently of the task, so it re-arms it (ENABLE is idempotent
+    and safe on an already-enabled task). Throttled to one check per 5 min.
+    """
+    last = getattr(selfheal_scheduled_task, "_last", 0.0)
+    now = time.time()
+    if now - last < 300:
+        return
+    selfheal_scheduled_task._last = now
+    if os.name != "nt":
+        return
+    import subprocess
+    try:
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "(Get-ScheduledTask -TaskName 'TNWN-WeatherCenter').State"],
+            capture_output=True, text=True, timeout=20,
+            creationflags=NOWIN)
+        state = (r.stdout or "").strip()
+        if state in ("Disabled",):
+            subprocess.run(["schtasks", "/Change", "/TN",
+                            "TNWN-WeatherCenter", "/ENABLE"],
+                           capture_output=True, text=True, timeout=20,
+                           creationflags=NOWIN)
+            log("supervisor task was DISABLED - re-enabled (self-heal)")
+        elif state not in ("Ready", "Running"):
+            log(f"supervisor task state: {state or 'unknown'}")
+    except Exception as exc:                             # noqa: BLE001
+        log(f"task self-heal check failed: {exc}")
+
+
 def spawn_publish():
     """Run publish_site.py as a DETACHED child process.
 
@@ -944,6 +979,13 @@ def main():
 
             # Freshness watchdog (own 5-min throttle inside).
             check_public_freshness()
+
+            # Task-liveness self-heal (own 5-min throttle inside): today the
+            # supervisor task was found DISABLED mid-day and nothing healed
+            # it - if the updater ever dies while disabled, nothing restarts
+            # it and the site freezes until a human notices. The updater runs
+            # independently of the task, so it can re-arm it.
+            selfheal_scheduled_task()
 
             # NOAA upstream feed watchdog (own 5-min throttle inside;
             # shares website's 12-min probe cache with the models page).
