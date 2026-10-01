@@ -64,6 +64,15 @@ def _log_cycle_done(elapsed, ok):
         avg = sum(_CYCLE_TIMES) / len(_CYCLE_TIMES)
         log(f"{'cycle completed' if ok else 'cycle FAILED'} in {int(elapsed)}s "
             f"(rolling avg {int(avg)}s over {len(_CYCLE_TIMES)} cycles)")
+        # Mirror for the site payload: pages show "last update took ...".
+        import json
+        stats = {"lastDurationS": int(elapsed), "ok": bool(ok),
+                 "avgDurationS": int(avg), "cycles": len(_CYCLE_TIMES),
+                 "finishedEpochS": int(time.time())}
+        tmp = os.path.join(".freebuff", "update_stats.json.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(stats, f)
+        os.replace(tmp, os.path.join(".freebuff", "update_stats.json"))
     except Exception:                              # noqa: BLE001 - stats never break the loop
         pass
 

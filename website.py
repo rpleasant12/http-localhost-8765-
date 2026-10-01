@@ -1046,6 +1046,7 @@ def collect_data():
         return out
 
     past = _live(past)
+    last_update = _last_update_stats()
     nowcast = _live(nowcast)
     future["frames"] = _live(future["frames"])
     future["ready"] = len(future["frames"])
@@ -1059,6 +1060,9 @@ def collect_data():
     return {
         "generated": _tz.full(dt.datetime.now(dt.timezone.utc)),
         "dataEpochMs": int(dt.datetime.now(dt.timezone.utc).timestamp() * 1000),
+        # how long the last updater cycle took (mirrored by site_updater.py
+        # after every completed cycle) - pages show "last update took ..."
+        "lastUpdate": last_update,
         # fingerprint of the site code that produced this payload: pages use
         # it to detect "the site was updated since my settings were saved"
         # and discard stale persisted preferences (auto-refresh off flag).
@@ -2928,6 +2932,24 @@ _PIVOT_PRESETS = (
 _PIVOT_MAP_RECT_FALLBACK = (11, 54, 1129, 686)
 
 
+def _last_update_stats():
+    """Update-timing stats mirrored by site_updater.py (never breaks builds)."""
+    try:
+        import json
+        with open(os.path.join(".freebuff", "update_stats.json"),
+                  encoding="utf-8") as f:
+            s = json.load(f)
+        if isinstance(s, dict) and s.get("lastDurationS") is not None:
+            return {"lastDurationS": int(s["lastDurationS"]),
+                    "ok": bool(s.get("ok")),
+                    "avgDurationS": int(s.get("avgDurationS") or 0),
+                    "cycles": int(s.get("cycles") or 0),
+                    "finishedEpochS": int(s.get("finishedEpochS") or 0)}
+    except Exception:                                    # noqa: BLE001
+        pass
+    return None
+
+
 def _png_axes_rect(path):
     """Pixel rect of the map axes (its black spines) inside a saved US PNG.
 
@@ -4764,11 +4786,22 @@ function updTick() {{
   /* Public site: GitHub publishes ~every 10 min, so age up to ~12 min is the
      normal cadence - warn only past that. Pages' own max-age=600 means the
      fetch itself can lag a couple minutes behind the publish. */
+  const took = (function () {{
+    const lu = SITE_DATA.lastUpdate;
+    if (!lu || !(lu.lastDurationS > 0)) return "";
+    const s = lu.lastDurationS, m = Math.floor(s / 60);
+    let t = " \\u00b7 last update took " + (m ? m + " min " + (s % 60) + " s" : s + " s");
+    if (lu.cycles > 1 && lu.avgDurationS > 0) {{
+      const am = Math.floor(lu.avgDurationS / 60);
+      t += " \\u00b7 avg " + (am ? am + " min " + (lu.avgDurationS % 60) + " s" : lu.avgDurationS + " s");
+    }}
+    return t;
+  }})();
   const maxAge = (location.hostname === "localhost" || location.hostname === "127.0.0.1") ? 2 : 12;
   const grew = SITE_DATA._lastAge != null && mins > SITE_DATA._lastAge + 2 && mins > maxAge;
   SITE_DATA._lastAge = mins;
-  if (mins <= maxAge) el.textContent = "\\u2705 Live data \\u00b7 refreshed " + fmtAge(mins);
-  else if (mins <= 30) el.textContent = "\\u23f3 Data " + fmtAge(mins) + " old \\u00b7 next publish soon";
+  if (mins <= maxAge) el.textContent = "\\u2705 Live data \\u00b7 refreshed " + fmtAge(mins) + took;
+  else if (mins <= 30) el.textContent = "\\u23f3 Data " + fmtAge(mins) + " old \\u00b7 next publish soon" + took;
   else if (grew) el.textContent = "\\u23f3 Data " + fmtAge(mins) + " old \\u00b7 waking the weather center - catching up now";
   else el.textContent = "\\u26a0\\ufe0f Data " + fmtAge(mins) + " old \\u00b7 PC asleep or offline - updates pause until it wakes";
 }}
