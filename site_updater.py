@@ -15,7 +15,8 @@ sys.path.insert(0, ROOT)
 # ------------------------------------------------------------
 try:
     import data._net as _net
-    _net.install()
+    if _net.install():
+        print(_net.report(), flush=True)
 except Exception as _nexc:                               # noqa: BLE001
     print(f"net-shim install failed: {_nexc}", flush=True)
 
