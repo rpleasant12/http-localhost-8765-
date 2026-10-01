@@ -40,11 +40,13 @@ FB_INTERVAL = 300
 
 PIDFILE = os.path.join(".freebuff", "site-updater.pid")
 LOGFILE = os.path.join(".freebuff", "site-updater.log")
-# Liveness heartbeat: bumped at startup + every cycle boundary. The external
+# Liveness heartbeat: bumped at startup, every cycle boundary, AND after
+# each long in-cycle phase (live-data refresh, site generate). The external
 # startup_task watchdog trusts this over docs/data.json mtime, because a
 # COLD generate legitimately runs 25-45 min with no new build (frame cache
 # emptied by the disk budget) - mtime-only staleness murdered every cold
-# cycle mid-flight on 2026-09-30 (kill/restart loop).
+# cycle mid-flight on 2026-09-30 (kill/restart loop). Phase beats keep the
+# grace clock measuring real progress, not just loop turnover.
 HEARTBEAT = os.path.join(".freebuff", "updater.heartbeat")
 
 # Rolling cycle-duration stats: one grep ("cycle completed in") answers "is
@@ -788,6 +790,7 @@ def main():
             # ------------------------------------------------
             log("Refreshing live radar and satellite data...")
             refresh_live_data()
+            _beat()   # mid-cycle liveness proof (watchdog grace clock)
 
             # ------------------------------------------------
             # WEBSITE
@@ -800,6 +803,7 @@ def main():
                 raise RuntimeError("generate_site() returned None")
 
             log("Weather site regenerated.")
+            _beat()   # mid-cycle liveness proof (watchdog grace clock)
 
             # Resumed after a STOP: the docs/ copy of PAUSED.json would keep
             # every page claiming the site is frozen forever. A fresh build
