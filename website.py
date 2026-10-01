@@ -3477,6 +3477,14 @@ def _enso_safe():
         v = dict(bundle(max_age=_CLIMATE_REFRESH))
         if not (v and (v.get("oni") or v.get("figures") or v.get("enso"))):
             raise RuntimeError("bundle came back empty")
+        # A bundle whose ONI history vanished is degraded, not empty: the
+        # 2026-09-30 20:43 build had a transient ONI fetch failure, shipped
+        # phase UNKNOWN + a blank history chart, and the 3-h cache inside
+        # data.enso pinned it for hours. Prefer the last good that has it.
+        if not v.get("oni"):
+            prev = _ENSO_LAST_GOOD.get("v")
+            if prev and prev.get("oni"):
+                raise RuntimeError("bundle missing ONI history (degraded)")
         # record book + analog years + NAO/PNA winter tags (own fetches +
         # own 6-h cache; failure drops just the extra cards, never the page)
         try:
