@@ -131,12 +131,17 @@ MAP_MODELS = {
         "style": "aifs",
         "max_hour": 240,
         "hour_step": 6,          # 6-hourly out to +240 h
+        # render walk-back: ECMWF publishes steps progressively, so a just-
+        # rotated high fh may not exist yet for the newest cycle - fall back
+        # to an earlier init of the same valid time (2026-10-01)
+        "cycles": [6, 12, 18, 24],
     },
     "AIFS-ENS": {
         "label": "ECMWF AIFS-ENS - AI ensemble control (0.25\u00b0 global)",
         "style": "aifs",
         "max_hour": 240,
         "hour_step": 6,
+        "cycles": [6, 12, 18, 24],
     },
     "AI-GraphCast": {
         "label": "GraphCast AI - GFS init (DeepMind, 0.25\u00b0 global)",
@@ -266,11 +271,15 @@ PRODUCTS_BY_MODEL = {
             "nbm_cloud", "nbm_wbgt"],
     "CFS": ["500_vort", "500_tmp", "850_tmp", "925_tmp", "700_rh", "300_jet", "250_jet", "200_jet",
             "lr75"],
-    "AIFS": ["500_vort", "500_tmp", "600_tmp", "600_rh", "850_tmp", "925_tmp", "700_rh",
+    # AIFS / AIFS-ENS: the open-data feed ships NO relative humidity at
+    # pressure levels (verified in the 2026-10-01 12Z aifs-single index:
+    # z/t/u/v/w/q/gh all present, 'r' absent) - so 600_rh/700_rh are left
+    # out; they would crash their render branches on a missing RH field.
+    "AIFS": ["500_vort", "500_tmp", "600_tmp", "850_tmp", "925_tmp",
              "300_jet", "250_jet", "200_jet", "sfc_mslp", "pwat", "tcdc",
              "thickness", "700_w", "sfc_dew", "shear06", "lr75",
              "850_vort", "200_div", "3var_fronts"],
-    "AIFS-ENS": ["500_vort", "500_tmp", "600_tmp", "600_rh", "850_tmp", "925_tmp", "700_rh",
+    "AIFS-ENS": ["500_vort", "500_tmp", "600_tmp", "850_tmp", "925_tmp",
                  "300_jet", "250_jet", "200_jet", "sfc_mslp", "pwat", "tcdc",
                  "thickness", "700_w", "sfc_dew", "shear06", "lr75",
                  "850_vort", "200_div", "3var_fronts"],
@@ -428,13 +437,19 @@ ECMWF_PARAMS["3var_fronts"] = [
 
 def _ecmwf_params(model, product):
     """ECMWF param list for one model+product ('gh' vs 'z' ensemble split)."""
-    if model == "EPS-Weekly" and product in ECMWF_PARAMS_BASE:
+    if model == "EPS-Weekly":
         base = []
-        for param, level in ECMWF_PARAMS_BASE[product]:
-            # 'z' only exists in the single-level files; the ensemble idx
-            # carries the same field as 'gh'
-            base.append(("gh" if param == "z" else param, level))
-        return base
+        for param, level in (ECMWF_PARAMS.get(product) or []):
+            # 'z' only exists in the single-level oper files; the ensemble
+            # idx carries the same field as 'gh' (verified enfo-ef index).
+            # Swap EVERY 'z' - bare or level-suffixed - or composites like
+            # 3var_fronts (z@500/z@1000) ask the ens index for a param it
+            # does not publish and the whole map starves (2026-10-01).
+            root = param.split("@", 1)[0]
+            if root == "z":
+                param = ("gh@" + param.split("@", 1)[1]) if "@" in param else "gh"
+            base.append((param, level))
+        return base or None
     return ECMWF_PARAMS.get(product)
 
 # ---------------------------------------------------------------- products
@@ -907,8 +922,11 @@ def find_cycle(model, product=None):
     if model == "AIFS-ENS":
         return _find_ecmwf_cycle(model, "aifs-ens/0p25/enfo", "{day}{hh}0000", 6, "enfo-cf")
     if model == "EPS-Weekly":
-        # IFS 50-member ensemble: 00/12Z cycles, probe the f006 ensemble file
-        return _find_ecmwf_cycle(model, "ifs/0p25/enfo", "{day}{hh}0000", 6, "enfo-ef")
+        # IFS 50-member ensemble: ONLY 00/12Z cycles carry the full range -
+        # the 06/18Z runs stop at f144, so every f186-f360 wall would 404
+        # whenever the probe settled on an evening/morning cycle (2026-10-01)
+        return _find_ecmwf_cycle(model, "ifs/0p25/enfo", "{day}{hh}0000", 6,
+                                 "enfo-ef", hours=(0, 12))
     if model == "SREF":
         # 03/09/15/21Z cycles; the ensprod mean-file idx for any hour serves
         # as the publish probe (whole run lands with the file)
@@ -940,15 +958,20 @@ def find_cycle(model, product=None):
     return None
 
 
-def _find_ecmwf_cycle(model, model_dir, stamp_fmt, probe_step=3, tag="oper-fc"):
+def _find_ecmwf_cycle(model, model_dir, stamp_fmt, probe_step=3, tag="oper-fc",
+                      hours=(0, 6, 12, 18)):
     """Most recent ECMWF-bucket cycle (IFS/AIFS/AIFS-ENS) with a live file.
     Published ~4-8 h after cycle time; all products share the file naming.
     Probes the GRIB itself (not the .index): ECMWF publishes per-step index
     files BEFORE their GRIBs, so an index 200 does not mean the step's data
-    is readable (EPS-Weekly cycles starved on 2026-09-20 because of this)."""
+    is readable (EPS-Weekly cycles starved on 2026-09-20 because of this).
+    `hours` restricts which init hours are probed - ECMWF runs different
+    per-cycle catalogs (the IFS ensemble's 06/18Z runs stop at f144)."""
     now = dt.datetime.now(dt.timezone.utc)
-    for back in range(8, 34):
+    for back in range(7, 46):
         c = (now - dt.timedelta(hours=back)).replace(minute=0, second=0, microsecond=0)
+        if c.hour not in hours:
+            continue
         day, hh = c.strftime("%Y%m%d"), c.strftime("%H")
         stamp = stamp_fmt.format(day=day, hh=hh)
         # S3 rate-limits these files (SlowDown 503 storms - one probe saw 503
@@ -1460,6 +1483,29 @@ def fetch_product_fields(model, cycle, fh, product):
     if model in AIWP_CODES:
         from data.aiwp import fetch_fields as _aiwp_fetch
         return _aiwp_fetch(model, cycle, fh, product)
+    if model in ("ECMWF", "AIFS", "AIFS-ENS"):
+        # DIRECT ECMWF-open-data fetch first: the unthrottled mirror serves
+        # these small per-step ranges in 4-16 s, while Herbie's partner
+        # search + subset downloads for the same messages took 55-290 s per
+        # cold render (2026-10-01) - which is what pushed AIFS/AIFS-ENS
+        # cold renders into the 600 s render-guard timeout, failing every
+        # rotation pass. Herbie stays as the fallback for when the mirror
+        # itself is dark.
+        direct = None
+        try:
+            if model == "AIFS":
+                direct = _fetch_ecmwf_fields(cycle, fh, product,
+                                             model_dir="aifs-single/0p25/oper")
+            elif model == "AIFS-ENS":
+                direct = _fetch_ecmwf_fields(cycle, fh, product,
+                                             model_dir="aifs-ens/0p25/enfo",
+                                             tag="enfo-cf")
+            else:
+                direct = _fetch_ecmwf_fields(cycle, fh, product)
+        except Exception:      # noqa: BLE001 - fall through to Herbie
+            direct = None
+        if direct is not None:
+            return direct
     from data.herbie_client import HERBIE_MODELS
     if model in HERBIE_MODELS and model not in ("SREF", "EPS-Weekly"):
         try:
@@ -1696,14 +1742,23 @@ def _fetch_eps_fields(cycle, fh, product):
     if params is None:
         return None
     idx_text = None
-    for attempt in range(3):    # both hosts throw transient 503s on the index
-        try:
-            r = requests.get(_eps_idx_url(cycle, fh), headers=UA, timeout=30)
-            if r.ok:
-                idx_text = r.text
-                break
-        except requests.RequestException:
-            pass
+    idx_s3 = _eps_idx_url(cycle, fh)
+    # Same tree, two hosts: S3 throws SlowDown 503 storms that left the
+    # whole EPS-Weekly wall dead on 2026-10-01 (the index fetch was S3-
+    # only, unlike _grab below) - ECMWF's mirror serves it unthrottled.
+    idx_mirror = idx_s3.replace("https://ecmwf-forecasts.s3.amazonaws.com",
+                                "https://data.ecmwf.int/forecasts")
+    for attempt in range(3):
+        for u in (idx_mirror, idx_s3):
+            try:
+                r = requests.get(u, headers=UA, timeout=30)
+                if r.ok:
+                    idx_text = r.text
+                    break
+            except requests.RequestException:
+                pass
+        if idx_text:
+            break
         time.sleep(2 + 2 * attempt)
     if not idx_text:
         return None
@@ -1741,10 +1796,15 @@ def _fetch_eps_fields(cycle, fh, product):
     lat = lon = None
     for param, level in params:
         levtype, _, levelist = (level.partition(":") + ("",))[:3]
+        # suffixed params (gh@500 mb) must match the idx under their BARE
+        # shortName - the ensemble index knows 'gh', not 'gh@500 mb'. The
+        # bare-vs-suffixed split mirrors _fetch_ecmwf_fields (2026-10-01:
+        # the suffix leaked into the idx match and starved 3var_fronts).
+        bare = param.split("@", 1)[0]
         blobs = []
         seen = set()
         for d in entries:                      # idx is already member-ordered
-            if d.get("param") != param or d.get("levtype") != levtype:
+            if d.get("param") != bare or d.get("levtype") != levtype:
                 continue
             if levelist and str(d.get("levelist")) != str(levelist):
                 continue
@@ -2040,12 +2100,15 @@ def _render_job_impl(job):
         wind = (u, v)
     elif product == "600_rh":
         # 600 mb moisture - height contours only (SREF ships no 600 winds,
-        # ECMWF/AI models join when they carry the level)
+        # ECMWF/AI models join when they carry the level). RH itself may be
+        # absent for some models/feeds (AIFS open-data ships no 'r' at pl,
+        # 2026-10-01) - degrade to heights only rather than crashing.
         rh, h = f("RH"), f("HGT")
         hd = heights(ax, h, 600, interval=30)
-        cf = ax.contourf(lon, lat, rh, levels=np.arange(10, 105, 10), cmap="Greens",
-                         transform=trans, alpha=0.8)
-        plt.colorbar(cf, ax=ax, shrink=0.8, label="Relative humidity (%)")
+        if rh is not None:
+            cf = ax.contourf(lon, lat, rh, levels=np.arange(10, 105, 10), cmap="Greens",
+                             transform=trans, alpha=0.8)
+            plt.colorbar(cf, ax=ax, shrink=0.8, label="Relative humidity (%)")
     elif product == "thickness":
         # 1000-500 mb thickness + the 540 dam rain/snow line. HGT is the 500
         # mb field; HGT@1000 mb rides alongside (level-suffix convention).
@@ -2402,9 +2465,10 @@ def _render_job_impl(job):
     elif product == "700_rh":
         rh, h = f("RH"), f("HGT")
         hd = heights(ax, h, 700, interval=30)
-        cf = ax.contourf(lon, lat, rh, levels=np.arange(10, 105, 10), cmap="Greens",
-                         transform=trans, alpha=0.8)
-        plt.colorbar(cf, ax=ax, shrink=0.8, label="Relative humidity (%)")
+        if rh is not None:      # AIFS ships no 'r' at pl (2026-10-01) - degrade, don't crash
+            cf = ax.contourf(lon, lat, rh, levels=np.arange(10, 105, 10), cmap="Greens",
+                             transform=trans, alpha=0.8)
+            plt.colorbar(cf, ax=ax, shrink=0.8, label="Relative humidity (%)")
         u7, v7 = f("UGRD"), f("VGRD")
         if u7 is not None and v7 is not None:
             ax.barbs(lon[::stride, ::stride], lat[::stride, ::stride],

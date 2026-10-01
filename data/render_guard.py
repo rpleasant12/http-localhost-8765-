@@ -66,10 +66,25 @@ def run_sub(job, timeout=RENDER_TIMEOUT):
                 f"{job.get('out_path', '')}" + (f" | {tail}" if tail else "")
             ) from None
         except subprocess.CalledProcessError as exc:
+            # A child exception is pickled into the RESULT ENVELOPE (the
+            # worker writes err there, not stderr) - read it so the real
+            # traceback reaches RenderFailed. An exit-1 child used to
+            # surface as a bare "exit 1" with an empty tail, hiding the
+            # actual error (2026-10-01, AIFS 700_rh).
+            env_err = None
+            try:
+                with open(res_path, "rb") as f:
+                    env_err = (pickle.load(f).get("err") or "")
+            except Exception:      # noqa: BLE001 - fall back to stderr
+                env_err = None
             tail = ((exc.stderr or b"").decode("utf-8", "replace")[-400:])
+            detail = (env_err or "").strip().splitlines()
+            detail = detail[-1] if detail else ""
             raise RenderFailed(
                 f"{job['mod']} render failed (exit {exc.returncode}): "
-                f"{job.get('out_path', '')}" + (f" | {tail}" if tail else "")
+                f"{job.get('out_path', '')}"
+                + (f" | {detail}" if detail else "")
+                + (f" | {tail}" if tail else "")
             ) from None
         if not os.path.exists(res_path):
             raise RenderFailed(

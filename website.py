@@ -14255,9 +14255,14 @@ def _seed_model_maps():
                         # silently eating batch slots looked like a download
                         # outage on the page (NBM 2026-09-14) - count it
                         skipped.add(model)
-                except Exception:                  # noqa: BLE001 - best-effort
+                except Exception as e:             # noqa: BLE001 - best-effort
                     fail += 1
                     failed_models.add(model)
+                    # one terse line per failure - the bare except used to
+                    # swallow WHY a model failed, which turned every fetch-
+                    # path regression into a multi-day debugging session
+                    print(f"  wall fail: {model} {prod} f{fh:03d} {region}: "
+                          f"{type(e).__name__}: {e}", flush=True)
                     continue
 
             # one visible line per pass - a model failing EVERY combo means

@@ -537,8 +537,8 @@ _ECMWF_IDX_CACHE = {}
 
 
 _ECMWF_IDX_HOSTS = (
+    "https://data.ecmwf.int/forecasts",   # ECMWF mirror - unthrottled first
     "https://ecmwf-forecasts.s3.amazonaws.com",
-    "https://data.ecmwf.int/forecasts",   # ECMWF mirror of the same tree
 )
 
 
