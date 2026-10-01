@@ -260,7 +260,8 @@ def _render(vals, lat, lon, spec, title, cmap, levels, out_path):
         try:
             subprocess.run(
                 [sys.executable, worker, job_path, out_path],
-                timeout=RENDER_TIMEOUT, check=True)
+                timeout=RENDER_TIMEOUT, check=True,
+                creationflags=0x08000000 if os.name == "nt" else 0)
         except subprocess.TimeoutExpired:
             raise RuntimeError(
                 f"nbm render child exceeded {RENDER_TIMEOUT}s: {out_path}")
