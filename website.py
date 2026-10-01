@@ -3584,6 +3584,15 @@ def _nbm_pct_safe():
         return v
     except Exception as exc:                           # noqa: BLE001
         print(f"nbmPct bundle failed ({type(exc).__name__}: {exc})", flush=True)
+        try:
+            import json
+            with open(".freebuff/nbm_percentiles.json", encoding="utf-8") as f:
+                v = json.load(f)
+            if v.get("ok"):
+                print("nbmPct: serving last-good mirror", flush=True)
+                return v
+        except (OSError, ValueError):
+            pass
         return {"ok": False, "elements": []}
 
 

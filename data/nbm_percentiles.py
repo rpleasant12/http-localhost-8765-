@@ -21,7 +21,11 @@ day back. Never raises; bundle() reports ok=False when the desk is down.
 """
 import datetime as dt
 import os
+import pickle
 import re
+import subprocess
+import sys
+import tempfile
 import threading
 import time
 
@@ -31,12 +35,41 @@ import requests
 from data import _tz
 from data.model_maps import _decode_grib_bytes, _fetch_range, MAP_REGIONS
 
+# Render watchdog: cartopy/matplotlib inside this process has hung repeatedly
+# (observed 2026-09-30/10-01: contour reprojection wedging the whole site
+# updater for >45 min). Every map render now runs in a child process killed
+# after this budget, so a wedged render can never freeze a build cycle.
+RENDER_TIMEOUT = 180          # per-map child budget
+REFRESH_BUDGET = 20 * 60      # whole-render budget: never outlive the watchdog
+
 UA = {"User-Agent": "Mozilla/5.0 tnwx-site/1.0"}
 OUT_DIR = os.path.join("static", "nbm_pct")
 CACHE = {"t": 0.0, "b": None}
 LAST_GOOD = {"t": 0.0, "b": None}   # survives transient NOMADS rate limits
 CACHE_LOCK = threading.Lock()
+MIRROR_PATH = os.path.join(".freebuff", "nbm_percentiles.json")
 _SESSION = requests.Session()
+
+
+def _load_mirror():
+    """Seed the in-memory last-good from the previous process's mirror.
+
+    Without this, every updater restart re-rendered every NBM map from
+    scratch during a build - exactly when the render path was hanging.
+    With it, a restarted updater serves last-good instantly and re-renders
+    on its own schedule.
+    """
+    try:
+        import json
+        with open(MIRROR_PATH, encoding="utf-8") as f:
+            b = json.load(f)
+        if b.get("ok"):
+            LAST_GOOD.update(t=time.time(), b=b)
+    except (OSError, ValueError):
+        pass
+
+
+_load_mirror()
 
 # NOMADS throttles bursts: one polite request per candidate stamp, with
 # synoptic cycles probed first (see find_qmd_cycle).
@@ -209,29 +242,38 @@ def _fetch_fields(cycle, fh, spec):
 
 
 def _render(vals, lat, lon, spec, title, cmap, levels, out_path):
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import cartopy.crs as ccrs
-    import cartopy.feature as cfeature
+    """Render one map in a killable child; raise if it wedges or fails.
 
-    dec = 2
-    v = vals[::dec, ::dec]
-    la, lo = lat[::dec, ::dec], lon[::dec, ::dec]
-    fig = plt.figure(figsize=(9, 5.5), dpi=90)
-    proj = ccrs.LambertConformal(central_longitude=-96, central_latitude=39)
-    ax = fig.add_subplot(1, 1, 1, projection=proj)
-    ax.set_extent(MAP_REGIONS["us"]["extent"], crs=ccrs.PlateCarree())
-    ax.coastlines("50m", linewidth=0.5)
-    ax.add_feature(cfeature.STATES, linewidth=0.4, edgecolor="gray")
-    cf = ax.contourf(lo, la, v, levels=levels, cmap=cmap,
-                     transform=ccrs.PlateCarree(), alpha=0.85, extend="both")
-    plt.colorbar(cf, ax=ax, shrink=0.8, label=f"{spec['label']} ({spec['unit']})")
-    ax.set_title(title, fontsize=11)
-    tmp = out_path.replace(".png", ".tmp.png")
-    fig.savefig(tmp, bbox_inches="tight")
-    plt.close(fig)
-    os.replace(tmp, out_path)
+    The matplotlib/cartopy work runs in data/_nbm_render_worker.py under
+    subprocess.run(timeout=RENDER_TIMEOUT); a wedged render is killed and
+    surfaces here, where _render_all skips the map and keeps the rest of
+    the set. Replaces the in-process render that repeatedly hung the whole
+    updater (watchdog kills at 45 min, publishes skipped).
+    """
+    job = (vals, lat, lon, spec, title, cmap, levels)
+    fd, job_path = tempfile.mkstemp(prefix="nbmjob_", suffix=".pickle")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            pickle.dump(job, f)
+        worker = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "_nbm_render_worker.py")
+        try:
+            subprocess.run(
+                [sys.executable, worker, job_path, out_path],
+                timeout=RENDER_TIMEOUT, check=True)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(
+                f"nbm render child exceeded {RENDER_TIMEOUT}s: {out_path}")
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(
+                f"nbm render child failed (exit {exc.returncode}): {out_path}")
+    finally:
+        try:
+            os.remove(job_path)
+        except OSError:
+            pass
+    if not (os.path.exists(out_path) and os.path.getsize(out_path) > 0):
+        raise RuntimeError(f"nbm render produced no file: {out_path}")
     return out_path
 
 
@@ -246,9 +288,14 @@ def _render_all(cycle, fh, spec_key, spec, fields, lat, lon):
         fn = f"nbm{pct}_{spec_key}_f{fh:03d}_{stamp}.png"
         path = os.path.join(OUT_DIR, fn)
         if not (os.path.exists(path) and os.path.getsize(path) > 10_000):
-            _render(fields[pct], lat, lon, spec,
-                    f"NBM {spec['label']} - {pct}th percentile "
-                    f"({full(valid)})", spec["cmap"], spec["levels"], path)
+            try:
+                _render(fields[pct], lat, lon, spec,
+                        f"NBM {spec['label']} - {pct}th percentile "
+                        f"({full(valid)})", spec["cmap"], spec["levels"], path)
+            except Exception as exc:                 # noqa: BLE001 - skip map, keep set
+                print(f"nbm render failed for {fn}: {type(exc).__name__}: {exc}",
+                      flush=True)
+                continue
         urls[str(pct)] = f"../nbm_pct/{fn}"
     if 10 in fields and 90 in fields:
         spread = fields[90] - fields[10]
@@ -256,11 +303,16 @@ def _render_all(cycle, fh, spec_key, spec, fields, lat, lon):
         fn = f"spread_{spec_key}_f{fh:03d}_{stamp}.png"
         path = os.path.join(OUT_DIR, fn)
         if not (os.path.exists(path) and os.path.getsize(path) > 10_000):
-            _render(spread, lat, lon, spec,
-                    f"NBM {spec['label']} - spread (90th-10th pct, "
-                    f"{full(valid)})", spec["spread_cmap"],
-                    spec["spread_levels"], path)
-        urls["spread"] = f"../nbm_pct/{fn}"
+            try:
+                _render(spread, lat, lon, spec,
+                        f"NBM {spec['label']} - spread (90th-10th pct, "
+                        f"{full(valid)})", spec["spread_cmap"],
+                        spec["spread_levels"], path)
+            except Exception as exc:                 # noqa: BLE001 - skip map, keep set
+                print(f"nbm render failed for {fn}: {type(exc).__name__}: {exc}",
+                      flush=True)
+            else:
+                urls["spread"] = f"../nbm_pct/{fn}"
     return urls
 
 
@@ -294,7 +346,12 @@ def refresh():
     lines = _idx_lines(cycle, FH)
     elements = []
     rendered = 0
+    deadline = time.monotonic() + REFRESH_BUDGET
     for key, spec in ELEMENTS.items():
+        if time.monotonic() > deadline:
+            print("nbm refresh: budget exhausted, serving partial set",
+                  flush=True)
+            break
         got = _fetch_fields(cycle, FH, spec)
         if not got:
             continue
@@ -356,4 +413,10 @@ def bundle(max_age=3600):
         CACHE.update(t=time.time(), b=b)
     if b["ok"]:
         LAST_GOOD.update(t=time.time(), b=b)
+        try:
+            import json
+            with open(MIRROR_PATH, "w", encoding="utf-8") as f:
+                json.dump(b, f)
+        except OSError:
+            pass
     return b
