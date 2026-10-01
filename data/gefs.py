@@ -534,6 +534,28 @@ def _render(mean, spread, lat, lon, prod, cycle, fh, out_path, axes=None):
     return out_path
 
 
+def _render_job(job):
+    """Child-side entry for the killable-render guard (data/render_guard.py)."""
+    kind = job["kind"]
+    if kind == "panel":
+        axes = job.get("axes")
+        return _render(job["mean"], job["spread"], job["lat"], job["lon"],
+                       job["prod"], job["cycle"], job["fh"], job["out_path"],
+                       axes=axes)
+    if kind == "spread":
+        return _render_spread(job["spread"], job["lat"], job["lon"],
+                              job["prod"], job["cycle"], job["fh"],
+                              job["out_path"])
+    raise ValueError(f"unknown gefs render job kind: {kind}")
+
+
+def _render_guarded(kind, **kw):
+    """Render one GEFS map in a killable child (wedge costs a timeout only)."""
+    from data.render_guard import run_sub
+    job = {"mod": __name__, "kind": kind, **kw}
+    return run_sub(job)
+
+
 def _render_spread(spread, lat, lon, prod, cycle, fh, out_path):
     """Single-panel spread (std dev) map for the gefs.html uncertainty grid.
 
@@ -668,8 +690,9 @@ def refresh():
                 try:
                     axes = (_jet_member_axes(cycle, fh)
                             if prod == "jet" and fh in JET_AXIS_FHS else None)
-                    _render(fields, sfields, lat, lon, prod, cycle, fh,
-                            path, axes=axes)
+                    _render_guarded("panel", mean=fields, spread=sfields,
+                                    lat=lat, lon=lon, prod=prod, cycle=cycle,
+                                    fh=fh, out_path=path, axes=axes)
                 except Exception:  # noqa: BLE001 - one bad frame never kills
                     continue
             # dedicated spread-only png for the uncertainty grid - no extra
@@ -680,8 +703,9 @@ def refresh():
                 spath = os.path.join(OUT_DIR, sfn)
                 if not (os.path.exists(spath) and os.path.getsize(spath) > 6_000):
                     try:
-                        _render_spread(sfields, lat, lon, prod, cycle, fh,
-                                       spath)
+                        _render_guarded("spread", spread=sfields, lat=lat,
+                                        lon=lon, prod=prod, cycle=cycle,
+                                        fh=fh, out_path=spath)
                     except Exception:  # noqa: BLE001 - one bad frame never kills
                         sfn = None
             frame = {

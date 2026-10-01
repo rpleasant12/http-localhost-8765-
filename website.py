@@ -3005,6 +3005,43 @@ def _pivot_regions():
     return res
 
 
+def _pivot_replica_job(job):
+    """Child-side cartopy replica draw for the pivot calibration."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import cartopy.crs as ccrs
+    import cartopy.feature as cfeature
+    from data.model_maps import MAP_REGIONS
+
+    proj = ccrs.LambertConformal(central_longitude=-96, central_latitude=39)
+    trans = ccrs.PlateCarree()
+    fig = plt.figure(figsize=(13, 8), dpi=110)
+    ax = plt.axes(projection=proj)
+    ax.set_extent(MAP_REGIONS["us"]["extent"], crs=trans)
+    ax.add_feature(cfeature.STATES.with_scale("110m"), linewidth=0.5)
+    ax.add_feature(cfeature.COASTLINE.with_scale("110m"), linewidth=0.6)
+    ax.add_feature(cfeature.BORDERS.with_scale("110m"), linewidth=0.8)
+    fig.canvas.draw()
+    bb = ax.get_window_extent(fig.canvas.get_renderer())
+    plt.close(fig)
+    return [bb.x1 - bb.x0, bb.y1 - bb.y0]
+
+
+_render_job = _pivot_replica_job   # worker contract: job["mod"]._render_job
+
+
+def _pivot_replica_baxes():
+    """(axes_width, axes_height) of the pivot replica, drawn in a child."""
+    from data.render_guard import run_sub
+    out = run_sub({"mod": __name__, "out_path": "pivot_replica"},
+                  timeout=120)
+    aw, ah = float(out[0]), float(out[1])
+    if not (aw > 0 and ah > 0):
+        raise ValueError(f"replica axes degenerate: {aw}x{ah}")
+    return aw, ah
+
+
 def _measure_pivot_regions():
     """Live calibration: spine-scan real PNGs + replica projection window."""
     from data.model_maps import MAP_DIR, MAP_REGIONS
@@ -3029,25 +3066,9 @@ def _measure_pivot_regions():
 
     # 2) projection window + axes-relative region fractions from a minimal
     #    replica (xlim/ylim depend only on figsize/projection/extent, not
-    #    on colorbar/title, so no decoration reproduction is needed)
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import cartopy.crs as ccrs
-    import cartopy.feature as cfeature
-
-    proj = ccrs.LambertConformal(central_longitude=-96, central_latitude=39)
-    trans = ccrs.PlateCarree()
-    fig = plt.figure(figsize=(13, 8), dpi=110)
-    ax = plt.axes(projection=proj)
-    ax.set_extent(MAP_REGIONS["us"]["extent"], crs=trans)
-    ax.add_feature(cfeature.STATES.with_scale("110m"), linewidth=0.5)
-    ax.add_feature(cfeature.COASTLINE.with_scale("110m"), linewidth=0.6)
-    ax.add_feature(cfeature.BORDERS.with_scale("110m"), linewidth=0.8)
-    fig.canvas.draw()
-    bb = ax.get_window_extent(fig.canvas.get_renderer())
-    plt.close(fig)
-    aw, ah = bb.x1 - bb.x0, bb.y1 - bb.y0
+    #    on colorbar/title, so no decoration reproduction is needed) -
+    #    drawn in a killable child (cartopy wedge = timeout, not a stall)
+    aw, ah = _pivot_replica_baxes()
     # the replica must agree with the real PNGs' measured map rect, else
     # every fraction would be silently skewed - degrade to fallback instead
     asp_fig, asp_png = aw / ah, (r - l) / (b - t)

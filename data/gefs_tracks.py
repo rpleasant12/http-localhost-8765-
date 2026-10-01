@@ -421,6 +421,19 @@ def _render(storm, members, mean, cycle, out_path):
     return out_path
 
 
+def _render_job(job):
+    """Child-side entry for the killable-render guard (data/render_guard.py)."""
+    return _render(job["storm"], job["members"], job["mean"], job["cycle"],
+                   job["out_path"])
+
+
+def _render_guarded(storm, members, mean, cycle, out_path):
+    """Render one track map in a killable child (wedge costs a timeout only)."""
+    from data.render_guard import run_sub
+    return run_sub({"mod": __name__, "out_path": out_path, "storm": storm,
+                    "members": members, "mean": mean, "cycle": cycle})
+
+
 def _prune_old():
     cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=48)
     try:
@@ -460,7 +473,7 @@ def _track_storm(cycle, storm):
     fn = f"gefs_trk_{sid.lower()}_{cycle:%Y%m%d%H}_na.png"
     path = os.path.join(OUT_DIR, fn)
     if not (os.path.exists(path) and os.path.getsize(path) > 10_000):
-        _render(storm, members, mean, cycle, path)
+        _render_guarded(storm, members, mean, cycle, path)
     # spread: mean distance of members from the mean track at shared leads
     devs = []
     mean_by_fh = {fh: (la, lo) for fh, la, lo, _n in mean}

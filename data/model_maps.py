@@ -1902,8 +1902,7 @@ def _mslp_overlay(ax, lon, lat, fields, trans, stride=1, barbs=True):
         pass
 
 
-def render_product_map(
-model, cycle, fh, product, out_dir=MAP_DIR, region=DEFAULT_REGION):
+def _render_job_impl(job):
     """Render one map; returns (png_path, meta). Cached on disk per cycle/fh.
 
     Cycle fallback: if this product's file doesn't exist for the given cycle
@@ -1911,6 +1910,9 @@ model, cycle, fh, product, out_dir=MAP_DIR, region=DEFAULT_REGION):
     to the previous cycle where the whole run is available so the requested
     valid time still renders instead of erroring.
     """
+    model, cycle, fh = job["model"], job["cycle"], job["fh"]
+    product, out_dir, region = (job["product"], job["out_dir"],
+                                job["region"])
     # sp_* GEFS-Spread products reuse their base product's fetch + render
     # branch (identical variables; values are ensemble std-dev instead of
     # mean). The render branch dispatches on the base name; the label and
@@ -2697,6 +2699,35 @@ model, cycle, fh, product, out_dir=MAP_DIR, region=DEFAULT_REGION):
     valid = cycle + dt.timedelta(hours=fh)
     return png, {"cycle": full(cycle), "fh": fh,
                  "valid": full(valid), "region": region}
+
+
+def render_product_map(model, cycle, fh, product, out_dir=MAP_DIR,
+                       region=DEFAULT_REGION):
+    """Render one map in a killable child; returns (png_path, meta).
+
+    Disk-cache hits return in-process; misses render via the
+    data/render_guard.py subprocess timeout, so a wedged cartopy render
+    costs its timeout instead of the rotation thread that renders
+    ~64 walls/hour (in-process, one wedge stalled that thread for 45 min
+    on 2026-10-01 until the cycle hangdog killed the whole updater).
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    png = os.path.join(
+        out_dir, f"{model}_{product}_f{fh:03d}_{cycle:%Y%m%d%H}_{region}.png")
+    if os.path.exists(png) and os.path.getsize(png) > 10_000:
+        valid = cycle + dt.timedelta(hours=fh)
+        from data._tz import full
+        return png, {"cycle": full(cycle), "fh": fh,
+                     "valid": full(valid), "cached": True}
+    from data.render_guard import run_sub
+    return run_sub({"mod": __name__, "model": model, "cycle": cycle,
+                    "fh": fh, "product": product, "out_dir": out_dir,
+                    "region": region}, timeout=600)
+
+
+def _render_job(job):
+    """Child-side entry for the killable-render guard."""
+    return _render_job_impl(job)
 
 
 def clear_map_cache():

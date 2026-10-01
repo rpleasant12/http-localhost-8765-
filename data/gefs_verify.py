@@ -197,6 +197,20 @@ def _render_panel(fields, lat, lon, prod, ts, fh, out_path, tag):
     return out_path
 
 
+def _render_job(job):
+    """Child-side entry for the killable-render guard (data/render_guard.py)."""
+    return _render_panel(job["fields"], job["lat"], job["lon"], job["prod"],
+                         job["ts"], job["fh"], job["out_path"], job["tag"])
+
+
+def _render_panel_guarded(fields, lat, lon, prod, ts, fh, out_path, tag):
+    """Render one panel in a killable child (wedge costs a timeout only)."""
+    from data.render_guard import run_sub
+    return run_sub({"mod": __name__, "out_path": out_path, "fields": fields,
+                    "lat": lat, "lon": lon, "prod": prod, "ts": ts,
+                    "fh": fh, "tag": tag})
+
+
 def _panel_path(kind, prod, ts, fh):
     return os.path.join(OUT_DIR, f"gefsver_{kind}_{prod}_f{fh:03d}_"
                                  f"{ts:%Y%m%d%H}_na.png")
@@ -460,7 +474,7 @@ def _ensure_fcst_panel(init, prod, lead):
         return None
     fields, lat, lon = got
     try:
-        return _render_panel(fields, lat, lon, prod, init, lead, path, "fcst")
+        return _render_panel_guarded(fields, lat, lon, prod, init, lead, path, "fcst")
     except Exception:          # noqa: BLE001 - one bad frame never kills
         return None
 
@@ -474,7 +488,7 @@ def _ensure_obs_panel(ts, prod, obs):
     if prod not in _TRIPLES or _TRIPLES[prod][2] not in fields:
         return None
     try:
-        return _render_panel(fields, lat, lon, prod, ts, 0, path, "obs")
+        return _render_panel_guarded(fields, lat, lon, prod, ts, 0, path, "obs")
     except Exception:          # noqa: BLE001
         return None
 
@@ -556,8 +570,8 @@ def _build():
                         continue
                     f_fields, f_lat, f_lon = got
                     try:
-                        fpath = _render_panel(f_fields, f_lat, f_lon, prod,
-                                              cand, lead, cand_path, "fcst")
+                        fpath = _render_panel_guarded(f_fields, f_lat, f_lon, prod,
+                                                      cand, lead, cand_path, "fcst")
                     except Exception:   # noqa: BLE001 - one bad frame never kills
                         fpath = None
                     if not fpath:

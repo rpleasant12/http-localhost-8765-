@@ -297,6 +297,25 @@ def _render(fields, lat, lon, prod, cycle, fh, out_path):
     return out_path
 
 
+def _render_job(job):
+    """Child-side entry for the killable-render guard (data/render_guard.py).
+
+    Reconstructs the (fields, lat, lon) payload from the pickled job and
+    calls the in-process _render; result is the png path.
+    """
+    fields, lat, lon = job["payload"]
+    return _render(fields, lat, lon, job["prod"], job["cycle"], job["fh"],
+                   job["out_path"])
+
+
+def _render_guarded(fields, lat, lon, prod, cycle, fh, out_path):
+    """Render in a killable child; wedged cartopy costs its timeout only."""
+    from data.render_guard import run_sub
+    return run_sub({"mod": __name__, "out_path": out_path,
+                    "prod": prod, "cycle": cycle, "fh": fh,
+                    "payload": (fields, lat, lon)})
+
+
 def _prune_old():
     cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=KEEP_HOURS)
     try:
@@ -338,7 +357,7 @@ def refresh():
             path = os.path.join(OUT_DIR, fn)
             if not (os.path.exists(path) and os.path.getsize(path) > 10_000):
                 try:
-                    _render(fields, lat, lon, prod, cycle, fh, path)
+                    _render_guarded(fields, lat, lon, prod, cycle, fh, path)
                 except Exception:  # noqa: BLE001 - one bad frame never kills the run
                     continue
             frames.append({
