@@ -31,6 +31,11 @@ import tempfile
 
 RENDER_TIMEOUT = 180          # per-render child budget (seconds)
 
+# The updater runs DETACHED (no console): without CREATE_NO_WINDOW every
+# render child would allocate a VISIBLE console box on the user's screen
+# (~64 renders/h in the rotation = constant popups, 2026-10-01 complaint).
+NOWIN = 0x08000000 if os.name == "nt" else 0
+
 
 class RenderFailed(RuntimeError):
     """A guarded render timed out, crashed, or produced nothing."""
@@ -48,17 +53,24 @@ def run_sub(job, timeout=RENDER_TIMEOUT):
         with os.fdopen(fd, "wb") as f:
             pickle.dump(job, f)
         try:
-            subprocess.run(
+            proc = subprocess.run(
                 [sys.executable, worker, job_path, res_path],
-                timeout=timeout, check=True)
-        except subprocess.TimeoutExpired:
+                timeout=timeout, check=True,
+                creationflags=NOWIN,
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            err_tail = ""
+        except subprocess.TimeoutExpired as exc:
+            tail = (exc.stderr or b"").decode("utf-8", "replace")[-400:]
             raise RenderFailed(
                 f"{job['mod']} render exceeded {timeout}s: "
-                f"{job.get('out_path', '')}") from None
+                f"{job.get('out_path', '')}" + (f" | {tail}" if tail else "")
+            ) from None
         except subprocess.CalledProcessError as exc:
+            tail = ((exc.stderr or b"").decode("utf-8", "replace")[-400:])
             raise RenderFailed(
                 f"{job['mod']} render failed (exit {exc.returncode}): "
-                f"{job.get('out_path', '')}") from None
+                f"{job.get('out_path', '')}" + (f" | {tail}" if tail else "")
+            ) from None
         if not os.path.exists(res_path):
             raise RenderFailed(
                 f"{job['mod']} render left no result: {job.get('out_path', '')}")
