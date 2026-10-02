@@ -54,7 +54,11 @@ MAP_MODELS = {
         "base": "https://noaa-rap-pds.s3.amazonaws.com/rap.{c:%Y%m%d}/rap.t{c:%H}z.awip32f",
         "step_fmt": "{fh:02d}",
         "suffix": ".grib2",
-        "cycles": [0, 1],
+        # was [0, 1]: the narrowest fallback of any model - during NOAA
+        # bucket 503 storms or slow uploads there was ONE hour of walk-back
+        # before the render died (the Sep 14-20 'streaky' RAP fails).
+        # Hourly model: 4 entries = 3 h of resilience, free when fresh.
+        "cycles": [0, 1, 2, 3],
         "max_hour": 18,
         "hour_step": 1,
     },
