@@ -23,3 +23,12 @@ RAINVIEWER_TILE_URL = "https://tilecache.rainviewer.com/weather-tile/{z}/{x}/{y}
 
 # NWS API base
 NWS_API_URL = "https://api.weather.gov/alerts/active"
+# ---------------------------------------------------------------- membership
+# Cloudflare Worker backing accounts/billing/members-only content. Empty =
+# member features dormant (no member.js, no strip, premium pages show a
+# setup notice). NEVER put secrets here - only the public worker origin.
+# Flip to the deployed worker URL (https://tnwn-members.<your-subdomain>.workers.dev)
+# AFTER 'wrangler deploy' - see DEPLOY_MEMBERSHIP.md.
+MEMBER_WORKER_URL = ""
+# Free-vs-premium content policy mirrored by the worker proxy (docs only).
+PREMIUM_PRICE_LABEL = "$4.99/mo"

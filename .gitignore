@@ -12,3 +12,4 @@ docs/
 # SMS alert credentials (never commit)
 gmail_alert_token.txt
 fb_autopost_token.txt
+premium/

@@ -1,0 +1,23 @@
+# Cloudflare Worker: TNWN membership (accounts, Stripe, premium content).
+# One-time setup: see DEPLOY_MEMBERSHIP.md. Secrets live in the dashboard /
+# `wrangler secret put` - NEVER in this file or the git repo.
+name = "tnwn-members"
+main = "src/worker.js"
+compatibility_date = "2026-09-15"
+
+# Free-tier databases: users + payments (created by `wrangler d1 create`,
+# then paste the real database_id here).
+[[d1_databases]]
+binding = "DB"
+database_name = "tnwn-members"
+database_id = "PASTE_D1_ID_AFTER_CREATE"
+
+# Members-only bucket (created by `wrangler r2 bucket create tnwn-premium`).
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "tnwn-premium"
+
+[vars]
+# Public site origin - the ONLY origin allowed to call the worker with
+# credentials (CORS). No secrets here.
+SITE_URL = "https://rpleasant12.github.io/http-localhost-8765-"

@@ -3843,6 +3843,22 @@ _HAIL_LESSON_CSS = """
 #hailLesson .hlQ button.wrong { border-color:#ff5252; background:rgba(255,82,82,.12); }
 #hailLesson .hlQ .why { margin-top:8px; font-size:13.5px; color:#cdd7e4; display:none; }
 #hailLesson #hlQuizScore { font-weight:700; margin-top:10px; }
+/* membership UI (pricing/member/admin pages + footer strip) */
+.mem-form input { background:#0d1117; border:1px solid #345; border-radius:8px;
+  color:inherit; padding:7px 10px; font-size:14px; }
+.mem-form input:focus { outline:1px solid #4fc3f7; }
+.mem-ok { line-height:1.8; }
+.bBtn { cursor:pointer; padding:7px 16px; border-radius:8px; border:1px solid #345;
+  background:#0d1117; color:inherit; font-size:13.5px; }
+.bBtn:hover { background:#1e4a6e; }
+.adSlot { margin:14px 0; padding:10px 14px; border:1px dashed #345; border-radius:10px;
+  background:rgba(13,17,23,.6); text-align:center; }
+.adSlot .src { opacity:.85; }
+.tier { flex:1; min-width:250px; border:1px solid #345; border-radius:12px; padding:14px; }
+.tier.prem { border-color:#fbc02d; background:rgba(251,192,45,.05); }
+.tier h3 { margin:.1em 0 .4em; }
+.tier ul { margin:.3em 0 .8em; padding-left:18px; }
+.tier li { margin:.25em 0; }
 """
 
 # plain string (not f-string): the __CASE_JSON__ placeholder is swapped at
@@ -4770,6 +4786,9 @@ def _page(title, active, body, extra_head=""):
             ("climate.html", "Climate"), ("enso.html", "El Niño"),
             ("obs.html", "Obs & Skew-T"), ("education.html", "Education"),
             ("fieldguide.html", "Field Guide"), ("traffic.html", "Traffic"))),
+        ("Support", (
+            ("pricing.html", "⭐ Premium"), ("member.html", "Account"),
+            ("admin.html", "Admin"))),
     )
     pages = [pg for _, pgs in groups for pg in pgs]
     nav = "".join(
@@ -4820,6 +4839,13 @@ def _page(title, active, body, extra_head=""):
         )
     else:
         ANALYTICS_HTML = ""
+    # membership: worker origin + shared member.js on every page. The
+    # origin is a build-time config value (config.MEMBER_WORKER_URL, empty
+    # = member features dormant) so the public repo never carries secrets.
+    worker_url = getattr(config, "MEMBER_WORKER_URL", "")
+    member_boot = (
+        f'<script>window.TWN_WORKER={json.dumps(worker_url)};</script>\n'
+        '<script src="member.js"></script>\n' if worker_url else "")
     return f"""<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -4855,6 +4881,27 @@ def _page(title, active, body, extra_head=""):
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const SITE_DATA_URL = "data.json";
+/* footer member strip: logged-in members see their status + premium link;
+   everyone else sees a quiet upgrade nudge. Dormant when TWN_WORKER empty. */
+(function () {{
+  if (!window.TWN || !window.TWN.member || !window.TWN_WORKER) return;
+  const el = document.getElementById("memStrip");
+  if (!el) return;
+  TWN.member.refreshMe().then(function (me) {{
+    if (me && me.premiumActive) {{
+      /* ad-free perk: hide every free-tier slot for active subscribers */
+      document.querySelectorAll(".adSlot").forEach(a => a.style.display = "none");
+    }}
+    if (me && me.member) {{
+      el.innerHTML = "<span class='src' style='color:#8ab4f8'>★ " + TWN.member.esc(me.email)
+        + (me.premiumActive ? " \u00b7 ⭐ Premium active" : " \u00b7 free account")
+        + " \u00b7 <a href='member.html'>account</a>"
+        + (me.admin ? " \u00b7 <a href='admin.html'>admin</a>" : "") + "</span><br/>";
+    }} else {{
+      el.innerHTML = "<span class='src'>⭐ <a href='pricing.html'>Go ad-free & unlock advanced AI model maps - $4.99/mo</a></span><br/>";
+    }}
+  }}).catch(function () {{}});
+}})();
 /* GitHub Pages caches data.json up to 10 min (max-age=600); the timestamp
    query makes the browser fetch a fresh copy from the Pages CDN instead of
    reusing a stale cached one. Public data publishes ~every 10 min, so the
@@ -5012,6 +5059,7 @@ setInterval(() => {{
 </div>
 <footer>
   <div id="upd" style="color:#7d8794">checking data age…</div>
+  {member_boot}<div id="memStrip"></div>
   Data: National Weather Service · NOAA · RainViewer · SPC — all free, no keys.<br/>
   Page generated {html.escape(_BUILD_STAMP)} · auto-updated every few minutes by the {html.escape(config.PAGE_NAME)} weather center ·
   <a href="{config.PAGE_URL}" target="_blank">Facebook page</a> ·
@@ -5624,6 +5672,8 @@ cityRender();
   <h1>🌦️ <span style="color:var(--acc)">{html.escape(config.PAGE_NAME)}</span></h1>
   <div class="sub">{html.escape(d["place"])} · updated {d["generated"]}</div>
 </header>
+
+{_ad_slot("index")}
 
 <div class="card"><div class="now">
   <div class="big">{cur["tempF"] if cur["tempF"] is not None else "--"}°F</div>
@@ -7686,6 +7736,29 @@ if (GF_FRAMES && Object.keys(GF_FRAMES).length) gfFill();
 <header class="hero"><h1>🧮 Model maps</h1>
 <div class="sub">Every model, every product — MetPy × Cartopy renders from NOAA/ECMWF GRIB2 · East Tennessee + US · updated {d["generated"]}</div></header>
 
+{_ad_slot("models")}
+
+<div class="card" id="premTeaser">
+  <b>⭐ TNWN Premium</b> <span class="src">Advanced AI-model maps (GraphCast omega &amp; precipitable
+  water, Pangu, Aurora, FourCastNet) + the long-range CFSv2 library — members only, free stays free.</span>
+  <div class="src" id="premTeaserBody" style="margin-top:4px">checking membership…</div>
+</div>
+<script>
+(function () {{
+  if (!window.TWN || !window.TWN.member || !window.TWN_WORKER) {{
+    const b = document.getElementById("premTeaserBody");
+    if (b) b.innerHTML = "<a href='pricing.html'>See free vs premium</a>";
+    return;
+  }}
+  TWN.member.refreshMe().then(function (me) {{
+    const b = document.getElementById("premTeaserBody");
+    if (me && me.premiumActive) b.innerHTML = "★ Member - your premium wall: <a href='member.html'>member.html</a>";
+    else if (me && me.member) b.innerHTML = "Free account - <a href='pricing.html'>upgrade to unlock</a> ({getattr(config, 'PREMIUM_PRICE_LABEL', '$4.99/mo')})";
+    else b.innerHTML = "<a href='pricing.html'>See free vs premium</a> - {getattr(config, 'PREMIUM_PRICE_LABEL', '$4.99/mo')}";
+  }}).catch(function () {{}});
+}})();
+</script>
+
 <div class="card"><h2>📊 Render progress</h2>
   <div style="background:#e5e7eb;border-radius:8px;height:22px;overflow:hidden;margin:6px 0 4px">
     <div id="mprogBar" style="height:100%;width:0;background:#ef6c00;border-radius:8px;transition:width .6s"></div>
@@ -9476,6 +9549,222 @@ function onDataRefresh(d2) {{
 </script>
 """
     return _page("Tropical Models", "tropmodels.html", body)
+
+
+# ------------------------------------------------------------ membership
+def _ad_slot(key="generic"):
+    """Free-tier ad slot. Today it renders a tasteful house ad (Premium
+    upsell) - when an ad network is signed up (AdSense/Ezoic), drop the
+    network tag into _AD_TAGS[key] and it ships in this slot. Premium
+    members never see these: the footer member script hides .adSlot for
+    active subscribers (the "ad-free" premium perk)."""
+    tag = _AD_TAGS.get(key, "")
+    inner = tag or (
+        '<a href="pricing.html" style="color:inherit;text-decoration:none">'
+        '\u2b50 TNWN Premium - advanced AI model maps, long-range library, ad-free. '
+        f'{getattr(config, "PREMIUM_PRICE_LABEL", "$4.99/mo")} \u00b7 cancel anytime</a>')
+    return (f'<div class="adSlot" data-ad="{key}"><span class="src">Sponsored</span><br/>'
+            f'{inner}</div>')
+
+
+_AD_TAGS = {}   # e.g. {"index": '<ins class="adsbygoogle" ...></ins>'}
+
+
+def _mem_setup_notice():
+    return ("<div class=\"card\"><h2>⭐ Membership coming online</h2>"
+            "<div class=\"src\">The membership service is not configured in this build "
+            "(MEMBER_WORKER_URL empty). Free weather stays 100% available.</div></div>")
+
+
+def page_pricing(d):
+    price = getattr(config, "PREMIUM_PRICE_LABEL", "$4.99/mo")
+    if not getattr(config, "MEMBER_WORKER_URL", ""):
+        return _page("Premium", "pricing.html", _mem_setup_notice())
+    body = f"""
+<header class="hero"><h1>⭐ TNWN Premium</h1>
+<div class="sub">Keep the free weather center free - and go deeper. {price}, cancel anytime.</div></header>
+
+<div class="card">
+<h2>Free vs Premium</h2>
+<div style="display:flex;gap:16px;flex-wrap:wrap">
+  <div style="flex:1;min-width:260px">
+    <h3 style="margin:.2em 0">🌤️ Free (always)</h3>
+    <ul class="src" style="line-height:1.9">
+      <li>Current conditions &amp; forecasts</li>
+      <li>Live radar + future cast</li>
+      <li>Severe weather &amp; storms center</li>
+      <li>National weather</li>
+      <li>Core forecast models (GFS, NAM, HRRR, ECMWF staples)</li>
+      <li>Tropical &amp; winter centers</li>
+    </ul>
+  </div>
+  <div style="flex:1;min-width:260px;border-left:1px dashed #456;padding-left:16px">
+    <h3 style="margin:.2em 0">⭐ Premium - {price}</h3>
+    <ul class="src" style="line-height:1.9">
+      <li><b>Advanced AI model maps</b> - GraphCast omega &amp; precipitable water, Pangu, Aurora, FourCastNet</li>
+      <li><b>Long-range analysis</b> - CFSv2 monthly outlook library</li>
+      <li>Ad-free everywhere</li>
+      <li>Supporting a free, local, no-tracking weather service</li>
+      <li><i>Coming: custom locations, personalized alerts, historical archive</i></li>
+    </ul>
+  </div>
+</div>
+</div>
+
+<div class="card" id="pricingAuth">
+<h2>Create your account</h2>
+<p class="src">One account = premium on every device you log in from. Free accounts keep everything free forever.</p>
+<div id="memCard"></div>
+</div>
+
+<script>
+(function () {{
+  if (!window.TWN) return;
+  TWN.member.authCard(document.getElementById("memCard"), {{
+    onChange: function (me) {{
+      const hero = document.querySelector("#pricingAuth h2");
+      if (hero) hero.textContent = me && me.member ? "Your account" : "Create your account";
+    }},
+  }});
+}})();
+</script>
+"""
+    return _page("Premium", "pricing.html", body)
+
+
+def page_member(d):
+    if not getattr(config, "MEMBER_WORKER_URL", ""):
+        return _page("Account", "member.html", _mem_setup_notice())
+    body = """
+<header class="hero"><h1>👤 Your account</h1>
+<div class="sub">Membership, billing, and your premium content - all in one place.</div></header>
+
+<div class="card">
+<div id="memCard"></div>
+</div>
+
+<div class="card" id="premCard" style="display:none">
+<h2>⭐ Your premium content</h2>
+<div class="src">Loaded live from the members service - fresh every model cycle.</div>
+<div id="premList" style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px"></div>
+</div>
+
+<script>
+(function () {{
+  if (!window.TWN) return;
+  function loadPremium() {{
+    TWN.member.premiumIndex().then(function (idx) {{
+      const card = document.getElementById("premCard");
+      if (!idx || idx.error || !idx.models) {{ card.style.display = "none"; return; }}
+      card.style.display = "";
+      const L = document.getElementById("premList");
+      let html = "";
+      (idx.models || []).forEach(function (m) {{
+        html += '<figure style="max-width:340px;margin:0"><img loading="lazy" src="'
+          + TWN.member.premiumUrl("premium/models/" + m.file) + '" alt="' + TWN.member.esc(m.title)
+          + '" style="width:100%;border-radius:10px;background:#fff"/><figcaption><b>'
+          + TWN.member.esc(m.title) + "</b><br/><span class='src'>" + TWN.member.esc(m.desc || "")
+          + "</span></figcaption></figure>";
+      }});
+      (idx.longrange || []).forEach(function (m) {{
+        html += '<figure style="max-width:340px;margin:0"><img loading="lazy" src="'
+          + TWN.member.premiumUrl("premium/longrange/" + m.file) + '" alt="' + TWN.member.esc(m.title)
+          + '" style="width:100%;border-radius:10px;background:#fff"/><figcaption><b>'
+          + TWN.member.esc(m.title) + "</b></figcaption></figure>";
+      }});
+      L.innerHTML = html;
+    }});
+  }}
+  TWN.member.authCard(document.getElementById("memCard"), {{ onChange: loadPremium }});
+  loadPremium();
+}})();
+</script>
+"""
+    return _page("Account", "member.html", body)
+
+
+def page_admin(d):
+    if not getattr(config, "MEMBER_WORKER_URL", ""):
+        return _page("Admin", "admin.html", _mem_setup_notice())
+    body = """
+<header class="hero"><h1>🛠️ Admin</h1>
+<div class="sub">Members, revenue, and site ops - the business console. Admin session required.</div></header>
+
+<div class="card">
+<div id="memCard"></div>
+</div>
+
+<div class="card" id="opsCard">
+<h2>📈 Site ops (live)</h2>
+<div id="opsLine" class="src">loading data.json…</div>
+</div>
+
+<div class="card" id="bizCard" style="display:none">
+<h2>👥 Members</h2><div id="members" class="src">…</div>
+<h2>💳 Payments</h2><div id="payments" class="src">…</div>
+<h2>🎁 Grant premium</h2>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+  <input id="gEmail" type="email" placeholder="email" style="min-width:220px">
+  <input id="gDays" type="number" value="30" style="width:90px" title="days">
+  <button class="bBtn" id="gBtn">Grant</button>
+  <span class="src" id="gMsg"></span>
+</div>
+</div>
+
+<script>
+(function () {{
+  if (!window.TWN) return;
+  let ADMIN = false;
+  function loadOps() {{
+    fetch(SITE_DATA_URL, {{cache:"no-store"}}).then(r => r.json()).then(function (d) {{
+      const fh = d.feedHealth || {{}};
+      const lu = d.lastUpdate || {{}};
+      document.getElementById("opsLine").innerHTML =
+        "Upstream: <b>" + TWN.member.esc(fh.verdict || "?") + (fh.trend ? " " + fh.trend : "") + "</b>"
+        + " \u00b7 avg req " + TWN.member.esc(fh.avgS || "?") + "s \u00b7 p95 " + TWN.member.esc(fh.p95S || "?") + "s"
+        + " \u00b7 last wall pass " + TWN.member.esc(lu.lastDurationS || "?") + "s"
+        + " \u00b7 data epoch " + new Date(d.dataEpochMs || 0).toLocaleString();
+    }});
+  }}
+  function loadBiz() {{
+    if (!ADMIN) return;
+    document.getElementById("bizCard").style.display = "";
+    fetch(window.TWN_WORKER + "/api/admin/members", {{credentials:"include"}}).then(r => r.json()).then(function (d) {{
+      if (d.error) {{ document.getElementById("members").textContent = d.error; return; }}
+      document.getElementById("members").innerHTML = "<b>" + d.total + "</b> accounts \u00b7 <b>"
+        + d.premiumActive + "</b> premium active<br/><br/>" + (d.members || []).map(function (m) {{
+          const until = m.premium_until > (Date.now()/1000)
+            ? new Date(m.premium_until*1000).toLocaleDateString() : "-";
+          return TWN.member.esc(m.email) + (m.admin ? " [ADMIN]" : "") + " \u00b7 premium until: " + until;
+        }}).join("<br/>");
+    }});
+    fetch(window.TWN_WORKER + "/api/admin/payments", {{credentials:"include"}}).then(r => r.json()).then(function (d) {{
+      if (d.error) {{ document.getElementById("payments").textContent = d.error; return; }}
+      document.getElementById("payments").innerHTML = "Lifetime recorded: <b>$"
+        + ((d.revenueCents || 0) / 100).toFixed(2) + "</b><br/><br/>" + (d.payments || []).slice(0, 20).map(function (p) {{
+          return new Date(p.ts*1000).toLocaleString() + " \u00b7 $" + ((p.amount_cents||0)/100).toFixed(2)
+            + " \u00b7 " + TWN.member.esc(p.status) + " \u00b7 " + TWN.member.esc(p.email);
+        }}).join("<br/>");
+    }});
+  }}
+  document.getElementById("gBtn").onclick = function () {{
+    fetch(window.TWN_WORKER + "/api/admin/grant", {{credentials:"include", method:"POST",
+      headers: {{"content-type":"application/json"}},
+      body: JSON.stringify({{email: document.getElementById("gEmail").value.trim(),
+                             days: +document.getElementById("gDays").value || 30}})}})
+      .then(r => r.json()).then(function (d) {{
+        document.getElementById("gMsg").textContent = d.ok ? "Granted ✓" : (d.error || "failed");
+        loadBiz();
+      }});
+  }};
+  TWN.member.authCard(document.getElementById("memCard"), {{
+    onChange: function (me) {{ ADMIN = !!(me && me.admin); loadBiz(); }},
+  }});
+  loadOps(); setInterval(loadOps, 120000);
+}})();
+</script>
+"""
+    return _page("Admin", "admin.html", body)
 
 
 def page_cfsv2(d):
@@ -14068,6 +14357,9 @@ def generate_site():
             "fronts.html": page_fronts(d),
             "hrrr.html": page_hrrr(d),
             "tropmodels.html": page_tropmodels(d),
+            "pricing.html": page_pricing(d),
+            "member.html": page_member(d),
+            "admin.html": page_admin(d),
             "cfsv2.html": page_cfsv2(d),
             "climate.html": page_climate(d),
             "enso.html": page_enso(d),

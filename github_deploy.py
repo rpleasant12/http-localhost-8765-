@@ -169,7 +169,7 @@ def package():
     # explicitly. (manifest/SW registration uses relative URLs, so the
     # subpath deployment works without rewriting.)
     for pwa_fn in ("manifest.webmanifest", "sw.js", "offline.html",
-                   "icon-192.png", "icon-512.png"):
+                   "icon-192.png", "icon-512.png", "member.js"):
         pwa_src = os.path.join(SITE_DIR, pwa_fn)
         if os.path.isfile(pwa_src):
             shutil.copy2(pwa_src, os.path.join(staging, pwa_fn))
