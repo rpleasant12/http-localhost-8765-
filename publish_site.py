@@ -268,6 +268,59 @@ def dispatch_mirror():
         return False
 
 
+# ---- Cloudflare Pages mirror (2026-10-02): keep the tnwn-weather.pages.dev
+# copy in sync with the GitHub-published build. The project is DIRECT-UPLOAD
+# (`wrangler pages deploy docs/`; a direct-upload Pages project cannot be
+# converted to git-connected, and the free tier caps deployments at
+# ~500/month), so sync runs on a >=2 h throttle (~12/day ~360/month with
+# margin for manual redeploys). Best-effort and always OUTSIDE the publish
+# lock (called from __main__ after publish() succeeds): any failure logs and
+# moves on - github.io stays primary, this is the CDN mirror.
+CFPAGES_PROJECT = "tnwn-weather"
+CFPAGES_MIN_GAP = 2 * 3600
+CFPAGES_STAMP = os.path.join(".freebuff", "cfpages.last")
+CFPAGES_WRANGLER = os.path.join(os.path.expanduser("~"),
+                                "AppData", "Roaming", "npm", "wrangler.cmd")
+
+
+def _cfpages_due():
+    try:
+        with open(CFPAGES_STAMP, encoding="utf-8") as f:
+            return time.time() - float(f.read().strip()) >= CFPAGES_MIN_GAP
+    except (OSError, ValueError):
+        return True
+
+
+def sync_cloudflare_pages():
+    """Deploy docs/ to the Cloudflare Pages mirror (throttled, best-effort)."""
+    if not os.path.isdir("docs") or not _cfpages_due():
+        return False
+    if not os.path.isfile(CFPAGES_WRANGLER):
+        print("publish: cloudflare pages mirror skipped (wrangler not found)")
+        return False
+    try:
+        r = subprocess.run(
+            ["cmd", "/c", CFPAGES_WRANGLER, "pages", "deploy", "docs/",
+             "--project-name", CFPAGES_PROJECT, "--branch", "main",
+             "--commit-dirty=true"],
+            capture_output=True, text=True, timeout=540,
+            creationflags=NOWIN if os.name == "nt" else 0)
+        tail = ((r.stdout or "") + (r.stderr or "")).strip().splitlines()
+        detail = tail[-1][:160] if tail else ""
+        if r.returncode == 0:
+            with open(CFPAGES_STAMP, "w", encoding="utf-8") as f:
+                f.write(str(time.time()))
+            print(f"publish: cloudflare pages mirror deployed ({detail})",
+                  flush=True)
+            return True
+        print(f"publish: cloudflare pages mirror FAILED rc={r.returncode}: "
+              f"{detail}", flush=True)
+        return False
+    except Exception as exc:  # noqa: BLE001 - mirror must never break publish
+        print("publish: cloudflare pages mirror skipped:", exc, flush=True)
+        return False
+
+
 def _git_size_kb():
     """Packed object-store size in KB (from git count-objects -v)."""
     r = _run(["git", "count-objects", "-v"])
@@ -587,4 +640,12 @@ if __name__ == "__main__":
     if args.cleanup:
         housekeeping(full=True)
         sys.exit(0)
-    sys.exit(0 if publish(check_only=args.check) else 1)
+    ok = publish(check_only=args.check)
+    if ok and not args.check:
+        # Cloudflare CDN mirror: AFTER the lock is released (deploy can take
+        # minutes on a big delta) and only when the GitHub push succeeded.
+        try:
+            sync_cloudflare_pages()
+        except Exception:  # noqa: BLE001 - never fail the CLI on mirror issues
+            pass
+    sys.exit(0 if ok else 1)
