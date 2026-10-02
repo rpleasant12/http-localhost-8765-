@@ -9478,11 +9478,17 @@ def page_cfsv2(d):
     weekly = c.get("weekly") or []
     monthly = c.get("monthly") or []
     month_lbl = html.escape(c.get("month") or "the current month")
+    # mirrored maps change under constant filenames (CPC redraws 4x/day);
+    # stamp the mirror's own updated-stamp into the URL so visitor caches
+    # and the Pages CDN re-fetch when the payload actually refreshed, but
+    # not between refreshes (the rewrite regex keeps the query intact)
+    ver = ("?v=" + hashlib.md5(str(c.get("updated")).encode()).hexdigest()[:8]) \
+        if c.get("updated") else ""
 
     def _figs(items):
         out = ""
         for it in items:
-            src = (it.get("url") or "").replace("/app/static/", "../")
+            src = (it.get("url") or "").replace("/app/static/", "../") + ver
             cap = it.get("caption") or ""
             out += (f'<figure class="wpcfig"><img loading="lazy" src="{html.escape(src, quote=True)}" '
                     f'alt="{html.escape(it.get("label") or "")}"/'
