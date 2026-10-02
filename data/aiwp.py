@@ -143,6 +143,14 @@ def fetch_fields(model, cycle, fh, product):
         fields["TMP"] = plane("t", level)
         fields["UGRD"] = plane("u", level)
         fields["VGRD"] = plane("v", level)
+        if product == "700_w":
+            # omega must ride THIS branch: the old bare `elif product ==
+            # "700_w"` below was dead code, shadowed by the level branch
+            # (700 is in _LEVELS), so every AI 700_w shipped a temp chart
+            # and the render raised 'no omega field decoded' (2026-10-02)
+            if "w" not in hf.variables:
+                return None      # Pangu/Aurora ship no omega at all
+            fields["VVEL"] = plane("w", 700)
         if product in ("700_rh", "600_rh"):
             # FourCastNet ships RH directly ('r', 0-1); the others carry
             # specific humidity 'q' (kg/kg) - convert via vapor pressure
@@ -196,12 +204,6 @@ def fetch_fields(model, cycle, fh, product):
         # convention model_maps uses so the render branch is shared
         fields["HGT"] = plane("z", 500) / 9.80665
         fields["HGT@1000 mb"] = plane("z", 1000) / 9.80665
-    elif product == "700_w":
-        # 700 mb omega (Pa/s) + 700 heights/winds for context
-        fields["VVEL"] = plane("w", 700)
-        fields["HGT"] = plane("z", 700) / 9.80665
-        fields["UGRD"] = plane("u", 700)
-        fields["VGRD"] = plane("v", 700)
     elif product == "sfc_dew":
         # AI files carry no 2 m dew point - derive the vapor pressure from
         # whichever moisture variable the file ships (q most models, r on
@@ -229,6 +231,23 @@ def fetch_fields(model, cycle, fh, product):
         if "tcwv" in hf.variables:          # FourCastNet
             fields["PWAT"] = plane("tcwv")
             # synoptic overlay: labeled MSLP isobars + 10 m wind barbs
+            if "msl" in hf.variables:
+                fields["PRMSL"] = plane("msl")
+            if "u10" in hf.variables and "v10" in hf.variables:
+                fields["UGRD"], fields["VGRD"] = plane("u10"), plane("v10")
+        elif "q" in hf.variables:
+            # GraphCast (and Pangu/Aurora) ships specific humidity at 13
+            # pressure levels instead of tcwv - integrate q over pressure
+            # (trapezoid, surface -> 300 hPa) for precipitable water:
+            # PWAT = (1/g) SUM q*dp in kg/m^2 = mm. This used to return
+            # None (no tcwv) and wall-fail every GraphCast pwat render
+            # with 'No decodable data' (2026-10-02).
+            ps = (1000, 925, 850, 700, 600, 500, 400, 300)
+            pw = np.zeros(plane("q", ps[0]).shape, dtype=float)
+            for k in range(len(ps) - 1):
+                q1, q2 = plane("q", ps[k]), plane("q", ps[k + 1])
+                pw = pw + 0.5 * (q1 + q2) * ((ps[k] - ps[k + 1]) * 100.0) / 9.80665
+            fields["PWAT"] = pw
             if "msl" in hf.variables:
                 fields["PRMSL"] = plane("msl")
             if "u10" in hf.variables and "v10" in hf.variables:

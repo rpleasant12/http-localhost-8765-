@@ -85,6 +85,11 @@ MAP_MODELS = {
         "base": "https://ecmwf-forecasts.s3.amazonaws.com/{c:%Y%m%d}/{c:%H}z/ifs/0p25/oper",
         "max_hour": 144,
         "hour_step": 3,
+        # 10fg (max 10m gust) vanishes from the 3-hourly oper files past
+        # f090 (probed f096-f144 across the Oct 1-2 00Z/12Z cycles; it is
+        # back in the 6-hourly f150+). Cap the gust loop at 90 so no
+        # planned hour is guaranteed to wall-fail (2026-10-02).
+        "product_max_hour": {"sfc_gust": 90},
     },
     "RRFS": {
         "label": "RRFS (3 km CONUS CAM, hourly)",
@@ -290,14 +295,17 @@ PRODUCTS_BY_MODEL = {
                      "thickness", "700_w", "sfc_dew", "shear06", "lr75",
                      "850_vort", "200_div", "3var_fronts"],
     "AI-Pangu": ["500_vort", "500_tmp", "600_tmp", "600_rh", "850_tmp", "925_tmp", "700_rh",
-                 "300_jet", "250_jet", "200_jet", "sfc_mslp", "thickness", "700_w", "sfc_dew",
+                 "300_jet", "250_jet", "200_jet", "sfc_mslp", "thickness", "sfc_dew",
                  "shear06", "lr75", "850_vort", "200_div", "3var_fronts"],
+    # (AI-Pangu/AI-Aurora carry NO omega variable - probed the 2026-10-02
+    # 00Z NetCDF headers: msl,q,t,t2,u,u10,v,v10,z only - so 700_w can
+    # never decode for them; only AI-GraphCast has 'w')
     "AI-FourCastNet": ["500_vort", "500_tmp", "600_tmp", "600_rh", "850_tmp", "925_tmp", "700_rh",
                        "300_jet", "250_jet", "200_jet", "sfc_mslp", "pwat",
                        "thickness", "sfc_dew", "shear06", "lr75",
                        "850_vort", "200_div", "3var_fronts"],
     "AI-Aurora": ["500_vort", "500_tmp", "600_tmp", "600_rh", "850_tmp", "925_tmp", "700_rh",
-                  "300_jet", "250_jet", "200_jet", "sfc_mslp", "thickness", "700_w", "sfc_dew",
+                  "300_jet", "250_jet", "200_jet", "sfc_mslp", "thickness", "sfc_dew",
                   "shear06", "lr75", "850_vort", "200_div", "3var_fronts"],
     "HREF": ["ship", "cam_pmmn", "cam_mean_500", "cam_mean_srh", "cam_prob_uphl", "cam_prob_ltng",
              "mucape", "500_vort", "500_tmp", "850_tmp", "925_tmp", "700_rh", "250_jet",
@@ -425,6 +433,11 @@ ECMWF_PARAMS_BASE = {
 # shortName for EPS-Weekly (verified in the enfo-ef index, 2026-09-20)
 ECMWF_PARAMS = ECMWF_PARAMS_BASE.copy()
 ECMWF_PARAMS["snow"] = [("sd", "sfc")]   # ensemble ships snow DEPTH (m w.e.)
+# headline field each product cannot render without: _fetch_ecmwf_fields
+# returns None (triggering the older-cycle fallback) rather than shipping
+# partial fields whose NoneType math crashes the render child - ECMWF drops
+# 10fg from the 3-hourly oper files past f090 (probed 2026-10-02)
+_ECMWF_REQUIRED = {"sfc_gust": "GUST"}
 ECMWF_PARAMS["pwat"] = ECMWF_PARAMS_BASE["pwat"]
 # the surface-analysis composite: ECMWF 'gh' heights (ens files) swap inside
 # _ecmwf_params; msl/2t/10u/10v are sfc params shared with existing products
@@ -1513,7 +1526,13 @@ def fetch_product_fields(model, cycle, fh, product):
         except Exception:  # noqa: BLE001 - Herbie failures always fall back
             res = None
         if res is not None:
-            return res
+            # Herbie may surface a subset lacking the headline field (ECMWF
+            # 10fg past f090) - partial fields crash the render with
+            # NoneType math, so keep looking (2026-10-02)
+            req = (_ECMWF_REQUIRED.get(product)
+                   if model in ("ECMWF", "AIFS", "AIFS-ENS") else None)
+            if req is None or req in res.get("fields", {}):
+                return res
     if model == "SREF":
         return _fetch_sref_fields(cycle, fh, product)
     if model == "EPS-Weekly":
@@ -1914,6 +1933,12 @@ def _fetch_ecmwf_fields(cycle, fh, product, model_dir="ifs/0p25/oper", tag="oper
         fields["HGT"] = fields["HGT"] / 9.80665   # ECMWF 'z' is geopotential, not height
     if "HGT@1000 mb" in fields:
         fields["HGT@1000 mb"] = fields["HGT@1000 mb"] / 9.80665
+    # a product whose headline field the index lacks (10fg past f090) must
+    # return None: the caller's older-cycle fallback takes over and the
+    # render sees a clean 'no data' instead of GUST=None math (2026-10-02)
+    required = _ECMWF_REQUIRED.get(product)
+    if required is not None and required not in fields:
+        return None
     # display downsample: 0.25 deg global is ~1M points, too heavy for contours
     fields = {k: v[::2, ::2] for k, v in fields.items()}
     lat, lon = lat2[::2, ::2], lon2[::2, ::2]

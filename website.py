@@ -14184,14 +14184,20 @@ def _all_model_combos():
         info = MAP_MODELS.get(model) or {}
         max_h = int(info.get("max_hour") or 24)
         step = int(info.get("hour_step") or 3)
-        hours = _loop_hours(max_h, step)
-        # early = the FIRST loop hour (F001 for the 1-hour CAMs, F003 for
-        # the 3-hour globals, F006 for the AI/ensemble sets): the near-term
-        # wall then clusters on three shared grids so the collage's
-        # same-hour default finds real cross-model coverage.
-        early = hours[0]
-        pick = (early, hours[-1]) if early != hours[-1] else (hours[-1],)
+        pmh = info.get("product_max_hour") or {}
         for prod in prods:
+            hours = _loop_hours(max_h, step)
+            cap = int(pmh.get(prod, max_h))
+            if cap < max_h:
+                # per-product hour cap (ECMWF sfc_gust: upstream drops 10fg
+                # past f090) - a planned hour must never be guaranteed-dead
+                hours = [h for h in hours if h <= cap] or hours[:1]
+            # early = the FIRST loop hour (F001 for the 1-hour CAMs, F003 for
+            # the 3-hour globals, F006 for the AI/ensemble sets): the near-term
+            # wall then clusters on three shared grids so the collage's
+            # same-hour default finds real cross-model coverage.
+            early = hours[0]
+            pick = (early, hours[-1]) if early != hours[-1] else (hours[-1],)
             for region in ("etn", "us"):
                 for fh in pick:
                     combos.append((model, fh, prod, region))
