@@ -74,7 +74,13 @@ function json(data, status = 200, headers = {}) {
 }
 function cookieHeader(name, val, days) {
   const exp = days ? new Date(Date.now() + days * 864e5).toUTCString() : "Thu, 01 Jan 1970 00:00:00 GMT";
-  return `${name}=${val}; Path=/; HttpOnly; Secure; SameSite=Lax; Expires=${exp}`;
+  // Cross-site cookie: the members pages live on github.io / pages.dev and
+  // call this worker on a different site, so SameSite=Lax would be DROPPED
+  // by the browser when set from those cross-site fetch responses (session
+  // would never persist). SameSite=None + Secure (always set below) is the
+  // only cross-site-credentialed option; CSRF is handled by the strict
+  // CORS allow-list above plus the cross-origin POST guard beneath it.
+  return `${name}=${val}; Path=/; HttpOnly; Secure; SameSite=None; Expires=${exp}`;
 }
 function getCookie(req, name) {
   const c = req.headers.get("cookie") || "";
@@ -367,6 +373,13 @@ async function handle(req, env, ctx) {
         "access-control-allow-headers": "content-type, authorization",
         "access-control-allow-methods": "GET, POST, OPTIONS" } : {};
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+  // CSRF guard for the SameSite=None cookie: browsers attach Origin to ALL
+  // cross-origin POSTs - including form posts, which skip CORS preflight -
+  // so reject any POST whose Origin is present but not allow-listed.
+  // Server-to-server callers (Stripe webhook, curl) send no Origin and pass.
+  if (req.method === "POST" && origin && !allowed) {
+    return json({ error: "Cross-origin request not allowed." }, 403);
+  }
   // Attach the CORS headers to EVERY response, not just the preflight:
   // without ACAO on the response itself the browser refuses to read the
   // JSON even after a successful OPTIONS (pre-fix bug: only OPTIONS had
