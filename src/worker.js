@@ -11,7 +11,7 @@
  *
  * Secrets (NEVER in git; `wrangler secret put <NAME>` in production):
  *   JWT_SECRET, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_MONTHLY,
- *   ADMIN_EMAIL, SITE_URL, R2_ADMIN_TOKEN
+ *   ADMIN_EMAIL, SITE_URL, EXTRA_ORIGINS, R2_ADMIN_TOKEN
  */
 
 const CONFIG = {
@@ -344,19 +344,50 @@ export default {
 };
 
 async function handle(req, env, ctx) {
-  const url = new URL(req.url);
-  const path = url.pathname.replace(/\/+$/, "") || "/";
-  const ip = req.headers.get("cf-connecting-ip") || "local";
-  const store_ = store(env);
-
-  // CORS for the GitHub Pages origin (members pages call the worker cross-origin)
+  // CORS allow-list for credentialed member calls (member.js uses
+  // credentials:"include"). Browsers send Origin as scheme+host only - NO
+  // path - so SITE_URL must be reduced to its origin (the full github.io
+  // project URL with its path could never match a browser Origin).
+  // EXTRA_ORIGINS (comma-separated var) adds mirrors, e.g. the Cloudflare
+  // Pages copy; entries ending in ".pages.dev" also match their own
+  // project's preview subdomains (<hash>.tnwn-weather.pages.dev).
   const origin = req.headers.get("origin") || "";
-  const allowed = (env.SITE_URL || "").replace(/\/$/, "");
-  const cors = origin && allowed && origin === allowed
+  const norm = (s) => (s || "").trim().replace(/\/+$/, "");
+  const siteOrigin = (() => { try { return new URL(env.SITE_URL || "").origin; } catch { return ""; } })();
+  const allowedList = [siteOrigin,
+    ...(env.EXTRA_ORIGINS || "").split(",").map(norm)].filter(Boolean);
+  const originHost = origin.replace(/^https?:\/\//, "");
+  const allowed = !!origin && allowedList.some((a) => {
+    const aHost = a.replace(/^https?:\/\//, "");
+    return origin === a
+      || (a.endsWith(".pages.dev") && originHost.endsWith("." + aHost));
+  });
+  const cors = allowed
     ? { "access-control-allow-origin": origin, "access-control-allow-credentials": "true",
         "access-control-allow-headers": "content-type, authorization",
         "access-control-allow-methods": "GET, POST, OPTIONS" } : {};
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+  // Attach the CORS headers to EVERY response, not just the preflight:
+  // without ACAO on the response itself the browser refuses to read the
+  // JSON even after a successful OPTIONS (pre-fix bug: only OPTIONS had
+  // CORS, so no browser signup/login could ever complete).
+  let res;
+  try {
+    res = await route(req, env, ctx);
+  } catch (e) {
+    res = json({ error: `worker: ${e.message}` }, 500);
+  }
+  if (!cors["access-control-allow-origin"]) return res;
+  const h = new Headers(res.headers);
+  for (const [k, v] of Object.entries(cors)) h.set(k, v);
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+}
+
+async function route(req, env, ctx) {
+  const url = new URL(req.url);
+  const path = url.pathname.replace(/\/+$/, "") || "/";
+  const ip = req.headers.get("cf-connecting-ip") || "local";
+  const store_ = store(env);
 
   /* ----- public ----- */
   if (req.method === "GET" && path === "/api/config") {

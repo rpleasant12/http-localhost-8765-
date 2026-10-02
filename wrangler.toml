@@ -24,6 +24,11 @@ database_id = "9a9ee299-ef39-4638-9544-50dadf69d4c2"
 # bucket_name = "tnwn-premium"
 
 [vars]
-# Public site origin - the ONLY origin allowed to call the worker with
-# credentials (CORS). No secrets here.
+# Public site origin - the PRIMARY site (used for /api/config "site" and
+# Stripe success/cancel redirects). No secrets here.
 SITE_URL = "https://rpleasant12.github.io/http-localhost-8765-"
+# Extra origins allowed to call the worker with credentials (CORS),
+# comma-separated. The Cloudflare Pages mirror serves the same build;
+# entries ending in .pages.dev also match that project's preview
+# subdomains (<hash>.tnwn-weather.pages.dev).
+EXTRA_ORIGINS = "https://tnwn-weather.pages.dev"
