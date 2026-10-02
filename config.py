@@ -29,6 +29,6 @@ NWS_API_URL = "https://api.weather.gov/alerts/active"
 # setup notice). NEVER put secrets here - only the public worker origin.
 # Flip to the deployed worker URL (https://tnwn-members.<your-subdomain>.workers.dev)
 # AFTER 'wrangler deploy' - see DEPLOY_MEMBERSHIP.md.
-MEMBER_WORKER_URL = ""
+MEMBER_WORKER_URL = "https://tnwn-members.nbasportstalk53.workers.dev"
 # Free-vs-premium content policy mirrored by the worker proxy (docs only).
 PREMIUM_PRICE_LABEL = "$4.99/mo"

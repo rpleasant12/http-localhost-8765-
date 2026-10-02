@@ -295,8 +295,18 @@ async function bucketGet(env, path) {
     if (!obj) return { ok: false, status: 404 };
     return { ok: true, status: 200, body: obj.body, headers: new Headers({ "etag": obj.httpEtag || "" }) };
   }
-  const up = await fetch(`${env.BUCKET_BASE || "http://127.0.0.1:8790"}/fetch/${path}`);
-  return { ok: up.ok, status: up.status, body: up.ok ? up.body : null, headers: up.headers };
+  if (!env.BUCKET) {
+    // No bucket binding at all (e.g. R2 not enabled yet): the HTTP stand-in
+    // below is a localhost address that cannot exist in production - return
+    // a clean 503 instead of an unhandled fetch exception (2026-10-02).
+    return { ok: false, status: 503 };
+  }
+  try {
+    const up = await fetch(`${env.BUCKET_BASE || "http://127.0.0.1:8790"}/fetch/${path}`);
+    return { ok: up.ok, status: up.status, body: up.ok ? up.body : null, headers: up.headers };
+  } catch (_e) {
+    return { ok: false, status: 503 };   // stand-in not running (dev)
+  }
 }
 
 async function bucketPut(env, path, body) {
@@ -304,14 +314,19 @@ async function bucketPut(env, path, body) {
     await env.BUCKET.put(path, body);
     return { ok: true, status: 200 };
   }
-  const up = await fetch(`${env.BUCKET_BASE || "http://127.0.0.1:8790"}/fetch/${path}`, { method: "PUT", body });
-  return { ok: up.ok, status: up.status };
+  if (!env.BUCKET) return { ok: false, status: 503 };   // no bucket binding
+  try {
+    const up = await fetch(`${env.BUCKET_BASE || "http://127.0.0.1:8790"}/fetch/${path}`, { method: "PUT", body });
+    return { ok: up.ok, status: up.status };
+  } catch (_e) {
+    return { ok: false, status: 503 };
+  }
 }
 
 async function proxyPremium(env, req, path) {
   if (!path || path.includes("..") || path.startsWith("/")) return json({ error: "bad path" }, 400);
   const up = await bucketGet(env, `premium/${path}`);
-  if (!up.ok) return json({ error: "not found" }, 404);
+  if (!up.ok) return json({ error: up.status === 503 ? "Premium library is not online yet." : "not found" }, up.status);
   const h = new Headers(up.headers);
   h.set("content-type", ctFor(path));
   h.set("cache-control", "private, max-age=60");
