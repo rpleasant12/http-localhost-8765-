@@ -1196,6 +1196,7 @@ def collect_data():
         "renderIndex": _render_index(),
         "cmpCam": _cmp_cam_index(),
         "upstream": _upstream_status(),
+        "feedHealth": _feed_health_safe(),
         "nbmPct": _nbm_pct_safe(),
         "rapNowcast": _rap_nowcast_safe(),
         "gefs": _gefs_safe(),
@@ -2948,6 +2949,101 @@ def _last_update_stats():
     except Exception:                                    # noqa: BLE001
         pass
     return None
+
+
+_FEED_HEALTH_TTL = 120          # build cadence ~2 min; no need to re-read more
+_FEED_HEALTH_CACHE = {"t": 0.0, "v": None}
+
+
+def _feed_health_safe():
+    """Upstream feed latency for the models-page health badge.
+
+    Two live mirrors feed it (both written by the running updater):
+    - ``.freebuff/net_latency.json`` - rolling per-request HTTP latency of
+      EVERY upstream call (data/_net.py shim): the direct "how slow are
+      the feeds" signal.
+    - ``.freebuff/model_rotation.json`` - per-pass duration + failures of
+      the model-map rotation (each render = one upstream fetch + a render).
+    Verdict: degraded when walls fail or requests error, slow when the p95
+    or the last wall pass stretch, fast otherwise, unknown when the mirrors
+    are stale (>30 min). Never raises - the badge is optional chrome.
+    """
+    now = time.time()
+    if (now - _FEED_HEALTH_CACHE["t"] < _FEED_HEALTH_TTL
+            and _FEED_HEALTH_CACHE["v"] is not None):
+        return _FEED_HEALTH_CACHE["v"]
+    net = rot = None
+    try:
+        with open(os.path.join(".freebuff", "net_latency.json"),
+                  encoding="utf-8") as f:
+            net = json.load(f)
+    except Exception:                                    # noqa: BLE001
+        net = None
+    try:
+        with open(os.path.join(".freebuff", "model_rotation.json"),
+                  encoding="utf-8") as f:
+            rot = json.load(f)
+    except Exception:                                    # noqa: BLE001
+        rot = None
+    if not isinstance(net, dict):
+        net = None
+    if not isinstance(rot, list) or not rot:
+        rot = None
+
+    out = {"verdict": "unknown", "updatedEpochS": int(now)}
+    if net:
+        out["net"] = {"n": int(net.get("n") or 0),
+                      "errN": int(net.get("errN") or 0),
+                      "avgS": float(net.get("avgS") or 0),
+                      "p95S": float(net.get("p95S") or 0),
+                      "maxS": float(net.get("maxS") or 0),
+                      "windowMin": float(net.get("windowMin") or 0),
+                      "ageS": int(now - float(net.get("updatedEpochS") or now))}
+    if rot:
+        last = rot[-1]
+        prev = rot[-6:-1]
+        avg_prev = (sum(float(p.get("durS") or 0) for p in prev) / len(prev))\
+            if prev else 0.0
+        last_d = float(last.get("durS") or 0)
+        trend = "steady"
+        if avg_prev > 0:
+            if last_d > avg_prev * 1.5:
+                trend = "slowing"
+            elif last_d < avg_prev * 0.67:
+                trend = "improving"
+        recent = rot[-24:]
+        nfail = sum(int(p.get("failed") or 0) for p in recent)
+        ntot = sum(int(p.get("rendered") or 0) + int(p.get("failed") or 0)
+                   for p in recent)
+        out["rotation"] = {
+            "passes": len(rot),
+            "lastDurS": round(last_d, 1),
+            "avgPrevDurS": round(avg_prev, 1),
+            "lastRendered": int(last.get("rendered") or 0),
+            "lastFailed": int(last.get("failed") or 0),
+            "failRate24Pct": round(100.0 * nfail / ntot, 1) if ntot else 0.0,
+            "lastModels": (last.get("models") or [])[:8],
+            "lastTs": int(last.get("ts") or 0),
+            "trend": trend,
+            "ageS": int(now - float(last.get("ts") or now)),
+        }
+    r = out.get("rotation") or {}
+    n = out.get("net") or {}
+    rot_bad = bool(r) and (r["lastFailed"] > 0 or r["failRate24Pct"] > 5.0)
+    net_bad = bool(n) and n["errN"] > max(3, n["n"] * 0.05)
+    stale = ((not net or n.get("ageS", 10 ** 9) > 1800)
+             and (not rot or r.get("ageS", 10 ** 9) > 1800))
+    if stale or (not net and not rot):
+        out["verdict"] = "unknown"
+    elif rot_bad or net_bad:
+        out["verdict"] = "degraded"
+    elif (bool(n) and n["p95S"] > 120) or (bool(r) and r["lastDurS"] > 300):
+        out["verdict"] = "slow"
+    else:
+        out["verdict"] = "fast"
+    _FEED_HEALTH_CACHE["v"] = out
+    _FEED_HEALTH_CACHE["t"] = now
+    return out
 
 
 def _png_axes_rect(path):
@@ -6589,6 +6685,7 @@ setInterval(async () => {
     const nd = await (await fetch("data.json?t=" + Date.now(), {cache: "no-store"})).json();
     mprogFrom(nd);
     upFrom(nd);
+    fhFrom(nd);
   } catch (_e) { /* offline tick - keep the last known state */ }
 }, 300000);
 
@@ -6631,6 +6728,49 @@ function upFrom(up) {
       (r.lbl === "current" ? "" : " \u00b7 " + r.lbl + " (" + Math.round(r.age) + " h)"));
 }
 upFrom(null);
+
+/* ---------------- upstream feed latency badge ----------------
+   How slow are the model feeds RIGHT NOW. Two live mirrors written by
+   the updater: rolling per-request HTTP latency from the net shim
+   (net_latency.json) and model-wall pass duration + failures
+   (model_rotation.json), stamped into data.json each build as
+   feedHealth. The trend arrow compares the last wall pass with the
+   previous five (↗ slower, ↘ faster, → steady). */
+function fhFrom(d) {
+  const box = document.getElementById("feedHealthLine");
+  if (!box) return;
+  const fh = (d && d.feedHealth) || window.FEEDHEALTH || null;
+  if (!fh || fh.verdict === "unknown" || (!fh.net && !fh.rotation)) {
+    box.innerHTML = '<span style="color:#8fa3bf">●</span> Upstream feeds: no latency data yet this session';
+    return;
+  }
+  const sev = {fast: 0, slow: 1, degraded: 2}[fh.verdict] || 1;
+  const col = ["#2e7d32", "#ef6c00", "#c62828"][sev];
+  const n = fh.net || {}, r = fh.rotation || {};
+  const bits = [];
+  if (n.n) {
+    bits.push((n.avgS < 10 ? n.avgS.toFixed(1) : Math.round(n.avgS)) + " s avg request");
+    bits.push("p95 " + Math.round(n.p95S) + " s");
+  }
+  if (r.lastDurS) bits.push("wall pass " + Math.round(r.lastDurS) + " s");
+  const arrow = {slowing: "↗", improving: "↘", steady: "→"}[r.trend] || "";
+  let out = '<span style="color:' + col + '">●</span> Upstream feeds: <b>' + fh.verdict + "</b>" +
+    (arrow ? ' <span title="last wall pass vs the previous five">' + arrow + "</span>" : "") +
+    (bits.length ? " · " + bits.join(" · ") : "");
+  if (r.lastFailed) {
+    out += ' · <span style="color:#c62828">' + r.lastFailed + " wall" +
+      (r.lastFailed > 1 ? "s" : "") + " failed" +
+      ((r.lastModels || []).length ? " (" + r.lastModels.join(", ") + ")" : "") + "</span>";
+  } else if (r.lastRendered) {
+    out += " · 0 failed · " + r.lastRendered + " rendered";
+  }
+  if (n.errN) out += ' · <span style="color:#c62828">' + n.errN + " request errors</span>";
+  box.innerHTML = out;
+  box.title = "Rolling upstream HTTP latency over the last " + Math.round(n.windowMin || 0) +
+    " min (" + (n.n || 0) + " requests, p95 " + Math.round(n.p95S || 0) + " s) plus model-wall " +
+    "pass duration and failures. Written by the updater, refreshed with data.json every 5 min.";
+}
+fhFrom(null);
 """
 
 
@@ -7553,6 +7693,7 @@ if (GF_FRAMES && Object.keys(GF_FRAMES).length) gfFill();
   <div class="src" id="mprogTxt">Counting rendered maps…</div>
   <div id="mprogModels" style="margin-top:10px"></div>
   <div id="upstreamLine" class="src" style="margin-top:10px;border-top:1px solid #e5e7eb;padding-top:8px">checking NOAA upstream feeds…</div>
+  <div id="feedHealthLine" class="src" style="margin-top:6px">checking upstream latency…</div>
   <div class="src" style="margin-top:4px">Per-model completeness + freshness - worst first, so a stalled NOAA feed or a starving model shows at the top. <span style="color:#2e7d32">●</span> current · <span style="color:#ef6c00">●</span> catching up (NOAA published a newer cycle) / renders pending · <span style="color:#c62828">●</span> waiting on NOAA. Refills every 5 minutes.</div>
 </div>
 
@@ -7647,6 +7788,7 @@ if (GF_FRAMES && Object.keys(GF_FRAMES).length) gfFill();
 const CAT = {json.dumps(cat)};
 const REND = {json.dumps(d.get("renderIndex") or [])};
 window.UPSTREAM = {json.dumps(d.get("upstream") or {})};
+window.FEEDHEALTH = {json.dumps(d.get("feedHealth") or {})};
 window.PIVOTUS = {json.dumps(d.get("pivotUs") or [])};
 window.PIVOTREG = {json.dumps(d.get("pivotRegions") or {})};
 window.PIVOTETN = {json.dumps(d.get("pivotEtn") or [])};
@@ -14057,6 +14199,40 @@ def _loop_hours(max_h, step):
     return hours
 
 
+def _record_rotation_pass(dur_s, ok, fail, failed_models, skipped):
+    """Append one rotation pass to .freebuff/model_rotation.json (last 120).
+
+    Feeds the models-page upstream-latency badge: pass duration x success
+    count is the cleanest end-to-end "how slow are the model feeds" signal
+    available (each render = one upstream fetch + a guarded render).
+    Best-effort by design - telemetry must never break a pass.
+    """
+    try:
+        path = os.path.join(".freebuff", "model_rotation.json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                passes = json.load(f) or []
+            if not isinstance(passes, list):
+                passes = []
+        except Exception:                                # noqa: BLE001
+            passes = []
+        passes.append({
+            "ts": int(time.time()),
+            "durS": round(float(dur_s), 1),
+            "rendered": int(ok),
+            "failed": int(fail),
+            "models": sorted(m for m in failed_models if m),
+            "skipped": sorted(m for m in skipped if m),
+        })
+        passes = passes[-120:]
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(passes, f)
+        os.replace(tmp, path)
+    except Exception:                                    # noqa: BLE001
+        pass
+
+
 def _seed_model_maps():
     """Render the ENTIRE models-page catalog via a rolling rotation.
 
@@ -14087,6 +14263,7 @@ def _seed_model_maps():
             return
         _SEED_LAST[0] = _t.time()
         _ROT_RUNNING[0] = True
+        _t0 = _t.time()
         try:
             from data.model_maps import find_cycle, render_product_map, MAP_DIR
             cycles = {}
@@ -14272,6 +14449,9 @@ def _seed_model_maps():
                   + (f" | no live cycle: {', '.join(sorted(skipped))}" if skipped else "")
                   + (f" | severe-lane {len(severe_batch)}" if severe_batch else ""),
                   flush=True)
+            # per-pass telemetry for the models-page feed-health badge
+            _record_rotation_pass(_t.time() - _t0, ok, fail,
+                                  failed_models, skipped)
         except Exception:                          # noqa: BLE001
             pass
         finally:

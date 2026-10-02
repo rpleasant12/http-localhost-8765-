@@ -25,12 +25,77 @@ Idempotent: importing twice never stacks wrappers. Escape hatches:
 TNWX_NO_NET_SHIM=1 disables everything; TNWX_NET_TIMEOUT / TNWX_NET_DEADLINE
 tune the two bounds (seconds).
 """
+import collections
+import json as _json
 import os
 import threading
 import time
 
 DEFAULT_TIMEOUT = 45          # (connect, read) silence bound - seconds
 DEFAULT_DEADLINE = 300        # TOTAL wall-clock bound per request - seconds
+
+# ---- upstream-latency telemetry (models-page feed-health badge) ----------
+# Every request's duration lands in a small ring; a throttled writer
+# mirrors rolling stats to .freebuff/net_latency.json so the site build
+# can show how slow the upstream model feeds actually are (2026-10-01).
+_LAT_RING = collections.deque(maxlen=400)     # (epochS, durS, err?)
+_LAT_LOCK = threading.Lock()
+_LAT_SINCE = {"n": 0, "t": 0.0}               # calls since last flush
+_LAT_FLUSH_EVERY = 25                          # calls between flushes
+_LAT_FLUSH_S = 60.0                            # ... or this many seconds
+_LAT_WINDOW_S = 1800                           # stats cover the last 30 min
+_LAT_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                         ".freebuff", "net_latency.json")
+
+
+def _lat_stats():
+    """Rolling latency stats over the ring's recent entries (or None)."""
+    now = time.time()
+    recent = [d for (ts, d, _e) in _LAT_RING if now - ts <= _LAT_WINDOW_S]
+    if not recent:
+        return None
+    errs = sum(1 for (ts, _d, e) in _LAT_RING if e and now - ts <= _LAT_WINDOW_S)
+    srt = sorted(recent)
+    p95 = srt[min(len(srt) - 1, int(len(srt) * 0.95))]
+    oldest = min(ts for (ts, _d, _e) in _LAT_RING if now - ts <= _LAT_WINDOW_S)
+    return {"n": len(recent), "errN": errs,
+            "avgS": round(sum(recent) / len(recent), 2),
+            "p95S": round(p95, 2), "maxS": round(max(recent), 2),
+            "windowMin": round((now - oldest) / 60.0, 1)}
+
+
+def _lat_flush():
+    """Atomically mirror the rolling stats (best-effort, never raises)."""
+    try:
+        st = _lat_stats()
+        if st is None:
+            return
+        st["updatedEpochS"] = int(time.time())
+        os.makedirs(os.path.dirname(_LAT_PATH), exist_ok=True)
+        tmp = _LAT_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(_json.dumps(st))
+        os.replace(tmp, _LAT_PATH)
+    except Exception:                                    # noqa: BLE001
+        pass
+
+
+def _lat_record(dur_s, err=False):
+    """Append one request duration; flush to the mirror when due."""
+    try:
+        due = False
+        with _LAT_LOCK:
+            _LAT_RING.append((time.time(), float(dur_s), bool(err)))
+            _LAT_SINCE["n"] += 1
+            if (_LAT_SINCE["n"] >= _LAT_FLUSH_EVERY
+                    or time.time() - _LAT_SINCE["t"] >= _LAT_FLUSH_S):
+                _LAT_SINCE["n"] = 0
+                _LAT_SINCE["t"] = time.time()
+                due = True
+        if due:
+            _lat_flush()
+    except Exception:                                    # noqa: BLE001
+        pass
 
 _ENV_T = "TNWX_NET_TIMEOUT"
 _ENV_D = "TNWX_NET_DEADLINE"
@@ -114,21 +179,31 @@ def install():
         timer = threading.Timer(deadline, _on_deadline)
         timer.daemon = True
         timer.start()
+        t0 = time.monotonic()
+        err = False
         try:
             return original(self, method, url, **kwargs)
         except SystemExit:
             # OUR injected exit (async wakeup of a wedged C-level recv):
             # convert to the ordinary exception every caller already catches.
+            err = True
             if trip["injected"]:
                 raise requests.exceptions.ConnectionError(
                     f"{method} {url} exceeded {deadline:g}s total deadline "
                     f"(unblocked by net shim)") from None
+            raise
+        except Exception:
+            err = True
             raise
         finally:
             timer.cancel()
             t2 = trip.get("t2")
             if t2 is not None:
                 t2.cancel()
+            try:
+                _lat_record(time.monotonic() - t0, err)
+            except Exception:                                # noqa: BLE001
+                pass
             if trip["injected"]:
                 # RACE GUARD: the call completed after the injector checked
                 # but before delivery - drop any still-pending async exit.
