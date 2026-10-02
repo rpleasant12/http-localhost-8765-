@@ -816,9 +816,11 @@ def main():
     # The LOCAL site rebuilds every cycle (fresh data.json for the preview),
     # but each GitHub publish re-blobs ~300 MB of changed radar frames into
     # .git (and a Pages deployment) - publishing every cycle filled the disk
-    # (1+ GB object store) and hammered Pages. 10 min keeps the public site
-    # plenty fresh for weather; publish immediately on the first cycle.
-    PUBLISH_EVERY = 600
+    # (1+ GB object store) and hammered Pages. 7 min keeps the public site
+    # fresh for weather (user request 2026-10-02: "update all the time")
+    # while staying under GitHub Pages' ~10 builds/hour soft cap; publish
+    # immediately on the first cycle. Recovery-publish watchdog backstops.
+    PUBLISH_EVERY = 420
 
     while True:
         started = time.time()
