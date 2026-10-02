@@ -8946,7 +8946,7 @@ def page_tropmodels(d):
 <div class="card" id="tblCard"><h2>🧭 Guidance members</h2><div id="tbl"></div></div>
 
 <script>
-const TMS = null; /* tropModels ships once (data.json); boot + soft refresh fetch it */
+let TMS = null; /* tropModels ships once (data.json); boot + soft refresh fetch it */
 const FAMCOL = {json.dumps(_FAMCOL)};
 let map, famGroups = {{}}, curBasin = "all", lastBasinEmpty = null;
 const KT_COL = kt => kt >= 137 ? "#d32f2f" : kt >= 113 ? "#e64a19" : kt >= 96 ? "#f57c00"
@@ -9372,7 +9372,9 @@ function drawStorm(idx) {{
 }}
 async function boot() {{
   DATA = await (await fetch(dataUrl(), {{cache: "no-store"}})).json();
-  const T = DATA.tropModels || TMS;
+  TMS = DATA.tropModels || {{}};   /* populate the stub: drawStorm, click-prob helpers and the count baseline all read TMS directly */
+  const T = TMS;
+  tmStormCount = (T.storms || []).length;   /* real baseline for the soft-refresh reload check */
   document.title = DATA.pageName + " - Tropical Models";
   // Empty season: NHC currently reports zero storms. Say so plainly instead
   // of leaving a blank map and empty cards (2026-09-17).
@@ -9442,9 +9444,10 @@ boot();
    undefined (page consts do not attach to window), so a window read made
    every refresh look like a count change and the page reloaded itself
    every 90 s - the whole-page flashing of 2026-09-21. */
-let tmStormCount = (TMS.storms || []).length;
+let tmStormCount = -1;   /* boot sets the real baseline after the first fetch (TMS is null at parse time) */
 function onDataRefresh(d2) {{
   DATA = d2;
+  TMS = d2.tropModels || {{}};   /* keep click-prob helpers on fresh data between count-change reloads */
   const st = document.getElementById("tropStamp");
   if (st && d2.generated) st.textContent = d2.generated;
   const T = d2.tropModels || {{}};
@@ -9453,7 +9456,10 @@ function onDataRefresh(d2) {{
   const nC = storms.reduce((a, s) => a + ((s.charts || []).length), 0);
   const sm = document.getElementById("tmSummary");
   if (sm) sm.textContent = storms.length + " storm(s) · " + nM + " guidance members · " + nC + " chart(s)";
-  if (storms.length !== tmStormCount && !window._tmReloading) {{
+  if (tmStormCount >= 0 && storms.length !== tmStormCount && !window._tmReloading) {{
+    /* tmStormCount >= 0: boot sets the baseline after its first fetch; the
+       site-wide poll can fire first, and reloading before boot has drawn
+       kills boot mid-flight and loops the page forever (2026-10-02). */
     window._tmReloading = true;   /* once: the reloaded page matches its data */
     const u = new URL(location.href); u.searchParams.set("t", Date.now());
     location.replace(u);
