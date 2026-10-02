@@ -3,6 +3,7 @@ import sys
 import json
 import time
 import atexit
+import threading
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 os.chdir(ROOT)
@@ -97,6 +98,18 @@ def _beat():
 FRESHNESS_CHECK_EVERY = 300      # check every 5 min
 PUBLIC_STALE_AFTER = 1800        # alert past 30 min of lag
 RECOVERY_PUBLISH_EVERY = 1800    # at most one recovery publish / 30 min
+# Heartbeat publish cadence: each GitHub publish re-blobs ~300 MB of changed
+# radar frames into .git (and a Pages deployment), so publishing every cycle
+# once filled the disk (1+ GB object store) and hammered Pages - but the
+# gate ran once per cycle END, so a 25-40 min cold cycle sat on ready slots
+# while docs/ aged (public lag peaked 53 min, 2026-10-02). 7 min on a 30 s
+# heartbeat, decoupled from the cycle, stays under GitHub Pages' ~10
+# builds/hour soft cap and keeps the public site minutes-fresh.
+PUBLISH_EVERY = 420
+# Serializes the docs/ snapshot (heartbeat package) against the cycle's
+# prune phases - a prune deleting frames mid-package would trip the
+# publish smoke test and waste the tick.
+_PUB_LOCK = threading.RLock()
 PUBLIC_DATA_URL = "https://rpleasant12.github.io/http-localhost-8765-/data.json"
 ALERT_PATH = os.path.join(".freebuff", "PUBLIC_STALE.alert")
 _last_freshness_check = 0.0
@@ -498,6 +511,42 @@ def selfheal_scheduled_task():
         log(f"task self-heal check failed: {exc}")
 
 
+def publish_heartbeat():
+    """Background thread: package docs/ + request a GitHub publish every
+    PUBLISH_EVERY seconds on a 30 s heartbeat - INDEPENDENT of the weather
+    cycle. The old in-loop gate fired only at cycle end, so a 25-40 min
+    cold cycle left fresh builds unpublished while slots sat ready (public
+    lag peaked 53 min, 2026-10-02). Mid-cycle packaging is proven safe:
+    the recovery publish has always run this way (package + spawn_publish
+    from check_public_freshness). The lock keeps the snapshot clear of the
+    cycle's prune phases; PUBLISH_IN_FLIGHT (publish_site lock) stops the
+    scheduled task from double-starting a publisher.
+    """
+    import github_deploy
+    while True:
+        time.sleep(30)
+        try:
+            if publish_finished():
+                log("GitHub Pages published successfully (heartbeat).")
+                check_public_freshness(force=True)   # clear any alert
+                try:
+                    prune_published_local()          # disk: keep live window only
+                except Exception as pexc:            # noqa: BLE001
+                    log(f"post-publish prune error: {pexc}")
+            with _PUB_LOCK:
+                if time.time() - _last_publish_ts[0] < PUBLISH_EVERY:
+                    continue
+                count = github_deploy.package()
+                log(f"Heartbeat package complete: {count} assets - publishing.")
+                if spawn_publish():
+                    _last_publish_ts[0] = time.time()
+        except Exception as exc:  # noqa: BLE001 - a heartbeat must never die
+            log(f"publish heartbeat error: {exc}")
+
+
+_last_publish_ts = [0.0]   # box: the thread and main() agree on the slot
+
+
 def spawn_publish():
     """Run publish_site.py as a DETACHED child process.
 
@@ -809,18 +858,17 @@ def main():
     # Start the actual image renderers BEFORE the first site build.
     start_live_renderers()
 
+    # GitHub publishing heartbeat: package + request a publish every
+    # PUBLISH_EVERY seconds on a 30 s tick, decoupled from the weather
+    # cycle (a 25-40 min cold cycle used to sit on ready publish slots).
+    threading.Thread(target=publish_heartbeat, daemon=True,
+                     name="publish-heartbeat").start()
+    log(f"publish heartbeat started: package + publish every {PUBLISH_EVERY} s.")
+
     last_fb = 0
     last_publish = 0.0
     last_sms = 0.0
     last_fbpost = 0.0
-    # The LOCAL site rebuilds every cycle (fresh data.json for the preview),
-    # but each GitHub publish re-blobs ~300 MB of changed radar frames into
-    # .git (and a Pages deployment) - publishing every cycle filled the disk
-    # (1+ GB object store) and hammered Pages. 7 min keeps the public site
-    # fresh for weather (user request 2026-10-02: "update all the time")
-    # while staying under GitHub Pages' ~10 builds/hour soft cap; publish
-    # immediately on the first cycle. Recovery-publish watchdog backstops.
-    PUBLISH_EVERY = 420
 
     while True:
         started = time.time()
@@ -864,9 +912,11 @@ def main():
             except OSError:
                 pass
 
-            # A background publish from an earlier cycle may have finished.
+            # A background publish may have finished (heartbeat checks its own
+            # marker every 30 s; this mirrors the confirmation into the cycle log).
             if publish_finished():
                 last_publish = time.time()
+                _last_publish_ts[0] = last_publish
                 log("GitHub Pages published successfully.")
                 check_public_freshness(force=True)   # clear any alert
                 try:
@@ -874,16 +924,18 @@ def main():
                 except Exception as pexc:            # noqa: BLE001 - never break the cycle
                     log(f"post-publish prune error: {pexc}")
 
-            # Enforce the wire windows every cycle, BEFORE the publish gate:
-            # publish_site.py refuses pushes over its size cap, so an over-
-            # grown tree must shrink first or it blocks its own cleanup (the
-            # 09-22 deadlock: public site frozen ~40 min while docs/ sat at
-            # 1.1 GB). Pruning static/ here also means package() hardlinks a
-            # shrunken source into docs/ this same cycle.
-            try:
-                prune_wire_frames()
-            except Exception as dexc:    # noqa: BLE001 - never break the cycle
-                log(f"wire prune error: {dexc}")
+            # Enforce the wire windows every cycle, BEFORE the heartbeat's
+            # next snapshot: publish_site.py refuses pushes over its size
+            # cap, so an over-grown tree must shrink first or it blocks its
+            # own cleanup (the 09-22 deadlock: public site frozen ~40 min
+            # while docs/ sat at 1.1 GB). Pruning static/ here also means
+            # the heartbeat's package() hardlinks a shrunken source. The
+            # _PUB_LOCK keeps this clear of a concurrent docs/ snapshot.
+            with _PUB_LOCK:
+                try:
+                    prune_wire_frames()
+                except Exception as dexc:    # noqa: BLE001 - never break the cycle
+                    log(f"wire prune error: {dexc}")
 
             # ------------------------------------------------
             # LOCAL MIRROR: refresh docs/data.json every build
@@ -969,24 +1021,9 @@ def main():
             except OSError:
                 pass
 
-            # ------------------------------------------------
-            # GITHUB PAGES (throttled - see PUBLISH_EVERY)
-            # ------------------------------------------------
-            if time.time() - last_publish >= PUBLISH_EVERY:
-                log("Packaging GitHub Pages docs...")
-
-                count = github_deploy.package()
-
-                log(f"GitHub package complete: {count} assets.")
-
-                log("Publishing to GitHub Pages...")
-
-                spawn_publish()
-                log("GitHub publish running in background; "
-                    "will confirm next cycle.")
-            else:
-                log(f"Skipping GitHub publish (next in "
-                    f"{int(PUBLISH_EVERY - (time.time() - last_publish))}s).")
+            # (GitHub publishing lives in the heartbeat thread -
+            # publish_heartbeat: package + request every PUBLISH_EVERY
+            # seconds on a 30 s tick, decoupled from cycle duration.)
 
             # Freshness watchdog (own 5-min throttle inside).
             check_public_freshness()
