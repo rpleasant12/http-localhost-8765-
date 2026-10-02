@@ -274,13 +274,16 @@ def dispatch_mirror():
 # converted to git-connected, and the free tier caps deployments at
 # ~500/month), so sync runs on a >=2 h throttle (~12/day ~360/month with
 # margin for manual redeploys). Best-effort and always OUTSIDE the publish
-# lock (called from __main__ after publish() succeeds): any failure logs and
-# moves on - github.io stays primary, this is the CDN mirror.
+# lock (called from __main__ after publish() succeeds): any failure logs,
+# retries (up to 3 attempts - see sync_cloudflare_pages) and moves on -
+# github.io stays primary, this is the CDN mirror.
 CFPAGES_PROJECT = "tnwn-weather"
 CFPAGES_MIN_GAP = 2 * 3600
 CFPAGES_STAMP = os.path.join(".freebuff", "cfpages.last")
 CFPAGES_WRANGLER = os.path.join(os.path.expanduser("~"),
                                 "AppData", "Roaming", "npm", "wrangler.cmd")
+CFPAGES_ATTEMPTS = 3
+CFPAGES_RETRY_WAIT = 30
 
 
 def _cfpages_due():
@@ -292,33 +295,61 @@ def _cfpages_due():
 
 
 def sync_cloudflare_pages():
-    """Deploy docs/ to the Cloudflare Pages mirror (throttled, best-effort)."""
+    """Deploy docs/ to the Cloudflare Pages mirror (throttled, best-effort).
+
+    KNOWN QUIRK (observed twice 2026-10-02): `wrangler pages deploy` can die
+    SILENTLY mid-upload - the log just ends with no error and NO deployment
+    record in the dashboard. A run is only trusted as success when its output
+    contains wrangler's "Deployment complete" marker (or a deployed *.pages.dev
+    URL, guarding against marker-text drift burning the deploy quota); rc==0
+    alone is NOT enough. Anything else - weird rc, timeout, log-ends-early -
+    is retried. Retries are cheap: wrangler content-hashes uploads, so a
+    resumed attempt skips what already made it. If all attempts fail the
+    stamp is left untouched, so the next heartbeat publish naturally retries
+    the sync ~7 min later.
+    """
     if not os.path.isdir("docs") or not _cfpages_due():
         return False
     if not os.path.isfile(CFPAGES_WRANGLER):
         print("publish: cloudflare pages mirror skipped (wrangler not found)")
         return False
-    try:
-        r = subprocess.run(
-            ["cmd", "/c", CFPAGES_WRANGLER, "pages", "deploy", "docs/",
-             "--project-name", CFPAGES_PROJECT, "--branch", "main",
-             "--commit-dirty=true"],
-            capture_output=True, text=True, timeout=540,
-            creationflags=NOWIN if os.name == "nt" else 0)
-        tail = ((r.stdout or "") + (r.stderr or "")).strip().splitlines()
-        detail = tail[-1][:160] if tail else ""
-        if r.returncode == 0:
-            with open(CFPAGES_STAMP, "w", encoding="utf-8") as f:
-                f.write(str(time.time()))
-            print(f"publish: cloudflare pages mirror deployed ({detail})",
-                  flush=True)
-            return True
-        print(f"publish: cloudflare pages mirror FAILED rc={r.returncode}: "
-              f"{detail}", flush=True)
-        return False
-    except Exception as exc:  # noqa: BLE001 - mirror must never break publish
-        print("publish: cloudflare pages mirror skipped:", exc, flush=True)
-        return False
+    for attempt in range(1, CFPAGES_ATTEMPTS + 1):
+        try:
+            r = subprocess.run(
+                ["cmd", "/c", CFPAGES_WRANGLER, "pages", "deploy", "docs/",
+                 "--project-name", CFPAGES_PROJECT, "--branch", "main",
+                 "--commit-dirty=true"],
+                capture_output=True, text=True, timeout=540,
+                encoding="utf-8", errors="replace",  # wrangler speaks UTF-8
+                creationflags=NOWIN if os.name == "nt" else 0)
+            combined = (r.stdout or "") + (r.stderr or "")
+            low = combined.lower()
+            tail = combined.strip().splitlines()
+            # wrangler emits UTF-8 with emoji/box-drawing chars; a redirected
+            # stdout on Windows is often cp1252 and print() would raise
+            # UnicodeEncodeError (seen in sandbox test) - keep log lines ASCII.
+            detail = (tail[-1][:160] if tail else "").encode(
+                "ascii", "replace").decode("ascii")
+            if (r.returncode == 0 and ("deployment complete" in low
+                                       or "pages.dev" in low)):
+                with open(CFPAGES_STAMP, "w", encoding="utf-8") as f:
+                    f.write(str(time.time()))
+                print(f"publish: cloudflare pages mirror deployed "
+                      f"(attempt {attempt}/{CFPAGES_ATTEMPTS}, {detail})",
+                      flush=True)
+                return True
+            print(f"publish: cloudflare pages mirror attempt "
+                  f"{attempt}/{CFPAGES_ATTEMPTS} FAILED rc={r.returncode}: "
+                  f"{detail}", flush=True)
+        except Exception as exc:  # noqa: BLE001 - mirror must never break publish
+            print(f"publish: cloudflare pages mirror attempt "
+                  f"{attempt}/{CFPAGES_ATTEMPTS} skipped:", exc, flush=True)
+        if attempt < CFPAGES_ATTEMPTS:
+            time.sleep(CFPAGES_RETRY_WAIT)
+    print("publish: cloudflare pages mirror gave up after "
+          f"{CFPAGES_ATTEMPTS} attempts (github.io stays primary; next "
+          "heartbeat publish retries the sync)", flush=True)
+    return False
 
 
 def _git_size_kb():
