@@ -321,10 +321,12 @@ PRODUCTS_BY_MODEL = {
     # full synoptic suite and precip-type probabilities - verified in the
     # 2026-09-20 09Z mean-file idx (2026-09-20)
     "SREF": ["ship", "sref_500_vort", "500_tmp", "850_tmp", "600_rh", "700_rh", "300_jet", "sfc_mslp",
-             "cape_wind", "pwat", "sref_csnow", "sref_cfrzr", "sref_cicep", "snow", "tcdc",
+             "cape_wind", "pwat", "sref_csnow", "sref_cfrzr", "sref_cicep", "snow",
              "thickness", "sfc_dew", "shear06", "lr75", "scp", "ehi", "stp",
              # no 200_div: SREF tops out at 300 mb (250/200 mb winds absent
              # from its mean file catalog)
+             # no tcdc: the 2026-10-01 mean-file upgrade dropped TCDC (and
+             # WEASD - snow switched to SNOL) from every SREF ensprod file
              "850_vort", "3var_fronts"],
     # EPS-Weekly: IFS ensemble MEAN charts on the extended day-4..15 range -
     # the "will the pattern support a storm in week 2" view (2026-09-20)
@@ -795,9 +797,17 @@ PRODUCTS = {
     },
     "snow": {
         "label": "Snow Depth (accumulated)",
-        "desc": "Snow depth on the ground (inches)",
+        "desc": "Snow depth on the ground (inches); SREF charts ensemble-mean snowfall for the window ending at the valid time", 
         "vars": [("WEASD", "surface"), ("PRMSL", "mean sea level"),
                  ("UGRD", "10 m above ground"), ("VGRD", "10 m above ground")],
+        "vars_by_model": {
+            # SREF upgrade (2026-10-01) dropped WEASD from every ensprod mean
+            # file; SNOL (ensemble-mean snowfall accumulation, depth-scale
+            # mm) is the replacement field - scale verified against APCP
+            # 2026-10-02: SNOL/APCP max ratios 0.9 (f003) and 3.6 (f087),
+            # impossible for water-equivalent, sensible as snow depth
+            "SREF": [("SNOL", "surface"), ("PRMSL", "mean sea level"),
+                     ("UGRD", "10 m above ground"), ("VGRD", "10 m above ground")]},
         "file_type": {"HRRR": ("wrfprsf", "wrfsfcf")},
     },
     "prate": {
@@ -2565,11 +2575,19 @@ def _render_job_impl(job):
         plt.colorbar(cf, ax=ax, shrink=0.8, label="Visibility (mi)")
         _mslp_overlay(ax, lon, lat, fields, trans, stride)
     elif product == "snow":
-        s = f("WEASD") * 39.37   # meters -> inches
+        if f("SNOL") is not None:
+            # SREF ens-mean SNOL (post-2026-10-01 upgrade): snowfall for the
+            # window ending at the valid time, already on a depth scale
+            # (mm = cm) - just convert to inches
+            s = f("SNOL") * 0.3937
+            leg = "Snowfall (window, in)"
+        else:
+            s = f("WEASD") * 39.37   # meters -> inches
+            leg = "Snow depth (in)"
         fill = np.where(s < 0.1, np.nan, s)
         cf = ax.contourf(lon, lat, fill, levels=[0.1, 1, 2, 4, 6, 9, 12, 18, 24],
                          cmap="cool", transform=trans, alpha=0.85, extend="max")
-        plt.colorbar(cf, ax=ax, shrink=0.8, label="Snow depth (in)")
+        plt.colorbar(cf, ax=ax, shrink=0.8, label=leg)
         _mslp_overlay(ax, lon, lat, fields, trans, stride)
     elif product == "ai_precip":
         ap = f("APCP") * 39.37   # meters -> inches over 6 h
