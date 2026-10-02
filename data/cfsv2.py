@@ -111,6 +111,67 @@ def _discover_month_tag():
     return f"{nxt.year}{nxt.month:02d}"
 
 
+def _recompose_monthly(blob):
+    """Recompose a CPC monthly summary GIF into a compact figure.
+
+    CPC draws these as a ~190x110 px map at top-left, tick labels left of
+    it and the colorbar clear across at x~1020 - all inside a mostly BLANK
+    1100x850 canvas. Displayed full-width the card was four giant white
+    tiles with a postage-stamp map (user-reported 2026-10-01). Measured
+    layout is stable across the four products: credit/title text above
+    row ~110, map body cols ~141-333 rows ~145-320, colorbar cols
+    ~1018-1062. So: crop the map block (with its axis labels) and the
+    colorbar block, paste them side by side on a white canvas. Density-
+    driven with generous tolerances - never hardcode exact pixels; on any
+    surprise return None and the caller keeps the raw GIF.
+    """
+    try:
+        import io
+        import numpy as np
+        from PIL import Image
+        im = Image.open(io.BytesIO(blob)).convert("RGB")
+        a = np.asarray(im).astype(int)
+        nw = a.sum(axis=2) < 756          # anything not pure-white-ish
+        H, W = nw.shape
+
+        def dense(vals, th):
+            return [i for i, v in enumerate(vals) if v > th]
+
+        # map block: dense rows in the left strip, below the text lines
+        rmap = [r for r in dense(nw[:, 10:350].sum(axis=1), 30) if r > 110]
+        if not rmap:
+            return None
+        r0, r1 = rmap[0], rmap[-1]
+        cmap = dense(nw[r0:r1 + 1, 0:400].sum(axis=0), 15)
+        if not cmap:
+            return None
+        c0, c1 = cmap[0], cmap[-1]
+        map_im = im.crop((max(0, c0 - 6), max(0, r0 - 6),
+                          min(W, c1 + 6), min(H, r1 + 6)))
+        # colorbar block: dense columns in the right strip over the map rows
+        cbar = dense(nw[r0:r1 + 1, 900:W].sum(axis=0), 10)
+        cb_im = None
+        if cbar:
+            cb0, cb1 = 900 + cbar[0], 900 + cbar[-1]
+            rcb = [r for r in dense(nw[:, cb0:cb1 + 1].sum(axis=1), 3)
+                   if r > 110]
+            if rcb:
+                cb_im = im.crop((max(0, cb0 - 6), max(0, rcb[0] - 6),
+                                 min(W, cb1 + 6), min(H, rcb[-1] + 6)))
+        gap = 14
+        out_w = map_im.width + (gap + cb_im.width if cb_im is not None else 0)
+        out_h = max(map_im.height, cb_im.height if cb_im is not None else 0)
+        canvas = Image.new("RGB", (out_w, out_h), (255, 255, 255))
+        canvas.paste(map_im, (0, 0))
+        if cb_im is not None:
+            canvas.paste(cb_im, (map_im.width + gap, 0))
+        out = io.BytesIO()
+        canvas.save(out, format="GIF")
+        return out.getvalue()
+    except Exception:                                # noqa: BLE001
+        return None
+
+
 def refresh(force=False):
     """Mirror current CFSv2 weekly + monthly maps; build the payload."""
     try:
@@ -147,6 +208,11 @@ def refresh(force=False):
             fn = f"{key}.gif"
             url = f"{MONTHLY}/{pat.format(tag=tag)}"
             blob = _fetch(url)
+            if blob is not None:
+                # CPC's monthly GIFs are 90% blank canvas - recompose to a
+                # compact map+colorbar figure for the page (fall back to the
+                # raw GIF if the layout probe ever fails)
+                blob = _recompose_monthly(blob) or blob
             if blob is None and os.path.isfile(os.path.join(OUT_DIR, fn)):
                 blob = open(os.path.join(OUT_DIR, fn), "rb").read()
             if blob is None:
