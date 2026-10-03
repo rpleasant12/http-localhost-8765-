@@ -130,7 +130,15 @@ _MEMBER_JS = r'''/* Tennessee Weather Network - membership client (shared by pri
       var up = document.getElementById("memUpgrade");
       if (up) up.onclick = startCheckout;
       document.getElementById("memLogout").onclick = function () {
-        logout().then(function () { paint(el, ME, opts); });
+        logout().then(function () {
+          paint(el, ME, opts);
+          /* the footer strip painted on DOMContentLoaded and knows nothing
+             about in-page logouts - flip it to the logged-out nudge now,
+             else it shows the member as still logged in until a reload
+             (found in the 2026-10-02 browser test) */
+          var st = document.getElementById("memStrip");
+          if (st) st.innerHTML = "<span class='src'>\u2b50 <a href='pricing.html'>Go ad-free & unlock advanced AI model maps - $4.99/mo</a></span><br/>";
+        });
       };
       if (opts.onChange) opts.onChange(me);
       return;

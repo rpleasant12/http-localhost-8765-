@@ -415,10 +415,11 @@ async function route(req, env, ctx) {
     const u = await currentUser(env, req);
     if (!u) return json({ member: false, admin: false });
     const full = await store_.getUser(u.email);
+    if (!full) return json({ member: false, admin: false });  // account deleted while the 30-day cookie lives
     return json({
-      member: true, admin: !!u.adm, email: u.email,
-      premiumUntil: full ? (full.premium_until || 0) * 1000 : 0,
-      premiumActive: full ? (full.premium_until || 0) > nowSec() : false,
+      member: true, admin: !!full.admin, email: u.email,
+      premiumUntil: (full.premium_until || 0) * 1000,
+      premiumActive: (full.premium_until || 0) > nowSec(),
     });
   }
 
@@ -508,7 +509,7 @@ async function route(req, env, ctx) {
     if (!u) return json({ error: "Members only." }, 401);
     const full = await store_.getUser(u.email);
     const active = full && (full.premium_until || 0) > nowSec();
-    if (!active && !u.adm) return json({ error: "Premium subscription inactive." }, 402);
+    if (!active && !(full && full.admin)) return json({ error: "Premium subscription inactive." }, 402);
     if (path === "/api/premium") {
       return proxyPremium(env, req, "index.json");
     }
@@ -519,7 +520,15 @@ async function route(req, env, ctx) {
   if (path.startsWith("/api/admin")) {
     const u = await currentUser(env, req);
     const tokenOk = env.R2_ADMIN_TOKEN && timingSafeEq(req.headers.get("x-admin-token") || "", env.R2_ADMIN_TOKEN);
-    if (!tokenOk && (!u || !u.adm)) return json({ error: "Admin only." }, 403);
+    // A live ADMIN ROW is required - trusting the JWT's adm claim alone let
+    // a DELETED account's 30-day cookie keep admin API access (found during
+    // the 2026-10-02 auth lifecycle test).
+    let liveAdmin = false;
+    if (u && u.adm) {
+      const row = await store_.getUser(u.email);
+      liveAdmin = !!row && !!row.admin;
+    }
+    if (!tokenOk && !liveAdmin) return json({ error: "Admin only." }, 403);
     if (path === "/api/admin/members" && req.method === "GET") {
       const members = await store_.listUsers();
       return json({
