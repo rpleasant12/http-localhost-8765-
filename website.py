@@ -4789,8 +4789,8 @@ def _page(title, active, body, extra_head=""):
             ("rivers.html", "Rivers"), ("history.html", "History"))),
         ("Climate & Learn", (
             ("climate.html", "Climate"), ("enso.html", "El Niño"),
-            ("obs.html", "Obs & Skew-T"), ("education.html", "Education"),
-            ("fieldguide.html", "Field Guide"), ("traffic.html", "Traffic"))),
+            ("obs.html", "Obs & Skew-T"), ("education.html", "Education ⭐"),
+            ("fieldguide.html", "Field Guide ⭐"), ("traffic.html", "Traffic"))),
         ("Support", (
             ("pricing.html", "⭐ Premium"), ("member.html", "Account"),
             ("admin.html", "Admin"))),
@@ -9661,14 +9661,17 @@ def _prem_page_url(fname):
     return fname
 
 
-# Hard-gated premium centers (2026-10-03): the four pages ship to the public
+# Hard-gated premium centers (2026-10-03): gated pages ship to the public
 # site as LOCKED SHELLS (hero + upgrade card, no content); the full HTML is
 # written to static/premium_pages/ (never published) and upload_premium_pages()
 # in publish_site.py pushes it into the worker's D1 `pages` table, from where
 # /p/<page> serves it ONLY to live premium/admin sessions. View-source on the
 # public copy reveals nothing - this is enforcement, not presentation.
+# 2026-10-03 v2: Education + Field Guide join the gate (pricing page v2
+# marks them PREMIUM; owner confirmed).
 _PREM_GATED_PAGES = {"severe.html": "Severe", "storms.html": "Storms",
-                     "tropical.html": "NHC", "winter.html": "Winter"}
+                     "tropical.html": "NHC", "winter.html": "Winter",
+                     "education.html": "Education", "fieldguide.html": "Field Guide"}
 
 
 def _prem_shell_page(fname, title, storm=False):
@@ -14507,7 +14510,7 @@ def generate_site():
             json.dump(d, f)
         os.replace(tmp, os.path.join(SITE_DIR, "data.json"))
         pages.update(extra_pages)
-        # Hard-gated premium content: the four centers AND every storm_<id>
+        # Hard-gated premium content: the gated centers AND every storm_<id>
         # archive detail page move out of the public tree (publish_site.py
         # uploads static/premium_pages/ into the worker's D1, which serves
         # them to premium sessions only) and the public path gets a locked

@@ -22,6 +22,22 @@ const CONFIG = {
   monthMs: 31 * 24 * 3600 * 1000,
 };
 
+/* Billing plans (2026-10-03): three Stripe prices, one env var each
+   (STRIPE_PRICE_MONTHLY / STRIPE_PRICE_6MO / STRIPE_PRICE_ANNUAL). Durations
+   are flat 31-day months to match CONFIG.monthMs: monthly=31, 6mo=186,
+   annual=372 days. The webhook maps an invoice's price id back to days via
+   the same env vars, so renewals credit the right duration with no state. */
+const PLANS = {
+  monthly: { days: 31 },
+  "6mo": { days: 186 },
+  annual: { days: 372 },
+};
+function priceDays(env, priceId) {
+  if (priceId && priceId === env.STRIPE_PRICE_6MO) return PLANS["6mo"].days;
+  if (priceId && priceId === env.STRIPE_PRICE_ANNUAL) return PLANS.annual.days;
+  return PLANS.monthly.days;
+}
+
 /* ---------------- tiny helpers ---------------- */
 
 const enc = new TextEncoder();
@@ -168,6 +184,13 @@ class D1Store {
     await this.db.prepare("INSERT OR IGNORE INTO payments (email, session_id, amount_cents, status, ts) VALUES (?, ?, ?, ?, ?)")
       .bind(email, sessionId, cents, status, nowSec()).run();
   }
+  async emailByCustomer(customerId) {
+    await this._init();
+    if (!customerId) return null;
+    const r = await this.db.prepare("SELECT email FROM users WHERE stripe_customer = ?")
+      .bind(customerId).first();
+    return r ? r.email : null;
+  }
   async listUsers() {
     await this._init();
     const { results } = await this.db.prepare(
@@ -228,6 +251,12 @@ class BucketStore {
     ps.unshift({ email, session_id: sessionId, amount_cents: cents, status, ts: nowSec() });
     await this._write("payments.json", ps.slice(0, 500));
   }
+  async emailByCustomer(customerId) {
+    if (!customerId) return null;
+    const us = await this._users();
+    const hit = Object.keys(us).find((e) => us[e].stripe_customer === customerId);
+    return hit || null;
+  }
   async listUsers() {
     const us = await this._users();
     return Object.entries(us).map(([email, u]) => ({
@@ -271,11 +300,11 @@ async function verifyStripeSignature(env, req, body) {
   return timingSafeEq(expected, v1);
 }
 
-async function extendPremium(env, store_, email, sessionId, cents, customerId, status) {
+async function extendPremium(env, store_, email, sessionId, cents, customerId, status, days) {
   const u = await store_.getUser(email);
   if (!u) return;                       // pre-registration checkout: skipped
   const base = Math.max(nowSec(), u.premium_until || 0);
-  await store_.setPremium(email, base + CONFIG.monthMs / 1000, customerId);
+  await store_.setPremium(email, base + (days || CONFIG.monthMs / 1000), customerId);
   await store_.addPayment(email, sessionId, cents, status);
 }
 
@@ -347,12 +376,12 @@ async function proxyPremium(env, req, path) {
 
 /* ---------------- router ---------------- */
 
-/* ----- gated-center page serving (see the /p/ route in route()): the four
-   premium centers are uploaded into D1 (pages table, gzip+base64 HTML) by
+/* ----- gated-center page serving (see the /p/ route in route()): the gated
+   premium pages are uploaded into D1 (pages table, gzip+base64 HTML) by
    publish_site.py and served ONLY to live premium/admin sessions; the
    public site carries locked shells with no content, so this is real
    enforcement - view-source reveals nothing. Same access rule as /api/premium/*. */
-const PAGES_GATED = ["severe", "storms", "tropical", "winter"];
+const PAGES_GATED = ["severe", "storms", "tropical", "winter", "education", "fieldguide"];
 
 function htmlResp(body, status = 200) {
   return new Response(body, { status, headers: {
@@ -509,15 +538,25 @@ async function route(req, env, ctx) {
     const u = await currentUser(env, req);
     if (!u) return json({ error: "Log in first." }, 401);
     const site = (env.SITE_URL || url.origin).replace(/\/$/, "");
-    const modeParams = env.STRIPE_PRICE_MONTHLY
-      ? { mode: "subscription", line_items: JSON.stringify([{ price: env.STRIPE_PRICE_MONTHLY, quantity: 1 }]) }
-      : { mode: "payment", line_items: JSON.stringify([{ price_data: {
+    const body = await req.json().catch(() => ({}));
+    const plan = PLANS[body.plan] ? body.plan : "monthly";
+    const priceId = plan === "6mo" ? env.STRIPE_PRICE_6MO
+      : plan === "annual" ? env.STRIPE_PRICE_ANNUAL : env.STRIPE_PRICE_MONTHLY;
+    let modeParams;
+    if (priceId) {
+      modeParams = { mode: "subscription", line_items: JSON.stringify([{ price: priceId, quantity: 1 }]) };
+    } else if (plan === "monthly") {
+      // pre-Stripe-config fallback: one-off $4.99 payment, no subscription
+      modeParams = { mode: "payment", line_items: JSON.stringify([{ price_data: {
             currency: "usd", unit_amount: 499, quantity: 1,
             product_data: { name: "TNWN Premium - 1 month" } } }]) };
+    } else {
+      return json({ error: "That plan isn't available yet." }, 400);
+    }
     const r = await stripe(env, "checkout/sessions", {
       customer_email: u.email,
       client_reference_id: u.email,
-      metadata: JSON.stringify({ email: u.email }),
+      metadata: JSON.stringify({ email: u.email, plan }),
       success_url: `${site}/member.html?paid=1`,
       cancel_url: `${site}/pricing.html?canceled=1`,
       ...modeParams,
@@ -545,11 +584,27 @@ async function route(req, env, ctx) {
     try { evt = JSON.parse(body); } catch (_e) { return json({ error: "bad json" }, 400); }
     const t = evt.type, d = evt.data && evt.data.object;
     if (t === "checkout.session.completed" && d) {
-      const email = (d.metadata && d.metadata.email) || d.client_reference_id || d.customer_email;
-      if (email) await extendPremium(env, store_, email, d.id, d.amount_total || 499, d.customer, t);
+      if (d.mode === "subscription") {
+        // Subscription first month is credited by invoice.paid, which Stripe
+        // fires right after this. Crediting here TOO would double-extend
+        // (both events arrive for one payment - found wiring 3-plan billing).
+        console.log("[billing] subscription checkout completed; invoice.paid will credit");
+      } else {
+        // legacy one-off payment mode: credit a single month here
+        const email = (d.metadata && d.metadata.email) || d.client_reference_id || d.customer_email;
+        if (email) await extendPremium(env, store_, email, d.id, d.amount_total || 499, d.customer, t);
+      }
     } else if (t === "invoice.paid" && d) {
-      const email = d.customer_email || (d.customer && d.customer.email);
-      if (email) await extendPremium(env, store_, email, d.id, d.amount_paid || 499, typeof d.customer === "string" ? d.customer : null, t);
+      // fires for the first month AND every renewal; the price id says which
+      // plan duration to credit
+      const priceId = d.lines && d.lines.data && d.lines.data[0]
+        && d.lines.data[0].price && d.lines.data[0].price.id;
+      const customerId = typeof d.customer === "string" ? d.customer : (d.customer && d.customer.id) || null;
+      // subscription invoices carry customer_email only sometimes - fall back
+      // to the users row via the saved stripe_customer id
+      const email = d.customer_email || (d.metadata && d.metadata.email)
+        || (customerId ? await store_.emailByCustomer(customerId) : null);
+      if (email) await extendPremium(env, store_, email, d.id, d.amount_paid || 499, customerId, t, priceDays(env, priceId));
     } else if (t === "customer.subscription.deleted" && d) {
       const email = (d.metadata && d.metadata.email) || d.customer_email;
       if (email) await store_.setPremium(email, nowSec());
@@ -563,7 +618,7 @@ async function route(req, env, ctx) {
     const name = (path.slice(3) || "").replace(/\.html$/i, "")
       .replace(/[^a-z0-9_-]/g, "").slice(0, 48);
     const siteUrl = (env.SITE_URL || "").replace(/\/?$/, "/");
-    // the four centers plus every storm_<id> archive detail page
+    // the gated pages plus every storm_<id> archive detail page
     const isStormPage = name.startsWith("storm_") && name.length > 6;
     console.log(`[p] req path=${path} name=${name} storm=${isStormPage}`);
     if (!PAGES_GATED.includes(name) && !isStormPage) {

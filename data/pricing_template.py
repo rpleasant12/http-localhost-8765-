@@ -1,12 +1,19 @@
 """Premium marketing page (pricing.html).
 
-Standalone design supplied by the site owner (2026-10-03) - its own CSS and
-nav rather than website._page(), so the render() here is the whole document.
+Standalone design supplied by the site owner (v2, 2026-10-03) - its own CSS
+and nav rather than website._page(), so the render() here is the whole
+document. v2 adds the three billing plans (monthly / 6-month / annual; the
+CTAs carry ?plan= which member.js forwards to the worker's checkout) and
+moves Education + Field Guide into the premium column (both pages are
+hard-gated like the four weather centers).
 Build-time substitutions:
   - window.TWN_WORKER stamped from config.MEMBER_WORKER_URL ("" = dormant).
-  - the four gated-center links point at the worker's /p/<page> endpoints
+  - the gated-center links point at the worker's /p/<page> endpoints
     when membership is configured (the public static copies are locked
     shells; premium visitors are served the real page by the worker).
+The .src CSS rule and the memStrip painter below are template glue the
+owner's raw file doesn't carry (the footer strip and small print rely on
+them) - keep them when importing a new owner revision.
 """
 
 _PREM_NAV_PAGES = ("severe.html", "storms.html", "tropical.html", "winter.html")
@@ -72,6 +79,15 @@ nav a.pg:hover,nav a.pg.on{background:#1d2432;color:#fff}
 .section-title p{margin:6px 0;color:var(--dim)}
 
 .compare{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:28px}
+.plans{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:10px 0 34px}
+.billing{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;text-align:center;position:relative}
+.billing.featured{border-color:rgba(77,163,255,.55);box-shadow:0 8px 30px rgba(0,0,0,.2)}
+.billing .price{font-size:38px}
+.billing .term{color:var(--dim);font-size:13px;margin:4px 0 12px}
+.billing .save{color:var(--green);font-weight:800;font-size:13px;min-height:20px}
+.billing .cta{font-size:14px;padding:10px 18px;margin-top:14px}
+.premium-lock{display:inline-block;color:var(--gold);font-size:11px;font-weight:800;border:1px solid rgba(255,213,79,.28);background:rgba(255,213,79,.08);padding:3px 7px;border-radius:999px;margin-left:6px}
+@media(max-width:800px){.plans{grid-template-columns:1fr}.compare{grid-template-columns:1fr}}
 .plan{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px}
 .plan.premium{border-color:rgba(77,163,255,.45);box-shadow:0 8px 28px rgba(0,0,0,.18)}
 .plan h3{margin:0 0 5px;font-size:21px}
@@ -173,11 +189,35 @@ footer{text-align:center;color:var(--dim);font-size:12.5px;padding:20px 8px 30px
 
   <section class="price-card">
     <span class="badge">PREMIUM MEMBERSHIP</span>
-    <div class="price">$4.99 <small>/ month</small></div>
-    <div class="cancel">Cancel anytime</div>
-    <!-- Keep this URL pointed at your real checkout/member upgrade route. -->
-    <a class="cta" href="member.html">⭐ Get Premium</a>
+    <div class="price">Choose your plan</div>
+    <div class="cancel">All plans include the same Premium features · cancel anytime</div>
     <div class="login-note">Already have an account? <a href="member.html">Sign in to your account</a>.</div>
+  </section>
+
+  <section class="plans">
+    <article class="billing">
+      <h3>Monthly</h3>
+      <div class="price">$4.99 <small>/ month</small></div>
+      <div class="term">Billed monthly</div>
+      <div class="save">Flexible · cancel anytime</div>
+      <a class="cta" href="member.html?plan=monthly">⭐ Choose Monthly</a>
+    </article>
+    <article class="billing featured">
+      <span class="badge">1 MONTH FREE</span>
+      <h3>6 Months</h3>
+      <div class="price">$24.95 <small>/ 6 months</small></div>
+      <div class="term">Pay for 5 months, get the 6th free</div>
+      <div class="save">Save $4.99</div>
+      <a class="cta" href="member.html?plan=6mo">⭐ Choose 6 Months</a>
+    </article>
+    <article class="billing">
+      <span class="badge">BEST VALUE · 2 MONTHS FREE</span>
+      <h3>Annual</h3>
+      <div class="price">$49.90 <small>/ year</small></div>
+      <div class="term">Pay for 10 months, get 2 free</div>
+      <div class="save">Save $9.98</div>
+      <a class="cta" href="member.html?plan=annual">⭐ Choose Annual</a>
+    </article>
   </section>
 
   <div class="section-title">
@@ -195,7 +235,7 @@ footer{text-align:center;color:var(--dim);font-size:12.5px;padding:20px 8px 30px
         <li><span class="check">✓</span>National weather</li>
         <li><span class="check">✓</span>GFS, NAM, HRRR & ECMWF staples</li>
         <li><span class="check">✓</span>Fronts, fire, rivers & climate centers</li>
-        <li><span class="check">✓</span>Weather education & field guide</li>
+        <li><span class="star">★</span>Education & Field Guide <span class="premium-lock">PREMIUM</span></li>
         <li><span class="check">✓</span>Free account access</li>
         <li>• Ad-supported</li>
       </ul>
@@ -259,6 +299,20 @@ footer{text-align:center;color:var(--dim);font-size:12.5px;padding:20px 8px 30px
     </article>
 
     <article class="feature">
+      <div class="icon">📚</div>
+      <h3>Weather Education <span class="premium-lock">PREMIUM</span></h3>
+      <p>Learn forecasting concepts, weather terminology, model interpretation and severe-weather fundamentals through the TNWN education center.</p>
+      <div class="tags"><span class="tag">Forecasting</span><span class="tag">Models</span><span class="tag">Weather Basics</span></div>
+    </article>
+
+    <article class="feature">
+      <div class="icon">🧭</div>
+      <h3>Field Guide <span class="premium-lock">PREMIUM</span></h3>
+      <p>Use the TNWN field guide for clouds, storms, weather observations, identification and practical weather reference material.</p>
+      <div class="tags"><span class="tag">Clouds</span><span class="tag">Storms</span><span class="tag">Observation</span></div>
+    </article>
+
+    <article class="feature">
       <div class="icon">🚫</div>
       <h3>Ad-Free Weather</h3>
       <p>No advertising while you use the network. Your Premium account is recognized across the site.</p>
@@ -288,8 +342,8 @@ footer{text-align:center;color:var(--dim);font-size:12.5px;padding:20px 8px 30px
   </div>
 
   <section class="faq">
-    <details><summary>Is the basic weather service still free?</summary><p>Yes. Tennessee Weather Network keeps the core weather experience free, including current conditions, forecasts, radar and core weather information.</p></details>
-    <details><summary>How much is Premium?</summary><p>Premium is $4.99 per month.</p></details>
+    <details><summary>Is the basic weather service still free?</summary><p>Yes. Tennessee Weather Network keeps the core weather experience free, including current conditions, forecasts, radar and core weather information. Education and Field Guide are Premium features.</p></details>
+    <details><summary>How much is Premium?</summary><p>Choose from $4.99 monthly, $24.95 for 6 months with 1 month free, or $49.90 annually with 2 months free.</p></details>
     <details><summary>Can I cancel?</summary><p>Yes. Premium is intended to be cancellable at any time through the account/subscription system.</p></details>
     <details><summary>Does Premium remove ads?</summary><p>Yes. Active Premium accounts are recognized by the site and Premium members receive the ad-free benefit.</p></details>
     <details><summary>Do I need an account?</summary><p>Yes. A member account is used to identify your Premium subscription and apply Premium access across the site.</p></details>

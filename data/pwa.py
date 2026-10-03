@@ -44,6 +44,15 @@ _MEMBER_JS = r'''/* Tennessee Weather Network - membership client (shared by pri
   var WORKER = (window.TWN_WORKER || "").replace(/\/$/, "");
   if (!WORKER) { console.warn("TWN_WORKER not set - member features disabled"); }
 
+  /* Chosen billing plan: pricing.html CTAs land on member.html?plan=<id> and
+     the Upgrade button sends it to /api/billing/checkout (default monthly). */
+  var QPLAN = (function () {
+    try {
+      var p = new URLSearchParams(location.search).get("plan");
+      return (p === "6mo" || p === "annual") ? p : "monthly";
+    } catch (e) { return "monthly"; }
+  })();
+
   function req(path, opts) {
     opts = opts || {};
     return fetch(WORKER + path, {
@@ -80,8 +89,8 @@ _MEMBER_JS = r'''/* Tennessee Weather Network - membership client (shared by pri
   function logout() {
     return req("/api/auth/logout", { method: "POST" }).then(function () { ME = null; return refreshMe(); });
   }
-  function startCheckout() {
-    return req("/api/billing/checkout", { method: "POST" }).then(function (r) {
+  function startCheckout(plan) {
+    return req("/api/billing/checkout", { method: "POST", body: { plan: plan || QPLAN } }).then(function (r) {
       if (r.data && r.data.url) { location.href = r.data.url; return r; }
       alert((r.data && r.data.error) || "Checkout unavailable - Stripe not configured yet.");
       return r;
