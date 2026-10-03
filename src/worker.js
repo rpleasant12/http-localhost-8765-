@@ -567,7 +567,12 @@ async function route(req, env, ctx) {
     const isStormPage = name.startsWith("storm_") && name.length > 6;
     console.log(`[p] req path=${path} name=${name} storm=${isStormPage}`);
     if (!PAGES_GATED.includes(name) && !isStormPage) {
-      return htmlResp(pageNotFoundHtml(siteUrl));
+      // Free pages must never bounce home: if a relative link on a served
+      // page ever resolves against this worker (/p/index.html etc., seen
+      // live 2026-10-03), send the visitor to the real page on the site.
+      const rest = (path.slice(3) || "index.html") + (url.search || "");
+      console.log(`[p] non-gated -> redirect ${siteUrl}${rest}`);
+      return Response.redirect(siteUrl + rest, 302);
     }
     const u = await currentUser(env, req);
     const full = u ? await store_.getUser(u.email) : null;

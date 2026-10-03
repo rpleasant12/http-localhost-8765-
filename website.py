@@ -9649,12 +9649,16 @@ def _mem_setup_notice():
 
 
 def _prem_page_url(fname):
-    """Public URL for one of the hard-gated centers: the worker's /p/<page>
+    """Public URL for one of the hard-gated pages: the worker's /p/<page>
     endpoint when membership is configured (the member cookie travels on
     cross-site navigation, SameSite=None), else the local static shell
-    (free-site mode with membership dormant)."""
+    (free-site mode with membership dormant). ONLY gated fnames get the
+    worker URL - every other nav link must stay relative or the whole site
+    nav would route through /p/ and bounce (found live 2026-10-03)."""
     worker = getattr(config, "MEMBER_WORKER_URL", "")
-    return (worker.rstrip("/") + "/p/" + fname) if worker else fname
+    if worker and (fname in _PREM_GATED_PAGES or fname.startswith("storm_")):
+        return worker.rstrip("/") + "/p/" + fname
+    return fname
 
 
 # Hard-gated premium centers (2026-10-03): the four pages ship to the public
