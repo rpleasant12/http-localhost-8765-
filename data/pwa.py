@@ -61,13 +61,21 @@ _MEMBER_JS = r'''/* Tennessee Weather Network - membership client (shared by pri
   function refreshMe() {
     return req("/api/me").then(function (r) { ME = r.data; return ME; });
   }
+  function settled(r) {
+    /* Resolve to a consistent {status, data} shape: after a 200 auth call
+       refreshMe() hands back the bare ME object, and the auth-card handlers
+       test r.status on it - a SUCCESSFUL signup/login used to show
+       "Something went wrong." (found in the 2026-10-02 browser test). */
+    if (r && typeof r.status === "number") return r;
+    return { status: 200, data: r };
+  }
   function signup(email, password) {
     return req("/api/auth/signup", { method: "POST", body: { email: email, password: password } })
-      .then(function (r) { if (r.status === 200) return refreshMe(); return r; });
+      .then(function (r) { if (r.status === 200) return refreshMe().then(settled); return r; });
   }
   function login(email, password) {
     return req("/api/auth/login", { method: "POST", body: { email: email, password: password } })
-      .then(function (r) { if (r.status === 200) return refreshMe(); return r; });
+      .then(function (r) { if (r.status === 200) return refreshMe().then(settled); return r; });
   }
   function logout() {
     return req("/api/auth/logout", { method: "POST" }).then(function () { ME = null; return refreshMe(); });

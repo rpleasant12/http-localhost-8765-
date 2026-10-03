@@ -9689,7 +9689,13 @@ def page_member(d):
 }})();
 </script>
 """
-    return _page("Account", "member.html", body)
+    # body is a PLAIN string - the JS braces above are written f-string-style
+    # (doubled) but nothing ever un-escapes them, so the served script held
+    # literal {{ }} and died with SyntaxError: Unexpected token '{' (found in
+    # the 2026-10-02 browser auth test - the whole member page was inert).
+    # Collapse them here; no legit {{ exists in these bodies.
+    return _page("Account", "member.html",
+                 body.replace("{{", "{").replace("}}", "}"))
 
 
 def page_admin(d):
@@ -9773,7 +9779,9 @@ def page_admin(d):
 }})();
 </script>
 """
-    return _page("Admin", "admin.html", body)
+    # same doubled-brace collapse as page_member above (plain-string body)
+    return _page("Admin", "admin.html",
+                 body.replace("{{", "{").replace("}}", "}"))
 
 
 def page_cfsv2(d):

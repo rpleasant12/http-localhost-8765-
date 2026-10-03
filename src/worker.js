@@ -112,7 +112,12 @@ async function verifyToken(env, token) {
   return payload;
 }
 async function currentUser(env, req) {
-  return verifyToken(env, getCookie(req, CONFIG.cookieName) || (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, ""));
+  const p = await verifyToken(env, getCookie(req, CONFIG.cookieName) || (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, ""));
+  // Session view, not the raw payload: handlers read .email/.adm/.uid, but
+  // the JWT stores the email as `sub` (found 2026-10-02: /api/me 500ed with
+  // D1_TYPE_ERROR undefined on every authenticated call). `?? p.sub` keeps
+  // tokens minted before this fix valid.
+  return p ? { email: p.email ?? p.sub, uid: p.uid, adm: !!p.adm, exp: p.exp } : null;
 }
 
 /* ---------------- user stores: D1 (prod) or bucket JSON (dev) ---------------- */
