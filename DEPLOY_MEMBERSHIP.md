@@ -108,12 +108,21 @@ next refresh fills it and members see content - no further steps.
   accepts unsigned calls from localhost only).
 
 ## What each tier gets (current build)
-FREE (unchanged, nothing removed): current weather, forecasts, live radar +
-future cast, severe/storms centers, national, core model walls, tropical,
-winter — everything already on the site.
+FREE: current weather, forecasts, live radar + future cast, national, core
+model walls, fronts/fire/rivers/traffic/climate, education — everything that
+was free before the 2026-10-03 tier split, minus the four premium centers.
 
-PREMIUM ($4.99/mo): members-only library at member.html — advanced AI-model
-maps (GraphCast omega + PWAT, Pangu 500mb temps, Aurora surface analysis,
-FourCastNet vorticity), the long-range CFSv2 monthly library, ad-free
-everywhere. Placeholder ad slots (house ads for now) sit on index/models;
-swap in a real network tag in `_AD_TAGS` when you sign one up.
+PREMIUM ($4.99/mo): the four weather centers — severe/storms (SPC outlooks,
+MCDs, hail/rotation forecasts, storm archive), NHC tropical (tracker, SST +
+marine), winter (HRRR snow/ice maps, seasonal outlooks) — plus the
+members-only library at member.html: advanced AI-model maps (GraphCast
+omega + PWAT, Pangu 500mb temps, Aurora surface analysis, FourCastNet
+vorticity), the long-range CFSv2 monthly library, ad-free everywhere.
+Placeholder ad slots (house ads for now) sit on index/models; swap in a
+real network tag in `_AD_TAGS` when you sign one up.
+
+Gating note: the four centers are gated client-side (blur + upgrade card,
+`_prem_lock_open`/`_prem_gate` in website.py) — the HTML still ships in the
+page source, so this is presentation + upgrade messaging, not enforcement.
+True hard gating needs the worker to proxy those pages (same pattern as the
+/api/premium/* library proxy). The nav marks the four pages with ⭐.

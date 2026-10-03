@@ -2539,6 +2539,8 @@ def page_storms(d):
     body = f"""
 <header class="hero"><h1>\U0001f4bc <span style="color:var(--acc)">Storm history</span></h1>
 <div class="sub">Every archived NHC advisory cone + summary card, newest first \u00b7 updated {html.escape(d["generated"])}</div></header>
+
+{_prem_lock_open()}
 {ss_html}
 {cards}
 <script>
@@ -2580,7 +2582,9 @@ window.sAnim = {{
   }}
 }};
 Object.keys(window.STORM_FRAMES).forEach(sid => sAnim.show(sid, 0));
-</script>"""
+</script>
+{_prem_gate("storm history")}
+"""
     return _page("Storms", "storms.html", body)
 
 
@@ -4778,8 +4782,8 @@ def _page(title, active, body, extra_head=""):
             ("cfsv2.html", "CFSv2 · Long Range"),
             ("meso.html", "Mesoanalysis"), ("charts.html", "Charts & MOS"))),
         ("Storms & Seasons", (
-            ("severe.html", "Severe"), ("storms.html", "Storms"),
-            ("tropical.html", "NHC"), ("winter.html", "Winter Forecast"),
+            ("severe.html", "Severe ⭐"), ("storms.html", "Storms ⭐"),
+            ("tropical.html", "NHC ⭐"), ("winter.html", "Winter Forecast ⭐"),
             ("fronts.html", "Fronts"), ("fire.html", "Fire"),
             ("rivers.html", "Rivers"), ("history.html", "History"))),
         ("Climate & Learn", (
@@ -4852,7 +4856,7 @@ def _page(title, active, body, extra_head=""):
 <title>{html.escape(title)} - {config.PAGE_NAME}</title>
 <meta property="og:title" content="{html.escape(title)} - {config.PAGE_NAME}"/>
 <meta property="og:type" content="website"/>
-<meta property="og:description" content="Live radar, future cast, satellite, forecast models, severe weather and East Tennessee forecasts - free, no keys, always updating."/>
+<meta property="og:description" content="Live radar, future cast, satellite, forecast models and East Tennessee forecasts - free, no keys, always updating."/>
 <meta property="og:url" content="{getattr(config, 'PUBLIC_SITE_URL', '')}"/>
 <meta property="og:image" content="{getattr(config, 'PUBLIC_SITE_URL', '').rstrip('/')}/og.png"/>
 <meta property="og:site_name" content="{config.PAGE_NAME}"/>
@@ -4907,7 +4911,7 @@ document.addEventListener("DOMContentLoaded", function () {{
         + " \u00b7 <a href='member.html'>account</a>"
         + (me.admin ? " \u00b7 <a href='admin.html'>admin</a>" : "") + "</span><br/>";
     }} else {{
-      el.innerHTML = "<span class='src'>⭐ <a href='pricing.html'>Go ad-free & unlock advanced AI model maps - $4.99/mo</a></span><br/>";
+      el.innerHTML = "<span class='src'>⭐ <a href='pricing.html'>Go premium: weather centers, AI model maps, ad-free - $4.99/mo</a></span><br/>";
     }}
   }}).catch(function () {{}});
 }});
@@ -8649,6 +8653,8 @@ def page_tropical(d):
 <header class="hero"><h1>🌀 NHC Tropical</h1>
 <div class="sub">Active storms with official cones/tracks · NHC outlooks · updated <span id="tropStamp">{d["generated"]}</span></div></header>
 
+{_prem_lock_open()}
+
 <div class="card">
   <div id="map" class="map-dark"></div>
   <div class="legend">
@@ -8960,6 +8966,7 @@ const GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best";
   }};
 }})();
 </script>
+{_prem_gate("NHC tropical")}
 """
     return _page("NHC", "tropical.html", body)
 
@@ -9576,6 +9583,61 @@ def _ad_slot(key="generic"):
             f'{inner}</div>')
 
 
+def _prem_lock_open():
+    """Opening half of the soft premium gate on the four members-only centers
+    (severe/storms/tropical/winter): content renders normally underneath
+    (Leaflet maps keep real dimensions, unlike display:none) but is blurred,
+    clipped and click-proof until _prem_gate's reveal script confirms an
+    active subscription. Soft by design - the HTML ships in the page source,
+    so this is presentation + upgrade messaging, not enforcement; hard
+    gating would need the worker to proxy the pages."""
+    return ('<div id="premBody" '
+            'style="filter:blur(8px);pointer-events:none;user-select:none;'
+            'max-height:64vh;overflow:hidden">')
+
+
+def _prem_gate(title):
+    """Closing half of the soft premium gate (see _prem_lock_open): closes
+    the blurred wrapper, shows the upgrade card, and reveals the content
+    only when /api/me reports premiumActive. Built by concatenation (not an
+    f-string) so the JS braces ship verbatim."""
+    price = getattr(config, "PREMIUM_PRICE_LABEL", "$4.99/mo")
+    return (
+        '</div>\n\n'
+        '<div class="card" id="premGate">\n'
+        '<h2>\U0001f512 Premium center</h2>\n'
+        '<p class="src">The full ' + html.escape(title) + ' center is part of '
+        '<b>\u2b50 TNWN Premium</b> - ' + html.escape(price) + ', cancel anytime. '
+        'Free members keep radar, forecasts and core models; premium adds this '
+        'center, the other premium weather centers, advanced AI model maps and '
+        'the CFSv2 long-range library.</p>\n'
+        '<p><a href="pricing.html" style="color:#8ab4f8;font-weight:700">'
+        '\u2b50 See plans &amp; upgrade</a>'
+        '<span class="src"> &nbsp;\u00b7&nbsp; already premium? '
+        '<a href="member.html">log in</a></span></p>\n'
+        '</div>\n'
+        '<script>\n'
+        '(function () {\n'
+        '  var body = document.getElementById("premBody");\n'
+        '  var gate = document.getElementById("premGate");\n'
+        '  function reveal() {\n'
+        '    if (body) { body.style.filter = ""; body.style.pointerEvents = "";\n'
+        '      body.style.userSelect = ""; body.style.maxHeight = "";\n'
+        '      body.style.overflow = ""; }\n'
+        '    if (gate) gate.style.display = "none";\n'
+        '  }\n'
+        '  /* membership system not configured -> plain free site (fail open);\n'
+        '     worker hiccup -> fail open too: the gate is presentation, not\n'
+        '     security, and a transient error must never hide content from a\n'
+        '     paying member. */\n'
+        '  if (!window.TWN || !window.TWN.member || !window.TWN_WORKER) { reveal(); return; }\n'
+        '  TWN.member.refreshMe().then(function (me) {\n'
+        '    if (me && (me.premiumActive || me.admin)) reveal();\n'
+        '  }).catch(function () { reveal(); });\n'
+        '})();\n'
+        '</script>')
+
+
 _AD_TAGS = {}   # e.g. {"index": '<ins class="adsbygoogle" ...></ins>'}
 
 
@@ -9597,32 +9659,70 @@ def page_pricing(d):
 <h2>Free vs Premium</h2>
 <div style="display:flex;gap:16px;flex-wrap:wrap">
   <div style="flex:1;min-width:260px">
-    <h3 style="margin:.2em 0">🌤️ Free (always)</h3>
+    <h3 style="margin:.2em 0">🌤️ Free — $0/month</h3>
     <ul class="src" style="line-height:1.9">
-      <li>Current conditions &amp; forecasts</li>
-      <li>Live radar + future cast</li>
-      <li>Severe weather &amp; storms center</li>
-      <li>National weather</li>
-      <li>Core forecast models (GFS, NAM, HRRR, ECMWF staples)</li>
-      <li>Tropical &amp; winter centers</li>
+      <li>Current conditions</li>
+      <li>Hourly &amp; daily forecasts</li>
+      <li>Live radar + future radar</li>
+      <li>National weather maps</li>
+      <li>GFS, NAM, HRRR &amp; ECMWF model data</li>
+      <li>Fronts &amp; weather systems</li>
+      <li>Fire, river &amp; climate information</li>
+      <li>Weather education &amp; field guides</li>
+      <li>Ads supported</li>
     </ul>
   </div>
   <div style="flex:1;min-width:260px;border-left:1px dashed #456;padding-left:16px">
-    <h3 style="margin:.2em 0">⭐ Premium - {price}</h3>
-    <ul class="src" style="line-height:1.9">
-      <li><b>Advanced AI model maps</b> - GraphCast omega &amp; precipitable water, Pangu, Aurora, FourCastNet</li>
-      <li><b>Long-range analysis</b> - CFSv2 monthly outlook library</li>
-      <li>Ad-free everywhere</li>
-      <li>Supporting a free, local, no-tracking weather service</li>
-      <li><i>Coming: custom locations, personalized alerts, historical archive</i></li>
+    <h3 style="margin:.2em 0">⭐ Premium — {price}</h3>
+    <div class="src" style="margin:.1em 0 .3em">Everything in Free, plus:</div>
+    <h4 style="margin:.55em 0 .05em">⛈️ Severe Weather Center</h4>
+    <ul class="src" style="margin:0;line-height:1.7">
+      <li>SPC severe-weather outlooks</li>
+      <li>Mesoscale discussions</li>
+      <li>Hail &amp; tornado/rotation guidance</li>
+      <li>Severe-weather analysis</li>
+      <li>Storm archive</li>
     </ul>
+    <h4 style="margin:.55em 0 .05em">🌀 Hurricane &amp; Tropical Center</h4>
+    <ul class="src" style="margin:0;line-height:1.7">
+      <li>NHC storm tracking</li>
+      <li>Tropical forecasts</li>
+      <li>SST maps</li>
+      <li>Marine conditions</li>
+    </ul>
+    <h4 style="margin:.55em 0 .05em">❄️ Winter Weather Center</h4>
+    <ul class="src" style="margin:0;line-height:1.7">
+      <li>Snow &amp; ice model maps</li>
+      <li>HRRR winter guidance</li>
+      <li>Seasonal outlooks</li>
+      <li>Winter-weather analysis</li>
+    </ul>
+    <h4 style="margin:.55em 0 .05em">🤖 Advanced AI Weather Models</h4>
+    <ul class="src" style="margin:0;line-height:1.7">
+      <li>GraphCast</li>
+      <li>Pangu-Weather</li>
+      <li>Aurora</li>
+      <li>FourCastNet</li>
+      <li>Advanced precipitation &amp; atmospheric maps</li>
+    </ul>
+    <h4 style="margin:.55em 0 .05em">📅 Long-Range Weather</h4>
+    <ul class="src" style="margin:0;line-height:1.7">
+      <li>CFSv2 monthly outlooks</li>
+      <li>Extended weather analysis</li>
+    </ul>
+    <h4 style="margin:.55em 0 .05em">🚫 Ad-free experience</h4>
+    <div class="src" style="margin-top:.7em;line-height:1.8">
+      <i>📍 Coming soon: Custom locations<br/>
+      🔔 Coming soon: Personalized alerts<br/>
+      🗂️ Coming soon: Historical weather archive</i>
+    </div>
   </div>
 </div>
 </div>
 
 <div class="card" id="pricingAuth">
 <h2>Create your account</h2>
-<p class="src">One account = premium on every device you log in from. Free accounts keep everything free forever.</p>
+<p class="src">One account = premium on every device you log in from. Free accounts keep the free tier forever.</p>
 <div id="memCard"></div>
 </div>
 
@@ -11385,6 +11485,8 @@ def page_severe(d):
 <header class="hero"><h1>🚨 Severe storms</h1>
 <div class="sub">Official NWS watches/warnings (TN + nationwide) · SPC outlooks &amp; Days 4-8 · MCDs · storm reports · HRRR severe products — updated {d["generated"]}</div></header>
 
+{_prem_lock_open()}
+
 <div class="card">
   <div id="map" class="map-dark"></div>
   <div class="legend">
@@ -11617,6 +11719,7 @@ async function boot() {{
 }}
 boot();
 </script>
+{_prem_gate("severe storms")}
 """
     return _page("Severe", "severe.html", body)
 
@@ -12127,6 +12230,8 @@ def page_winter(d):
 <header class="hero"><h1>❄️ Winter Weather</h1>
 <div class="sub">HRRR snow &amp; ice forecast maps · WPC Winter Weather Desk · CPC 2026-27 seasonal outlooks · winter alerts - updated {d["generated"]}</div></header>
 
+{_prem_lock_open()}
+
 <div class="card">
   <div class="kpis">
     <div class="kpi"><span>Nationwide winter alerts</span><b style="color:{a_color}">{a_word}</b></div>
@@ -12538,6 +12643,7 @@ if (SEASON && SEASON.ok) {{
 }}
 }}
 </script>
+{_prem_gate("winter weather")}
 """
     return _page("Winter", "winter.html", body)
 

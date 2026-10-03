@@ -137,7 +137,7 @@ _MEMBER_JS = r'''/* Tennessee Weather Network - membership client (shared by pri
              else it shows the member as still logged in until a reload
              (found in the 2026-10-02 browser test) */
           var st = document.getElementById("memStrip");
-          if (st) st.innerHTML = "<span class='src'>\u2b50 <a href='pricing.html'>Go ad-free & unlock advanced AI model maps - $4.99/mo</a></span><br/>";
+          if (st) st.innerHTML = "<span class='src'>\u2b50 <a href='pricing.html'>Go premium: weather centers, AI model maps, ad-free - $4.99/mo</a></span><br/>";
         });
       };
       if (opts.onChange) opts.onChange(me);
@@ -261,8 +261,8 @@ def _manifest():
         "name": "Tennessee Weather Network",
         "short_name": "TN Weather",
         "description": ("Live East Tennessee weather: radar, future cast, "
-                        "satellite, forecast models, severe weather - free, "
-                        "no keys, always updating."),
+                        "satellite, forecast models - free, no keys, "
+                        "always updating."),
         "start_url": "./index.html",
         "scope": "./",
         "display": "standalone",
