@@ -104,9 +104,84 @@ _MEMBER_JS = r'''/* Tennessee Weather Network - membership client (shared by pri
   }
 
   /* ---- auth card renderer: swaps between login form and member status ---- */
+  var AUTH = null;
   function authCard(el, opts) {
     opts = opts || {};
+    AUTH = { el: el, opts: opts };
     refreshMe().then(function (me) { paint(el, me, opts); });
+  }
+  /* Re-paint the auth card with the current ME (no refetch). Used by the
+     ?paid=1 banner when the webhook flips premium on AFTER the page already
+     rendered "Free account" - opts are preserved so onChange still fires
+     and the premium-content gallery loads without a manual reload. */
+  function repaintAuth() {
+    if (!AUTH || !ME) return;
+    paint(AUTH.el, ME, AUTH.opts);
+  }
+
+  /* ---- ?paid=1 checkout success banner (member.html) ---------------------
+     Stripe redirects back to member.html?paid=1 (+ its session_id) after a
+     successful checkout. The webhook that flips premium_until usually lands
+     before the redirect, but can lag a few seconds, so: show "activating"
+     immediately, poll /api/me for up to ~30s, then either confirm the
+     subscription (and live-flip the auth card to Premium via repaintAuth)
+     or tell the user to refresh in a minute. The querystring is stripped
+     right away so refresh / back-nav never replays the banner. */
+  function paidCard(msgHtml) {
+    var card = document.getElementById("memCard");
+    if (!card || !card.parentElement || !card.parentElement.parentElement) return null;
+    var b = document.createElement("div");
+    b.id = "paidBanner";
+    b.className = "card";
+    b.style.borderColor = "#f59e0b";
+    b.style.background = "rgba(245,158,11,.08)";
+    b.style.margin = "0 0 14px";
+    b.innerHTML = msgHtml;
+    card.parentElement.parentElement.insertBefore(b, card.parentElement);
+    return b;
+  }
+
+  function runPaidBanner() {
+    var q;
+    try { q = new URLSearchParams(location.search); } catch (e) { return; }
+    if (q.get("paid") !== "1") return;
+    if (document.getElementById("paidBanner")) return;   // idempotent
+    var el = paidCard("\u23f3 <b>Payment received</b> - activating your TNWN Premium subscription\u2026");
+    if (!el) return;
+    try { history.replaceState(null, "", location.pathname); } catch (e) {}
+    var tries = 0, MAX = 12, WAIT = 2500;   // ~30s of polling before we stop
+    function confirm() {
+      el.style.borderColor = "#22c55e";
+      el.style.background = "rgba(34,197,94,.08)";
+      el.innerHTML = "\u2705 <b>You're subscribed!</b> TNWN Premium is active"
+        + (ME && ME.premiumUntil ? " through <b>" + new Date(ME.premiumUntil).toLocaleDateString() + "</b>" : "")
+        + ". The Severe Weather, Storms, Tropical and Winter centers and the AI model maps are unlocked - the \u2b50 links in the menu now open the full pages.";
+      repaintAuth();
+    }
+    function poll() {
+      refreshMe().then(function (me) {
+        if (me && me.member && me.premiumActive) { confirm(); return; }
+        if (me && me.member) {   // logged in, webhook has not landed yet
+          if (++tries < MAX) { setTimeout(poll, WAIT); return; }
+          el.innerHTML = "\u2705 <b>Payment received.</b> Premium is still activating -"
+            + " refresh this page in a minute if \u2b50 Premium hasn't appeared yet.";
+          return;
+        }
+        el.innerHTML = "\u2705 <b>Payment received.</b> Log in with the email you used"
+          + " at checkout to see your premium status here.";
+      }, function () {         // network hiccup: keep trying until MAX
+        if (++tries < MAX) { setTimeout(poll, WAIT); return; }
+        el.innerHTML = "\u2705 <b>Payment received.</b> We couldn't verify the subscription"
+          + " just now - refresh in a minute and it will show here.";
+      });
+    }
+    poll();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", runPaidBanner);
+  } else {
+    runPaidBanner();
   }
 
   function paint(el, me, opts) {
@@ -172,6 +247,7 @@ _MEMBER_JS = r'''/* Tennessee Weather Network - membership client (shared by pri
     refreshMe: refreshMe, signup: signup, login: login, logout: logout,
     startCheckout: startCheckout, openPortal: openPortal,
     premiumIndex: premiumIndex, premiumUrl: premiumUrl, authCard: authCard, esc: esc,
+    repaintAuth: repaintAuth,
     get me() { return ME; },
   };
 })();
