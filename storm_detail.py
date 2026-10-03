@@ -382,7 +382,7 @@ def page_storm_detail(d, sid):
              None)
     if not b:
         return None
-    from website import _page          # late import: site shell helper
+    from website import _page, _prem_page_url   # late import: site shell helpers
     cls_lbl = {"HU": "Hurricane", "MH": "Major Hurricane",
                "TS": "Tropical Storm", "TD": "Tropical Depression",
                "SS": "Subtropical Storm", "SD": "Subtropical Depression",
@@ -430,7 +430,7 @@ def page_storm_detail(d, sid):
 
     body = f"""
 <header class="hero"><h1>\U0001f32f <span style="color:var(--acc)">{html.escape(b["name"])}</span></h1>
-<div class="sub">{html.escape(cls_lbl)} &#183; {b["count"]} archived advisories &#183; newest {html.escape(str(b["advisories"][0]["lastUpdate"]))} &#183; <a href="storms.html">back to storm history</a></div></header>
+<div class="sub">{html.escape(cls_lbl)} &#183; {b["count"]} archived advisories &#183; newest {html.escape(str(b["advisories"][0]["lastUpdate"]))} &#183; <a href="{_prem_page_url('storms.html')}">back to storm history</a></div></header>
 
 <div class="card"><h2>\U0001f4c8 Intensity (kt) &amp; pressure (mb) &#8212; advisory by advisory</h2>
 <div style="display:grid;gap:14px">{kt_svg}{mb_svg}</div>

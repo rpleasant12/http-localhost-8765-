@@ -2466,6 +2466,7 @@ def page_storms(d):
             'border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px"')
     cards = ""
     for b in arch:
+        det = _prem_page_url("storm_" + b["id"] + ".html")
         cls_lbl = {"HU": "Hurricane", "MH": "Major Hurricane",
                    "TS": "Tropical Storm", "TD": "Tropical Depression",
                    "SS": "Subtropical Storm", "SD": "Subtropical Depression",
@@ -2492,11 +2493,11 @@ def page_storms(d):
                 f'</div>')
         cards += (
             f'<div class="card"><h2>\U0001f32f '
-            f'<a href="storm_{b["id"]}.html">{html.escape(b["name"])}</a> '
+            f'<a href="{det}">{html.escape(b["name"])}</a> '
             f'<span style="color:#7d8794;font-size:14px;font-weight:400">'
             f'{html.escape(cls_lbl)} \u00b7 {b["count"]} archived advisor'
             f'{"y" if b["count"] == 1 else "ies"} \u00b7 '
-            f'<a href="storm_{b["id"]}.html">detail \u2192</a></span></h2>')
+            f'<a href="{det}">detail \u2192</a></span></h2>')
         sid = b["id"]
         if sid in anim_data:
             fr = anim_data[sid]
@@ -4796,7 +4797,7 @@ def _page(title, active, body, extra_head=""):
     )
     pages = [pg for _, pgs in groups for pg in pgs]
     nav = "".join(
-        f'<a class="pg{" on" if p == active else ""}" href="{p}">{label}</a>'
+        f'<a class="pg{" on" if p == active else ""}" href="{_prem_page_url(p)}">{label}</a>'
         for p, label in pages
     )
     # drawer: grouped links for the phone hamburger (a flat 26-link strip
@@ -4804,7 +4805,7 @@ def _page(title, active, body, extra_head=""):
     drawer = "".join(
         '<div class="dGroup"><b>' + gname + '</b>'
         + "".join(
-            f'<a class="pg{" on" if p == active else ""}" href="{p}">{label}</a>'
+            f'<a class="pg{" on" if p == active else ""}" href="{_prem_page_url(p)}">{label}</a>'
             for p, label in pgs)
         + '</div>'
         for gname, pgs in groups)
@@ -9647,98 +9648,75 @@ def _mem_setup_notice():
             "(MEMBER_WORKER_URL empty). Free weather stays 100% available.</div></div>")
 
 
-def page_pricing(d):
+def _prem_page_url(fname):
+    """Public URL for one of the hard-gated centers: the worker's /p/<page>
+    endpoint when membership is configured (the member cookie travels on
+    cross-site navigation, SameSite=None), else the local static shell
+    (free-site mode with membership dormant)."""
+    worker = getattr(config, "MEMBER_WORKER_URL", "")
+    return (worker.rstrip("/") + "/p/" + fname) if worker else fname
+
+
+# Hard-gated premium centers (2026-10-03): the four pages ship to the public
+# site as LOCKED SHELLS (hero + upgrade card, no content); the full HTML is
+# written to static/premium_pages/ (never published) and upload_premium_pages()
+# in publish_site.py pushes it into the worker's D1 `pages` table, from where
+# /p/<page> serves it ONLY to live premium/admin sessions. View-source on the
+# public copy reveals nothing - this is enforcement, not presentation.
+_PREM_GATED_PAGES = {"severe.html": "Severe", "storms.html": "Storms",
+                     "tropical.html": "NHC", "winter.html": "Winter"}
+
+
+def _prem_shell_page(fname, title, storm=False):
+    """Public locked shell for a gated center or storm-archive page. Premium
+    visitors are bounced to the worker copy automatically; everyone else
+    sees the upgrade CTA."""
     price = getattr(config, "PREMIUM_PRICE_LABEL", "$4.99/mo")
-    if not getattr(config, "MEMBER_WORKER_URL", ""):
-        return _page("Premium", "pricing.html", _mem_setup_notice())
+    worker = getattr(config, "MEMBER_WORKER_URL", "")
+    dest = worker.rstrip("/") + "/p/" + fname
+    _what = "storm archive page" if storm else "center"
+    _thing = "page" if storm else "center"
     body = f"""
-<header class="hero"><h1>⭐ TNWN Premium</h1>
-<div class="sub">Keep the free weather center free - and go deeper. {price}, cancel anytime.</div></header>
+<header class="hero"><h1>🔒 {html.escape(title)} <span style="color:var(--acc)">Premium</span></h1>
+<div class="sub">The full {html.escape(title)} {_what} is part of ⭐ TNWN Premium - {price}, cancel anytime.</div></header>
 
 <div class="card">
-<h2>Free vs Premium</h2>
-<div style="display:flex;gap:16px;flex-wrap:wrap">
-  <div style="flex:1;min-width:260px">
-    <h3 style="margin:.2em 0">🌤️ Free — $0/month</h3>
-    <ul class="src" style="line-height:1.9">
-      <li>Current conditions</li>
-      <li>Hourly &amp; daily forecasts</li>
-      <li>Live radar + future radar</li>
-      <li>National weather maps</li>
-      <li>GFS, NAM, HRRR &amp; ECMWF model data</li>
-      <li>Fronts &amp; weather systems</li>
-      <li>Fire, river &amp; climate information</li>
-      <li>Weather education &amp; field guides</li>
-      <li>Ads supported</li>
-    </ul>
-  </div>
-  <div style="flex:1;min-width:260px;border-left:1px dashed #456;padding-left:16px">
-    <h3 style="margin:.2em 0">⭐ Premium — {price}</h3>
-    <div class="src" style="margin:.1em 0 .3em">Everything in Free, plus:</div>
-    <h4 style="margin:.55em 0 .05em">⛈️ Severe Weather Center</h4>
-    <ul class="src" style="margin:0;line-height:1.7">
-      <li>SPC severe-weather outlooks</li>
-      <li>Mesoscale discussions</li>
-      <li>Hail &amp; tornado/rotation guidance</li>
-      <li>Severe-weather analysis</li>
-      <li>Storm archive</li>
-    </ul>
-    <h4 style="margin:.55em 0 .05em">🌀 Hurricane &amp; Tropical Center</h4>
-    <ul class="src" style="margin:0;line-height:1.7">
-      <li>NHC storm tracking</li>
-      <li>Tropical forecasts</li>
-      <li>SST maps</li>
-      <li>Marine conditions</li>
-    </ul>
-    <h4 style="margin:.55em 0 .05em">❄️ Winter Weather Center</h4>
-    <ul class="src" style="margin:0;line-height:1.7">
-      <li>Snow &amp; ice model maps</li>
-      <li>HRRR winter guidance</li>
-      <li>Seasonal outlooks</li>
-      <li>Winter-weather analysis</li>
-    </ul>
-    <h4 style="margin:.55em 0 .05em">🤖 Advanced AI Weather Models</h4>
-    <ul class="src" style="margin:0;line-height:1.7">
-      <li>GraphCast</li>
-      <li>Pangu-Weather</li>
-      <li>Aurora</li>
-      <li>FourCastNet</li>
-      <li>Advanced precipitation &amp; atmospheric maps</li>
-    </ul>
-    <h4 style="margin:.55em 0 .05em">📅 Long-Range Weather</h4>
-    <ul class="src" style="margin:0;line-height:1.7">
-      <li>CFSv2 monthly outlooks</li>
-      <li>Extended weather analysis</li>
-    </ul>
-    <h4 style="margin:.55em 0 .05em">🚫 Ad-free experience</h4>
-    <div class="src" style="margin-top:.7em;line-height:1.8">
-      <i>📍 Coming soon: Custom locations<br/>
-      🔔 Coming soon: Personalized alerts<br/>
-      🗂️ Coming soon: Historical weather archive</i>
-    </div>
-  </div>
-</div>
-</div>
-
-<div class="card" id="pricingAuth">
-<h2>Create your account</h2>
-<p class="src">One account = premium on every device you log in from. Free accounts keep the free tier forever.</p>
-<div id="memCard"></div>
+<h2>🔒 Premium {_thing}</h2>
+<p class="src">Free members keep radar, forecasts and core models; premium adds this {_thing}, the other premium weather centers, advanced AI model maps and the CFSv2 long-range library.</p>
+<p><a href="pricing.html" style="color:#8ab4f8;font-weight:700">⭐ See plans &amp; upgrade</a>
+<span class="src"> &nbsp;·&nbsp; already premium? <a href="member.html">log in</a></span></p>
+<div class="src" id="premShellMsg" style="margin-top:6px">checking membership…</div>
 </div>
 
 <script>
 (function () {{
-  if (!window.TWN) return;
-  TWN.member.authCard(document.getElementById("memCard"), {{
-    onChange: function (me) {{
-      const hero = document.querySelector("#pricingAuth h2");
-      if (hero) hero.textContent = me && me.member ? "Your account" : "Create your account";
-    }},
-  }});
+  var msg = document.getElementById("premShellMsg");
+  if (!window.TWN || !window.TWN.member || !window.TWN_WORKER) {{
+    if (msg) msg.textContent = "";
+    return;
+  }}
+  TWN.member.refreshMe().then(function (me) {{
+    if (me && (me.premiumActive || me.admin)) {{
+      if (msg) msg.textContent = "⭐ Premium active - opening the full center…";
+      location.replace({json.dumps(dest)});
+    }} else if (me && me.member) {{
+      if (msg) msg.innerHTML = "Free account - <a href='pricing.html'>upgrade to unlock</a>.";
+    }} else {{
+      if (msg) msg.textContent = "Log in on this browser and your premium access opens this center automatically.";
+    }}
+  }}).catch(function () {{ if (msg) msg.textContent = ""; }});
 }})();
-</script>
-"""
-    return _page("Premium", "pricing.html", body)
+</script>"""
+    return _page(title, fname, body)
+
+
+def page_pricing(d):
+    """Premium marketing page - a standalone design (own CSS/nav, supplied
+    by the site owner 2026-10-03) rather than the _page() shell. render()
+    stamps the worker origin and re-points the gated-center nav links at the
+    worker's /p/<page> endpoints."""
+    from data.pricing_template import render
+    return render(getattr(config, "MEMBER_WORKER_URL", ""))
 
 
 def page_member(d):
@@ -14456,6 +14434,7 @@ def generate_site():
         d = _strip_dead_frames(d)
         # per-storm detail pages (storm_<id>.html) + advisory share pages
         extra_pages = {}
+        extra_titles = {}
         try:
             import storm_detail
             storm_detail.advisory_share_pages(d)
@@ -14466,6 +14445,7 @@ def generate_site():
                 _p = storm_detail.page_storm_detail(d, _b["id"])
                 if _p:
                     extra_pages[f"storm_{_b['id']}.html"] = _p
+                    extra_titles[f"storm_{_b['id']}.html"] = _b["name"]
         except Exception:
             pass
         pages = {
@@ -14523,6 +14503,25 @@ def generate_site():
             json.dump(d, f)
         os.replace(tmp, os.path.join(SITE_DIR, "data.json"))
         pages.update(extra_pages)
+        # Hard-gated premium content: the four centers AND every storm_<id>
+        # archive detail page move out of the public tree (publish_site.py
+        # uploads static/premium_pages/ into the worker's D1, which serves
+        # them to premium sessions only) and the public path gets a locked
+        # shell instead - direct links reach a CTA, never the content.
+        os.makedirs(os.path.join("static", "premium_pages"), exist_ok=True)
+        for _pf in list(pages):
+            _is_center = _pf in _PREM_GATED_PAGES
+            _is_storm = _pf.startswith("storm_") and _pf.endswith(".html")
+            if not (_is_center or _is_storm):
+                continue
+            _full = os.path.join("static", "premium_pages", _pf)
+            _ftmp = _full + ".tmp"
+            with open(_ftmp, "w", encoding="utf-8") as _f:
+                _f.write(pages[_pf])
+            os.replace(_ftmp, _full)
+            _ptitle = _PREM_GATED_PAGES.get(_pf) or extra_titles.get(_pf) \
+                or "Storm archive"
+            pages[_pf] = _prem_shell_page(_pf, _ptitle, storm=_is_storm)
         for name, content in pages.items():
             ptmp = os.path.join(SITE_DIR, name + ".tmp")
             with open(ptmp, "w", encoding="utf-8") as f:

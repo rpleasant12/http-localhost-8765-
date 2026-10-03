@@ -121,8 +121,19 @@ vorticity), the long-range CFSv2 monthly library, ad-free everywhere.
 Placeholder ad slots (house ads for now) sit on index/models; swap in a
 real network tag in `_AD_TAGS` when you sign one up.
 
-Gating note: the four centers are gated client-side (blur + upgrade card,
-`_prem_lock_open`/`_prem_gate` in website.py) — the HTML still ships in the
-page source, so this is presentation + upgrade messaging, not enforcement.
-True hard gating needs the worker to proxy those pages (same pattern as the
-/api/premium/* library proxy). The nav marks the four pages with ⭐.
+Gating (HARD since 2026-10-03): the four centers are true members-only.
+The public site ships locked shells only (hero + upgrade card — view-source
+reveals no content). The full pages are built to `static/premium_pages/`
+(never published), uploaded by `publish_site.py` into the worker's D1
+`pages` table (gzip + base64, sha-deduped, state in
+`.freebuff/pages-uploaded.json`), and served from the worker at
+`/p/<page>` ONLY to sessions whose live D1 row has `premium_until` in the
+future or `admin=1` (same rule as `/api/premium/*`). A `<base href>` tag
+points the page's relative assets/data at github.io; non-premium visitors
+get a locked shell; `nav` links for the four pages point straight at the
+worker URLs. The in-page blur gate (`_prem_lock_open`/`_prem_gate`) remains
+inside the worker-served copy as a second layer. If the D1 upload ever
+fails the worker keeps serving the last good copy; a missing row shows a
+"syncing" note. Caveat: a premium member's browser holds the decrypted
+page — like any client-delivered content, it can be re-shared by that
+member; the gate stops non-members and scrapers.

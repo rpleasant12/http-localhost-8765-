@@ -12,6 +12,9 @@ Usage:  python publish_site.py [--check]
 Run by site_updater after each successful repackage; best-effort always.
 """
 import argparse
+import base64
+import gzip
+import hashlib
 import json
 import os
 import shutil
@@ -292,6 +295,97 @@ def _cfpages_due():
             return time.time() - float(f.read().strip()) >= CFPAGES_MIN_GAP
     except (OSError, ValueError):
         return True
+
+
+# ---- Members-only page upload (2026-10-03): the four premium centers are
+# HARD-gated at the worker (/p/<page> serves them from D1 to live premium/
+# admin sessions only; the public site carries locked shells), so the built
+# full pages must reach the worker's D1 after every publish. gzip + base64
+# keeps each SQL statement well under D1's 100 KB limit. Best-effort: any
+# failure logs and the next publish retries (sha state in
+# .freebuff/pages-uploaded.json; the worker keeps serving the last good copy
+# in the meantime).
+PAGES_D1_DB = "tnwn-members"
+PAGES_STATE = os.path.join(".freebuff", "pages-uploaded.json")
+PAGES_FILES = ("severe.html", "storms.html", "tropical.html", "winter.html")
+# plus every docs/storm_<id>.html detail page (globbed at upload time)
+
+
+def upload_premium_pages():
+    """Push changed docs/<page>.html into the worker's D1 `pages` table.
+    Returns True when the table is known current (uploaded or unchanged)."""
+    if not os.path.isdir("docs"):
+        return False
+    if not os.path.isfile(CFPAGES_WRANGLER):
+        print("publish: premium pages upload skipped (wrangler not found)")
+        return False
+    state = {}
+    try:
+        with open(PAGES_STATE, encoding="utf-8") as f:
+            state = json.load(f)
+    except (OSError, ValueError):
+        state = {}
+    stmts = ["CREATE TABLE IF NOT EXISTS pages (name TEXT PRIMARY KEY, "
+             "sha TEXT, html_b64 TEXT, updated INTEGER)"]
+    now = int(time.time())
+    changed = []
+    # Source = static/premium_pages/ (the FULL pages the build stashed out
+    # of the public tree). docs/ carries only the locked shells - uploading
+    # those would make the worker serve the lock screen to paying members
+    # (found live 2026-10-03: first run read docs/ and shipped shells).
+    src_dir = os.path.join("static", "premium_pages")
+    if not os.path.isdir(src_dir):
+        return False
+    fnames = [f for f in PAGES_FILES if os.path.isfile(os.path.join(src_dir, f))]
+    try:
+        # storm_<id> archive detail pages are hard-gated too: one row each
+        fnames.extend(sorted(
+            f for f in os.listdir(src_dir)
+            if f.startswith("storm_") and f.endswith(".html")))
+    except OSError:
+        pass
+    for fname in fnames:
+        path = os.path.join(src_dir, fname)
+        with open(path, "rb") as f:
+            raw = f.read()
+        digest = hashlib.sha256(raw).hexdigest()
+        if state.get(fname) == digest:
+            continue
+        b64 = base64.b64encode(gzip.compress(raw, 9)).decode("ascii")
+        safe = fname.replace(".html", "")
+        stmts.append(
+            f"INSERT INTO pages (name, sha, html_b64, updated) VALUES "
+            f"('{safe}', '{digest}', '{b64}', {now}) "
+            f"ON CONFLICT(name) DO UPDATE SET sha=excluded.sha, "
+            f"html_b64=excluded.html_b64, updated=excluded.updated")
+        changed.append(fname)
+    if not changed:
+        return True
+    tmp_sql = os.path.join(".freebuff", "pages-upload.sql")
+    try:
+        with open(tmp_sql, "w", encoding="utf-8", newline="\n") as f:
+            f.write(";\n".join(stmts) + ";\n")
+        r = subprocess.run(
+            ["cmd", "/c", CFPAGES_WRANGLER, "d1", "execute", PAGES_D1_DB,
+             "--remote", "-y", "--file", tmp_sql],
+            capture_output=True, text=True, timeout=180,
+            encoding="utf-8", errors="replace",
+            creationflags=NOWIN if os.name == "nt" else 0)
+    finally:
+        try:
+            os.remove(tmp_sql)
+        except OSError:
+            pass
+    if r.returncode != 0:
+        detail = ((r.stderr or r.stdout or "")[-160:]).encode(
+            "ascii", "replace").decode("ascii")
+        print(f"publish: premium pages upload FAILED ({detail})")
+        return False
+    with open(PAGES_STATE, "w", encoding="utf-8") as f:
+        json.dump(state, f)
+    print(f"publish: premium pages uploaded to D1 ({', '.join(changed)})",
+          flush=True)
+    return True
 
 
 def sync_cloudflare_pages():
@@ -673,8 +767,13 @@ if __name__ == "__main__":
         sys.exit(0)
     ok = publish(check_only=args.check)
     if ok and not args.check:
-        # Cloudflare CDN mirror: AFTER the lock is released (deploy can take
-        # minutes on a big delta) and only when the GitHub push succeeded.
+        # Hard-gated premium centers into the worker's D1 FIRST (premium
+        # visitors hit /p/* the moment the new nav is live), then the
+        # Cloudflare CDN mirror (deploy can take minutes on a big delta).
+        try:
+            upload_premium_pages()
+        except Exception:  # noqa: BLE001 - never fail the CLI on upload issues
+            pass
         try:
             sync_cloudflare_pages()
         except Exception:  # noqa: BLE001 - never fail the CLI on mirror issues

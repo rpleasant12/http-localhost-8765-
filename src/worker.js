@@ -347,6 +347,60 @@ async function proxyPremium(env, req, path) {
 
 /* ---------------- router ---------------- */
 
+/* ----- gated-center page serving (see the /p/ route in route()): the four
+   premium centers are uploaded into D1 (pages table, gzip+base64 HTML) by
+   publish_site.py and served ONLY to live premium/admin sessions; the
+   public site carries locked shells with no content, so this is real
+   enforcement - view-source reveals nothing. Same access rule as /api/premium/*. */
+const PAGES_GATED = ["severe", "storms", "tropical", "winter"];
+
+function htmlResp(body, status = 200) {
+  return new Response(body, { status, headers: {
+    "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+}
+
+async function gunzipB64(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return await new Response(stream).text();
+}
+
+function premLockedHtml(siteUrl, name, note) {
+  const title = name.charAt(0).toUpperCase() + name.slice(1);
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>${title} - TNWN Premium</title><meta name="robots" content="noindex"/>
+<style>
+body{margin:0;font-family:"Segoe UI",system-ui,sans-serif;background:#0e1117;color:#e8edf4;
+     display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center}
+.box{max-width:540px;padding:34px 26px;background:#161b26;border:1px solid rgba(255,255,255,.09);
+     border-radius:16px;margin:14px}
+h1{margin:0 0 8px;font-size:24px} p{color:#9aa4b2;font-size:14.5px;line-height:1.6;margin:10px 0}
+a{color:#4da3ff;text-decoration:none} .btn{display:inline-block;background:#2b80ff;color:#fff;
+border-radius:10px;padding:11px 22px;font-weight:800;margin-top:10px}
+.small{font-size:12.5px;color:#9aa4b2}
+</style></head><body><div class="box">
+<h1>🔒 ${title} is a Premium center</h1>
+<p>The full ${title} center is part of TNWN Premium - ${CONFIG.price}, cancel anytime.
+Free members keep radar, forecasts and core models.</p>
+${note ? `<p>${note}</p>` : ""}
+<a class="btn" href="${siteUrl}pricing.html">⭐ See plans &amp; upgrade</a>
+<p class="small">Already premium? <a href="${siteUrl}member.html">log in</a> on this browser,
+then reload. · <a href="${siteUrl}index.html">← Back to the weather center</a></p>
+</div></body></html>`;
+}
+
+function pageNotFoundHtml(siteUrl) {
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/><title>Not found - TNWN</title>
+<meta http-equiv="refresh" content="0;url=${siteUrl}index.html"/></head>
+<body style="background:#0e1117;color:#e8edf4;font-family:system-ui;padding:40px">
+<p>Page not found - <a href="${siteUrl}index.html" style="color:#4da3ff">back to the weather center</a>.</p>
+</body></html>`;
+}
+
 export default {
   async fetch(request, env, ctx) {
     try { return await handle(request, env, ctx); }
@@ -501,6 +555,44 @@ async function route(req, env, ctx) {
       if (email) await store_.setPremium(email, nowSec());
     }
     return json({ received: true });
+  }
+
+  /* ----- members-only PAGES (hard gate): served from D1 with a live
+     subscription check - the public static copies are shells. ----- */
+  if (req.method === "GET" && (path === "/p" || path.startsWith("/p/"))) {
+    const name = (path.slice(3) || "").replace(/\.html$/i, "")
+      .replace(/[^a-z0-9_-]/g, "").slice(0, 48);
+    const siteUrl = (env.SITE_URL || "").replace(/\/?$/, "/");
+    // the four centers plus every storm_<id> archive detail page
+    const isStormPage = name.startsWith("storm_") && name.length > 6;
+    if (!PAGES_GATED.includes(name) && !isStormPage) {
+      return htmlResp(pageNotFoundHtml(siteUrl));
+    }
+    const u = await currentUser(env, req);
+    const full = u ? await store_.getUser(u.email) : null;
+    const active = !!full && ((full.premium_until || 0) > nowSec() || full.admin);
+    if (!active) return htmlResp(premLockedHtml(siteUrl, isStormPage ? "storm archive" : name));
+    let row = null;
+    try {
+      row = await env.DB.prepare("SELECT html_b64 FROM pages WHERE name = ?")
+        .bind(name).first();
+    } catch (e) { row = null; }   // table not created yet -> syncing shell
+    if (!row || !row.html_b64) {
+      return htmlResp(premLockedHtml(siteUrl, name,
+        "The full center is still syncing to the membership service - try again in a few minutes."));
+    }
+    const html = await gunzipB64(row.html_b64);
+    // <base> points relative asset/fetch URLs (images, data.json, member.js)
+    // at the public site; only the sensitive HTML itself is served from here.
+    const baseTag = '<base href="' + siteUrl + '"/>';
+    const withBase = /<head[^>]*>/i.test(html)
+      ? html.replace(/<head[^>]*>/i, (m) => m + "\n" + baseTag)
+      : baseTag + html;
+    return new Response(withBase, {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8",
+                 "cache-control": "private, max-age=300" },
+    });
   }
 
   /* ----- members-only content ----- */
