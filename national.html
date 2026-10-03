@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>National - Tennessee Weather Network</title>
+<meta property="og:title" content="National - Tennessee Weather Network"/>
+<meta property="og:type" content="website"/>
+<meta property="og:description" content="Live radar, future cast, satellite, forecast models and East Tennessee forecasts - free, no keys, always updating."/>
+<meta property="og:url" content="https://rpleasant12.github.io/http-localhost-8765-/"/>
+<meta property="og:image" content="https://rpleasant12.github.io/http-localhost-8765-/og.png"/>
+<meta property="og:site_name" content="Tennessee Weather Network"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="https://rpleasant12.github.io/http-localhost-8765-/og.png"/>
+<meta name="description" content="Live East Tennessee weather: radar, future cast, satellite, all forecast models, severe weather, and city forecasts. Updated continuously."/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="manifest" href="manifest.webmanifest"/>
+<meta name="theme-color" content="#0e1117"/>
+<link rel="apple-touch-icon" href="icon-192.png"/>
+
+<!-- member.js in the HEAD: every page's inline member scripts (auth card,
+     strip, teasers) run before the footer, so loading it here is the only
+     way window.TWN exists when they run (was loaded in the footer and all
+     consumers silently bailed on if(!window.TWN) - member UI dead in every
+     real browser, found by the 2026-10-02 browser auth-lifecycle test) -->
+<script>window.TWN_WORKER="https://tnwn-members.nbasportstalk53.workers.dev";</script>
+<script src="member.js"></script>
+
+<style>
+  :root { color-scheme: dark; --bg:#0e1117; --card:#161b26; --line:rgba(255,255,255,.08); --dim:#9aa4b2; --acc:#4da3ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:var(--bg); color:#e8edf4; }
+  a { color:var(--acc); text-decoration:none; }
+  .wrap { max-width:1100px; margin:0 auto; padding:14px; }
+  nav { position:sticky; top:0; z-index:50; background:rgba(14,17,23,.95); backdrop-filter:blur(6px);
+        border-bottom:1px solid var(--line); }
+  nav .wrap { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; padding:10px 14px; }
+  nav .brand { font-weight:800; font-size:18px; margin-right:auto; }
+  nav .brand span { color:var(--acc); }
+  nav a.pg { color:#cdd7e4; font-size:14px; padding:4px 8px; border-radius:6px; }
+  nav a.pg:hover, nav a.pg.on { background:#1d2432; color:#fff; }
+  header.hero { text-align:center; padding:20px 8px 8px; }
+  header.hero h1 { margin:0; font-size:clamp(22px,5vw,36px); }
+  header.hero .sub { color:var(--dim); margin-top:6px; font-size:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin:14px 0; }
+  h2 { font-size:17px; margin:0 0 10px; color:#cdd7e4; }
+  .grid { display:grid; gap:10px; }
+  .cards7 { grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); }
+  .day { background:#10151f; border:1px solid var(--line); border-radius:12px; padding:12px; text-align:center; }
+  .day .hi { font-size:24px; font-weight:800; }
+  .day .tx { color:var(--dim); font-size:12.5px; min-height:30px; }
+  .now { display:flex; flex-wrap:wrap; gap:16px; align-items:center; }
+  .now .big { font-size:clamp(42px,10vw,64px); font-weight:800; }
+  .now .meta { color:var(--dim); font-size:14px; line-height:1.7; }
+  .chip { display:inline-block; padding:8px 18px; border-radius:12px; font-weight:900; color:#102015; }
+  .alerts { display:grid; gap:8px; }
+  .alert { background:#10151f; border-radius:10px; padding:10px 12px; border-left:6px solid #888; }
+  .alert b { color:#fff; } .alert span { color:var(--dim); font-size:13px; display:block; }
+  .alert.ok { border-left-color:#2e7d32; color:#a5d6a7; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; }
+  .kpi { background:#10151f; border:1px solid var(--line); border-radius:12px; padding:10px; text-align:center; }
+  .kpi b { display:block; font-size:22px; } .kpi span { color:var(--dim); font-size:12px; }
+  .ltg-row { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; margin-top:10px; }
+  .wpcfig { flex:1 1 300px; max-width:49%; min-width:260px; margin:0; }
+  .wpcfig img { width:100%; height:auto; display:block; border-radius:10px; }
+  .wpcfig figcaption { font-size:12px; opacity:.75; margin-top:4px; }
+  .wbtn { background:#1d2432; color:#cdd7e4; border:1px solid var(--line); border-radius:8px;
+          padding:6px 11px; font-size:12.5px; cursor:pointer; }
+  .wbtn.on { background:#2a3a55; color:#fff; font-weight:700; }
+  .npTab { background:#1d2432; color:#cdd7e4; border:1px solid var(--line); border-radius:8px;
+           padding:6px 11px; font-size:12.5px; cursor:pointer; }
+  .npTab.on { background:#2a3a55; color:#fff; font-weight:700; }
+  .ltg-cell { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px 10px; min-width:130px; flex:0 0 auto; }
+  .ltg-cell b { display:block; font-size:15px; }
+  .ltg-cell .h { color:var(--dim); font-size:11px; }
+  .ltg-bars { display:flex; align-items:flex-end; gap:2px; height:34px; margin-top:6px; }
+  .ltg-bars i { flex:1 1 0; min-width:4px; background:#ffeb3b; border-radius:2px 2px 0 0; opacity:.9; }
+  .ltg-badge { font-size:11px; font-weight:800; padding:2px 8px; border-radius:8px; color:#102015; }
+  #map { height:clamp(340px,56vh,580px); border-radius:12px; z-index:0; }
+  .ctl { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:10px; }
+  .ctl button { background:#2b80ff; color:#fff; border:none; border-radius:8px; padding:9px 20px; font-size:16px; cursor:pointer; }
+  .ctl button:active { transform:scale(.97); }
+  .ctl select { background:#1b1f27; color:#eee; border:1px solid rgba(255,255,255,.2); border-radius:6px; padding:8px; font-size:14px; max-width:100%; }
+  .stack { position:relative; width:100%; aspect-ratio:4/3; background:#0a0d13; border-radius:10px; overflow:hidden; }
+  .stack .layer { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+  .frame { font-family:ui-monospace,monospace; color:#ffd54f; }
+  .ctl input[type=range] { flex:1; min-width:110px; accent-color:#2b80ff; height:26px; }
+  .frame { min-width:84px; text-align:center; font-weight:700; color:#ffd54f; font-size:16px; }
+  .src { color:var(--dim); font-size:12px; margin-top:8px; }
+  .legend { display:flex; flex-wrap:wrap; gap:8px 14px; font-size:12.5px; color:var(--dim); margin-top:8px; }
+  .legend i { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+  table.cells { width:100%; border-collapse:collapse; font-size:14px; }
+  table.cells th { text-align:left; color:var(--dim); font-weight:600; font-size:12px; padding:6px; }
+  table.cells th.srt { cursor:pointer; user-select:none; white-space:nowrap; }
+  table.cells th.srt:hover { color:var(--ink); }
+  table.cells th.srt .dir { font-size:10px; margin-left:2px; color:var(--accent); }
+  .trend { font-size:11px; font-weight:700; margin-left:3px; }
+  .trend.up { color:#66bb6a; } .trend.dn { color:#ef5350; } .trend.fl { color:var(--dim); font-weight:400; }
+  table.cells td { border-top:1px solid var(--line); padding:7px 6px; }
+  .dbz { font-weight:800; } .sev { color:#ff5252; } .mod { color:#ffb74d; } .lit { color:#aed581; }
+  .gal { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }
+  .gal img { width:100%; border-radius:10px; border:1px solid var(--line); }
+  .gal .cap { color:var(--dim); font-size:12.5px; margin-top:4px; }
+  .stepper { display:flex; align-items:center; gap:8px; margin-top:8px; }
+  .stepper button { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:14px; }
+  .cmp4 { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+  .cmp4 .pane { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px; }
+  .cmp4 .pane h3 { margin:0 0 6px; font-size:13.5px; color:#cdd7e4; display:flex; align-items:center; gap:8px; }
+  .cmp4 .pane h3 .cap { color:var(--dim); font-weight:400; }
+  .cmp4 .pane select { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:3px 6px; font-size:13px; }
+  .cmp4 img { width:100%; border-radius:8px; }
+  .cmp4 .miss { color:var(--dim); font-size:12.5px; padding:22px 6px; text-align:center; }
+  @media (max-width:820px){ .cmp4 { grid-template-columns:1fr; } }
+  .hourly { display:flex; gap:8px; overflow-x:auto; padding-bottom:6px; }
+  .hr { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px 10px; text-align:center; min-width:72px; }
+  .hr b { display:block; } .hr span { color:var(--dim); font-size:11.5px; }
+  .natimg { width:100%; max-width:860px; display:block; margin:0 auto; border-radius:10px; border:1px solid var(--line); background:#fff; }
+  .pre { white-space:pre-wrap; font-size:12.5px; color:#cdd7e4; background:#10151f; border:1px solid var(--line); border-radius:10px; padding:12px; max-height:260px; overflow:auto; }
+  footer { text-align:center; color:var(--dim); font-size:12.5px; padding:18px 8px 26px; line-height:1.8; }
+  .navctl { display:flex; align-items:center; gap:6px; }
+  .navctl button { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:4px 10px; cursor:pointer; font-size:14px; }
+  .autolbl { color:var(--dim); font-size:12px; display:flex; align-items:center; gap:4px; }
+  .map-dark .leaflet-tile-pane { filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(1.05); }
+  /* radar load-state badge (set by the player: ok / loading / empty) */
+  #map { position: relative; }
+  #map::after {
+    content: "";
+    position: absolute; top: 8px; left: 8px; z-index: 800;
+    background: rgba(10, 14, 20, .75); color: #9fe199; border: 1px solid rgba(255,255,255,.15);
+    border-radius: 6px; padding: 2px 9px; font-size: 11.5px; pointer-events: none;
+  }
+  #map[data-radar-state="loading"]::after { content: "radar loading…"; color: #ffd54f; }
+  #map[data-radar-state="empty"]::after { content: "radar unavailable - retrying"; color: #ff8a80; }
+  #map[data-radar-state="ok"]::after { content: "radar live"; color: #9fe199; }
+  /* hide Leaflet's default home marker (the player draws its own) */
+  .leaflet-marker-icon.home-marker { display: none; }
+  .leaflet-control-attribution { background:rgba(14,17,23,.8) !important; color:var(--dim) !important; }
+  .mapctlbtn { background:#1d2432; border:1px solid var(--line); border-radius:6px; color:#eee;
+    padding:5px 9px; font-size:15px; cursor:pointer; margin-bottom:6px; box-shadow:0 1px 4px rgba(0,0,0,.4); text-align:center; }
+  .mapcoord { background:rgba(14,17,23,.85); color:#cdd7e4; border:1px solid var(--line); border-radius:6px;
+    font-size:11.5px; padding:3px 8px; }
+  /* ---------- mobile nav drawer (2026-09-28) ----------
+     phones get a hamburger that opens a grouped, sectioned menu instead
+     of hunting through the flat strip; desktop shows neither */
+  #navBtn { display:none; }
+  #navDrawer { display:none; }
+  @media (max-width:640px){
+    #navBtn { display:block; }
+    #navDrawer { display:block; position:fixed; inset:0; z-index:9999;
+                 background:rgba(5,8,12,.6); backdrop-filter:blur(2px); }
+    #navDrawer[hidden] { display:none; }   /* beats the display above */
+    #navDrawer > .dHead, #navDrawer .dGroup {
+      background:var(--card); border-bottom:1px solid var(--line); }
+    #navDrawer .dHead { position:sticky; top:0; font-weight:800;
+      padding:14px 16px; display:flex; justify-content:space-between;
+      align-items:center; }
+    #navDrawer .dHead button { background:none; border:none;
+      color:var(--dim); font-size:26px; line-height:1; cursor:pointer;
+      padding:2px 8px; }
+    #navDrawer .dGroup { padding:6px 12px; }
+    #navDrawer .dGroup b { display:block; color:var(--dim);
+      font-size:11.5px; text-transform:uppercase; letter-spacing:.08em;
+      margin:10px 4px 4px; }
+    #navDrawer .dGroup a.pg { display:block; padding:11px 10px;
+      font-size:15px; color:#cdd7e4; border-radius:8px; }
+    #navDrawer .dGroup a.pg.on { background:#1d2432; color:#fff;
+      font-weight:700; }
+    #navBtn { background:#1d2432; color:#e8edf4; border:1px solid var(--line);
+      border-radius:8px; font-size:18px; padding:6px 12px; cursor:pointer;
+      order:-1; }
+  }
+  /* ---------- mobile friendliness (2026-09-28) ----------
+     26 nav links wrap into a tall block on phones; wide alert tables
+     (min-width 420-520px) overflow the screen; .wpcfig min-width forces
+     one image per row. Consolidated responsive fixes below. */
+  @media (max-width:900px){
+    /* tighter nav rows before the phone strip kicks in at 640 */
+    nav .wrap { gap:4px 10px; padding:8px 10px; }
+    nav a.pg { font-size:13px; padding:4px 7px; }
+  }
+  @media (max-width:640px){
+    .wrap{padding:10px;} .card{padding:12px;} nav .brand{font-size:16px;}
+    /* nav = one thumb-swipeable strip instead of a 26-link tall block */
+    nav .wrap { flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch;
+                padding:8px; scrollbar-width:none; }
+    nav .wrap::-webkit-scrollbar { display:none; }
+    nav .brand { white-space:nowrap; }
+    nav a.pg { padding:8px 10px; font-size:13.5px; white-space:nowrap;
+               flex:0 0 auto; }
+    nav .navctl { flex:0 0 auto; }
+    /* 2-up KPI cards read better than 4-up squished */
+    .kpis { grid-template-columns:repeat(2,1fr); }
+    .kpi b { font-size:18px; }
+    .gal { grid-template-columns:1fr; }
+    .wpcfig { max-width:100%; flex-basis:100%; }
+    .ltg-cell { flex:1 1 100%; min-width:0; }
+    /* wide tables scroll inside their card instead of breaking the page */
+    .card { overflow-x:auto; }
+    .minitable, table.cells { display:block; overflow-x:auto;
+                              -webkit-overflow-scrolling:touch; }
+    .minitable { min-width:420px; }
+    /* 16px+ controls avoid the iOS Safari focus zoom */
+    select, button { font-size:16px; }
+    .ctl select { font-size:16px; }
+    #baseSel { max-width:110px; }
+    .mapcoord { display:none; }   /* mouse-only lat/lon readout */
+    footer { font-size:12px; }
+  }
+  @media (max-width:400px){ .kpis { grid-template-columns:1fr; } }
+</style>
+</head><body>
+<nav><div class="wrap">
+  <a class="brand" href="index.html">🌧️ <span>Tennessee Weather Network</span></a>
+  <a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/index.html">Home</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/radar.html">Radar</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/satellite.html">Satellite</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/forecast.html">Forecast</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/dashboard.html">Dashboard</a><a class="pg on" href="https://tnwn-members.nbasportstalk53.workers.dev/p/national.html">National</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/models.html">Models</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/gefs.html">GEFS</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/hrrr.html">HRRR · RRFS</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/tropmodels.html">Trop Models</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/cfsv2.html">CFSv2 · Long Range</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/meso.html">Mesoanalysis</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/charts.html">Charts & MOS</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/severe.html">Severe ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/storms.html">Storms ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/tropical.html">NHC ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/winter.html">Winter Forecast ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/fronts.html">Fronts</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/fire.html">Fire</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/rivers.html">Rivers</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/history.html">History</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/climate.html">Climate</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/enso.html">El Niño</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/obs.html">Obs & Skew-T</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/education.html">Education</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/fieldguide.html">Field Guide</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/traffic.html">Traffic</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/pricing.html">⭐ Premium</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/member.html">Account</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/admin.html">Admin</a>
+  <div class="navctl">
+    <select id="baseSel" title="Basemap" style="max-width:110px"></select>
+    <button id="refreshBtn" title="Refresh this page now">⟳ Refresh</button>
+    <label class="autolbl"><input type="checkbox" id="autoChk" checked/> auto <span id="autoCnt">90</span>s</label>
+    <a id="fbShare" title="Share this page on Facebook" target="_blank" rel="noopener"
+       style="text-decoration:none;background:#1877f2;color:#fff;padding:4px 10px;border-radius:8px;font-size:12.5px;font-weight:600;display:inline-block">📘 Share</a>
+  </div>
+</div></nav>
+
+<button id="navBtn" aria-label="Menu" aria-expanded="false" aria-controls="navDrawer">☰</button>
+<div id="navDrawer" hidden>
+  <div class="dHead">Tennessee Weather Network<button id="navClose" aria-label="Close menu">×</button></div>
+  <div class="dGroup"><b>Live & Forecast</b><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/index.html">Home</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/radar.html">Radar</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/satellite.html">Satellite</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/forecast.html">Forecast</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/dashboard.html">Dashboard</a><a class="pg on" href="https://tnwn-members.nbasportstalk53.workers.dev/p/national.html">National</a></div><div class="dGroup"><b>Models</b><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/models.html">Models</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/gefs.html">GEFS</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/hrrr.html">HRRR · RRFS</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/tropmodels.html">Trop Models</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/cfsv2.html">CFSv2 · Long Range</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/meso.html">Mesoanalysis</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/charts.html">Charts & MOS</a></div><div class="dGroup"><b>Storms & Seasons</b><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/severe.html">Severe ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/storms.html">Storms ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/tropical.html">NHC ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/winter.html">Winter Forecast ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/fronts.html">Fronts</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/fire.html">Fire</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/rivers.html">Rivers</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/history.html">History</a></div><div class="dGroup"><b>Climate & Learn</b><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/climate.html">Climate</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/enso.html">El Niño</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/obs.html">Obs & Skew-T</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/education.html">Education</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/fieldguide.html">Field Guide</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/traffic.html">Traffic</a></div><div class="dGroup"><b>Support</b><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/pricing.html">⭐ Premium</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/member.html">Account</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/admin.html">Admin</a></div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const SITE_DATA_URL = "data.json";
+/* footer member strip: logged-in members see their status + premium link;
+   everyone else sees a quiet upgrade nudge. Dormant when TWN_WORKER empty.
+   member.js loads in <head> but #memStrip is in the footer BELOW this
+   script, so paint on DOMContentLoaded (pre-fix this IIFE ran here, before
+   both TWN and the strip div existed, and silently did nothing). */
+document.addEventListener("DOMContentLoaded", function () {
+  if (!window.TWN || !window.TWN.member || !window.TWN_WORKER) return;
+  const el = document.getElementById("memStrip");
+  if (!el) return;
+  TWN.member.refreshMe().then(function (me) {
+    if (me && me.premiumActive) {
+      /* ad-free perk: hide every free-tier slot for active subscribers */
+      document.querySelectorAll(".adSlot").forEach(a => a.style.display = "none");
+    }
+    if (me && me.member) {
+      el.innerHTML = "<span class='src' style='color:#8ab4f8'>★ " + TWN.member.esc(me.email)
+        + (me.premiumActive ? " · ⭐ Premium active" : " · free account")
+        + " · <a href='member.html'>account</a>"
+        + (me.admin ? " · <a href='admin.html'>admin</a>" : "") + "</span><br/>";
+    } else {
+      el.innerHTML = "<span class='src'>⭐ <a href='pricing.html'>Go premium: weather centers, AI model maps, ad-free - $4.99/mo</a></span><br/>";
+    }
+  }).catch(function () {});
+});
+/* GitHub Pages caches data.json up to 10 min (max-age=600); the timestamp
+   query makes the browser fetch a fresh copy from the Pages CDN instead of
+   reusing a stale cached one. Public data publishes ~every 10 min, so the
+   footer age normally reads 0-10 min - that is the honest cadence. */
+function dataUrl() {
+  try { return SITE_DATA_URL + "?t=" + Date.now(); } catch (_e) { return SITE_DATA_URL; }
+}
+/* live-update watchdog: re-fetch data.json every 3 min and show its age.
+   The footer age is computed from dataEpochMs (server epoch), NOT from the
+   human-readable 'generated' string (now "... 12:17 AM ET" - unparseable). */
+let SITE_DATA = null;
+function fmtAge(mins) {
+  if (mins < 1) return "just now";
+  if (mins < 60) return mins + " min ago";
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return h + " h " + (m ? m + " min " : "") + "ago";
+}
+function updTick() {
+  if (!SITE_DATA) return;
+  const el = document.getElementById("upd");
+  if (!el) return;
+  const ms = Date.now() - (SITE_DATA.dataEpochMs || 0);
+  if (!SITE_DATA.dataEpochMs || ms < 0) { el.textContent = "\u2705 Live data"; return; }
+  const mins = Math.floor(ms / 60000);
+  /* Public site: GitHub publishes ~every 10 min, so age up to ~12 min is the
+     normal cadence - warn only past that. Pages' own max-age=600 means the
+     fetch itself can lag a couple minutes behind the publish. */
+  const took = (function () {
+    const lu = SITE_DATA.lastUpdate;
+    if (!lu || !(lu.lastDurationS > 0)) return "";
+    const s = lu.lastDurationS, m = Math.floor(s / 60);
+    let t = " \u00b7 last update took " + (m ? m + " min " + (s % 60) + " s" : s + " s");
+    if (lu.cycles > 1 && lu.avgDurationS > 0) {
+      const am = Math.floor(lu.avgDurationS / 60);
+      t += " \u00b7 avg " + (am ? am + " min " + (lu.avgDurationS % 60) + " s" : lu.avgDurationS + " s");
+    }
+    return t;
+  })();
+  const maxAge = (location.hostname === "localhost" || location.hostname === "127.0.0.1") ? 2 : 12;
+  const grew = SITE_DATA._lastAge != null && mins > SITE_DATA._lastAge + 2 && mins > maxAge;
+  SITE_DATA._lastAge = mins;
+  if (mins <= maxAge) el.textContent = "\u2705 Live data \u00b7 refreshed " + fmtAge(mins) + took;
+  else if (mins <= 30) el.textContent = "\u23f3 Data " + fmtAge(mins) + " old \u00b7 next publish soon" + took;
+  else if (grew) el.textContent = "\u23f3 Data " + fmtAge(mins) + " old \u00b7 waking the weather center - catching up now";
+  else el.textContent = "\u26a0\ufe0f Data " + fmtAge(mins) + " old \u00b7 PC asleep or offline - updates pause until it wakes";
+}
+async function siteRefresh() {
+  try {
+    SITE_DATA = await (await fetch(dataUrl(), {cache: "no-store"})).json();
+    if (typeof onDataRefresh === "function") onDataRefresh(SITE_DATA);
+    updTick();
+    try { syncAutoPref(); } catch (_e) {}   /* version now known: apply/wipe stale auto pref */
+    /* auto-heal: if the served copy is still 30+ min old on two consecutive
+       polls (6 min apart), force a cache-busted reload once - recovers from
+       a stuck CDN copy or a missed publish without looping. */
+    if (SITE_DATA.dataEpochMs && Date.now() - SITE_DATA.dataEpochMs > 30 * 60000) {
+      siteRefresh._stale = (siteRefresh._stale || 0) + 1;
+      if (siteRefresh._stale >= 2 && !sessionStorage.getItem("tnwxHealed")) {
+        sessionStorage.setItem("tnwxHealed", "1");
+        const u = new URL(location.href); u.searchParams.set("t", Date.now());
+        location.replace(u); return;
+      }
+    } else siteRefresh._stale = 0;
+  } catch (e) { /* offline: keep last data */ }
+}
+siteRefresh();
+setInterval(updTick, 30000);
+setInterval(siteRefresh, 180000);
+/* paused-banner: the STOP shortcut writes PAUSED.json, so any page that
+   still loads while updates are paused tells the truth instead of showing
+   a stale timestamp that looks like normal lag. START removes the marker. */
+(async function () {
+  try {
+    const pr = await fetch("PAUSED.json?t=" + Date.now(), { cache: "no-store" });
+    if (!pr.ok) return;   /* 404 = running normally */
+    const p = await pr.json();
+    const pb = document.createElement("div");
+    pb.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:99999;"
+      + "background:#b3261e;color:#fff;text-align:center;font-weight:700;"
+      + "padding:8px 12px;font-size:14px;font-family:inherit;";
+    pb.textContent = "\u23f8 Weather updates are PAUSED - press the START shortcut "
+      + "to resume. Data on this page is frozen"
+      + (p && p.since ? " (paused " + String(p.since).replace(/^paused\s*/, "") + ")" : "") + ".";
+    document.body.appendChild(pb);
+    document.body.style.paddingTop = "38px";
+    if (autoCnt) autoCnt.textContent = "\u221e";   /* freeze the auto-reload countdown too */
+  } catch (_e) { /* marker unreadable: treat as running */ }
+})();
+/* page auto-refresh: soft (map pages define onDataRefresh) or hard reload.
+   Hard reloads MUST cache-bust: GitHub Pages sends max-age=600, so a plain
+   location.reload() can serve the same stale HTML for up to 10 minutes. */
+function hardReload() {
+  try {
+    const u = new URL(location.href);
+    u.searchParams.set("t", Date.now());
+    location.replace(u);
+  } catch (_e) { location.reload(); }
+}
+let AUTO_LEFT = 90;
+const autoCnt = document.getElementById("autoCnt"), autoChk = document.getElementById("autoChk");
+document.getElementById("refreshBtn").onclick = () => {
+  const b = document.getElementById("refreshBtn");
+  if (b) { b.textContent = "…"; }
+  hardReload();
+};
+/* auto-refresh preference is remembered per siteVersion (a fingerprint of
+   the site code, served in data.json). A saved "off" therefore cannot
+   survive a site update: after new code pushes, the flag belongs to an old
+   version, is wiped, and auto-refresh resumes - an update always re-opens
+   the refresh tap. Before the first data pull resolves the version is
+   unknown, so the checkbox defaults ON and re-syncs the moment data lands. */
+function autoPrefKey() {
+  /* SITE_DATA is a script-level let - reachable by name in this scope but
+     never as window.SITE_DATA, so the bare (guarded) reference is required */
+  let v = "";
+  try { v = (typeof SITE_DATA !== "undefined" && SITE_DATA && SITE_DATA.siteVersion) || ""; } catch (_e) {}
+  return v ? "tnwxAuto." + v : "";
+}
+function syncAutoPref() {
+  const k = autoPrefKey();
+  if (!k) return;
+  try {
+    /* wipe the legacy flag and flags saved under other versions */
+    Object.keys(localStorage)
+      .filter(x => x === "tnwxAuto" || (x.indexOf("tnwxAuto.") === 0 && x !== k))
+      .forEach(x => localStorage.removeItem(x));
+    autoChk.checked = localStorage.getItem(k) !== "off";
+  } catch (_e) {}
+}
+syncAutoPref();
+autoChk.onchange = () => {
+  AUTO_LEFT = 90;
+  const k = autoPrefKey();
+  try { if (k) localStorage.setItem(k, autoChk.checked ? "on" : "off"); } catch (_e) {}
+};
+/* interacting with the page postpones the auto cycle: a hard reload in the
+   middle of a zoom/pinch/scrub reads as "the map won't zoom" (2026-09-18) */
+["pointerdown", "wheel", "touchstart"].forEach(function (ev) {
+  document.addEventListener(ev, function () { AUTO_LEFT = 90; }, { passive: true, capture: true });
+});
+setInterval(() => {
+  if (!autoChk.checked) { if (autoCnt) autoCnt.textContent = "\u221e"; return; }
+  AUTO_LEFT -= 1;
+  if (autoCnt) autoCnt.textContent = AUTO_LEFT;
+  if (AUTO_LEFT <= 0) {
+    AUTO_LEFT = 90;
+    if (typeof onDataRefresh === "function") siteRefresh(); else hardReload();
+  }
+}, 1000);
+
+const BASEMAPS = {
+  dark:  { label: "Dark", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", invert: true },
+  light: { label: "Light", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", invert: false },
+  sat:   { label: "Satellite", url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", invert: false },
+  topo:  { label: "Terrain", url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}", invert: false }
+};
+let _baseLayer = null, _baseKey = null;
+function setBase(key, map) {
+  if (key === "mapbox" && !BASEMAPS.mapbox && typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN)
+    BASEMAPS.mapbox = { label: "Mapbox", style: "mapbox://styles/mapbox/light-v11" };
+  const b = BASEMAPS[key] || BASEMAPS.dark;
+  if (_baseKey === key && _baseLayer) return;
+  if (_baseLayer) map.removeLayer(_baseLayer);
+  if (b.style) _baseLayer = L.mapboxGL({ accessToken: MAPBOX_TOKEN, style: b.style, attribution: "&copy; Mapbox" }).addTo(map);
+  else _baseLayer = L.tileLayer(b.url, { maxNativeZoom: 19, maxZoom: 21, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
+  map.getContainer().classList.toggle("map-dark", !!b.invert);
+  _baseKey = key;
+  try { localStorage.setItem("tnwxBase", key); } catch (_e) {}
+  const sel = document.getElementById("baseSel"); if (sel && sel.value !== key) sel.value = key;
+}
+function addMapControls(map, home, homeZoom) {
+  const btn = (txt, title, fn) => {
+    const c = L.control({ position: "topleft" });
+    c.onAdd = () => { const d = L.DomUtil.create("div", "mapctlbtn"); d.textContent = txt; d.title = title;
+      L.DomEvent.disableClickPropagation(d); d.onclick = fn; return d; };
+    c.addTo(map);
+  };
+  btn("⛶", "Fullscreen map", () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else map.getContainer().requestFullscreen();
+  });
+  btn("⌂", "Home view", () => map.setView(home, homeZoom));
+  btn("◎", "My location", () => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(p => {
+      map.setView([p.coords.latitude, p.coords.longitude], 10);
+      L.circleMarker([p.coords.latitude, p.coords.longitude], { radius: 7, color: "#fff", weight: 2, fillColor: "#4da3ff", fillOpacity: 1 })
+        .addTo(map).bindTooltip("You are here").openTooltip();
+    }, () => {}, { timeout: 8000 });
+  });
+  L.control.scale({ imperial: true, metric: false }).addTo(map);
+  document.addEventListener("fullscreenchange", () => setTimeout(() => map.invalidateSize(), 200));
+  const coord = L.control({ position: "bottomright" });
+  coord.onAdd = () => L.DomUtil.create("div", "mapcoord");
+  coord.addTo(map);
+  const el = document.querySelector(".mapcoord");
+  map.on("mousemove", e => { if (el) el.textContent = e.latlng.lat.toFixed(3) + ", " + e.latlng.lng.toFixed(3); });
+  map.on("mouseout", () => { if (el) el.textContent = ""; });
+  const sel = document.getElementById("baseSel");
+  if (sel) {
+    sel.innerHTML = Object.entries(BASEMAPS).map(([k, b]) => `<option value="${k}">${b.label}</option>`).join("");
+    let saved = null; try { saved = localStorage.getItem("tnwxBase"); } catch (_e) {}
+    setBase(saved && BASEMAPS[saved] ? saved : ((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark"), map);
+    sel.onchange = e => setBase(e.target.value, map);
+  } else setBase((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark", map);
+  if (typeof drawHomeMarker === "function") drawHomeMarker(map, home);
+}
+function drawHomeMarker(map, home) {
+  if (map._tnwxHome) return;
+  map._tnwxHome = L.circleMarker(home, { radius: 7, color: "#fff", weight: 2,
+    fillColor: "#ff5252", fillOpacity: 1 }).addTo(map).bindTooltip((typeof DATA_PLACE !== "undefined" && DATA_PLACE) || "Home");
+}
+
+
+setTimeout(function () {
+  /* mobile drawer: hamburger opens the grouped nav; scrim click, X,
+     Escape and link taps all close it */
+  var nb = document.getElementById("navBtn"),
+      nd = document.getElementById("navDrawer");
+  if (nb && nd) {
+    var setDrawer = function (open) {
+      nd.hidden = !open;
+      nb.setAttribute("aria-expanded", open ? "true" : "false");
+      document.body.style.overflow = open ? "hidden" : "";
+    };
+    nb.addEventListener("click", function () { setDrawer(nd.hidden); });
+    var xc = document.getElementById("navClose");
+    if (xc) xc.addEventListener("click", function () { setDrawer(false); });
+    nd.addEventListener("click", function (e) {
+      if (e.target === nd) setDrawer(false);   /* scrim tap, not a link */
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") setDrawer(false);
+    });
+    nd.addEventListener("click", function (e) {
+      if (e.target && e.target.closest && e.target.closest("a")) setDrawer(false);
+    });
+    setDrawer(false);
+  }
+  if (typeof map === "undefined" || !map) return;
+  const sel = document.getElementById("baseSel");
+  if (typeof addMapControls === "function" && (typeof _baseLayer === "undefined" || !_baseLayer)) {
+    const la = (typeof DATA_LAT !== "undefined") ? DATA_LAT : 36.2;
+    const lo = (typeof DATA_LON !== "undefined") ? DATA_LON : -83.0;
+    addMapControls(map, [la, lo], 6);
+  } else if (typeof setBase === "function") {
+    if (!_baseLayer) setBase((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark", map);
+    if (sel) sel.onchange = function (e) { setBase(e.target.value, map); };
+  }
+}, 600);
+
+</script>
+<div class="wrap">
+
+<header class="hero"><h1>🗺️ National products</h1>
+<div class="sub">WPC operational charts + SPC observed upper-air analyses · updated 2026-10-03 12:55 PM ET</div></header>
+
+<div class="card"><h2>🌌 Aurora & space weather (NOAA SWPC)</h2>
+  <div class="kpis">
+    <div class="kpi"><span>Current Kp index</span><b style="color:#0288d1">1.67 - Unsettled - active aurora ring, mid-latitudes unaffected</b></div>
+    <div class="kpi"><span>3-day forecast peak</span><b>4.67</b></div>
+  </div>
+  <div style="display:flex;align-items:flex-end;gap:2px;height:32px;margin:6px 0"><span title="Kp 1.33" style="flex:1;height:4px;background:#0288d1;border-radius:2px"></span><span title="Kp 1.33" style="flex:1;height:4px;background:#0288d1;border-radius:2px"></span><span title="Kp 2.0" style="flex:1;height:6px;background:#0288d1;border-radius:2px"></span><span title="Kp 1.0" style="flex:1;height:3px;background:#0288d1;border-radius:2px"></span><span title="Kp 1.0" style="flex:1;height:3px;background:#0288d1;border-radius:2px"></span><span title="Kp 0.33" style="flex:1;height:3px;background:#0288d1;border-radius:2px"></span><span title="Kp 0.67" style="flex:1;height:3px;background:#0288d1;border-radius:2px"></span><span title="Kp 0.67" style="flex:1;height:3px;background:#0288d1;border-radius:2px"></span><span title="Kp 0.33" style="flex:1;height:3px;background:#0288d1;border-radius:2px"></span><span title="Kp 0.67" style="flex:1;height:3px;background:#0288d1;border-radius:2px"></span><span title="Kp 1.33" style="flex:1;height:4px;background:#0288d1;border-radius:2px"></span><span title="Kp 2.33" style="flex:1;height:7px;background:#0288d1;border-radius:2px"></span><span title="Kp 2.67" style="flex:1;height:9px;background:#0288d1;border-radius:2px"></span><span title="Kp 2.67" style="flex:1;height:9px;background:#0288d1;border-radius:2px"></span><span title="Kp 2.0" style="flex:1;height:6px;background:#0288d1;border-radius:2px"></span><span title="Kp 1.67" style="flex:1;height:5px;background:#0288d1;border-radius:2px"></span></div><div class="src">Kp, past 48 h (3-h values). Kp 7+ means the auroral oval can reach Tennessee&apos;s latitude - look north after dark.</div>
+  <div class="src">SWPC 3-day outlook: Oct 03: max Kp 3.67 · Oct 04: max Kp 4.67 · Oct 05: max Kp 3.67</div>
+  <figure style="margin:10px 0 0"><img loading="lazy" src="space/ovation_north.jpg" alt="OVATION aurora nowcast" style="max-width:100%;border-radius:10px"/>
+  <figcaption class="src">OVATION aurora forecast (view from the north) - mirrored from SWPC each update.</figcaption></figure>
+</div>
+
+<div class="card"><h2>🌧️ WPC charts</h2>
+  <div class="ctl"><select id="wpcSel" style="max-width:420px"><option value="https://www.wpc.ncep.noaa.gov/qpf/94ewbg.gif">QPF - Day 1 precipitation</option><option value="https://www.wpc.ncep.noaa.gov/qpf/fill_94qwbg.gif">QPF - Day 1 (filled)</option><option value="https://www.wpc.ncep.noaa.gov/wwd/day1_psnow_gt_04.gif">Winter Storm - Day 1 snow</option><option value="https://www.wpc.ncep.noaa.gov/wwd/day2_psnow_gt_04.gif">Winter Storm - Day 2 snow</option><option value="https://www.wpc.ncep.noaa.gov/wwd/pwpf_d47/gif/prbww_sn25_DAY4_conus.gif">Winter probabilities - Day 4</option><option value="https://www.wpc.ncep.noaa.gov/wwd/pwpf_d47/gif/prbww_sn25_DAY5_conus.gif">Winter probabilities - Day 5</option><option value="https://www.wpc.ncep.noaa.gov/medr/9jhwbg_conus_sm.jpg">Days 3-4 fronts &amp; pressure</option><option value="https://www.wpc.ncep.noaa.gov/medr/9khwbg_conus_sm.jpg">Days 4-5 fronts &amp; pressure</option><option value="https://www.wpc.ncep.noaa.gov/medr/9lhwbg_conus_sm.jpg">Days 5-6 fronts &amp; pressure</option></select></div>
+  <img id="wpcImg" class="natimg" loading="lazy" src="https://www.wpc.ncep.noaa.gov/qpf/94ewbg.gif" alt="WPC chart"/>
+  <div class="cap src" id="wpcCap">QPF - Day 1 precipitation - WPC quantitative precipitation forecast for the next 24 h.</div>
+</div>
+
+<div class='card'><h2>🗣️ WPC forecast discussions</h2><div class='src'>Raw text products parsed from WPC's free feed &middot; updated Sat 12:56 PM ET</div></div>
+<div class="card"><h2>📝 Short Range (Days 1-2)</h2>
+  <div class="src">Valid 12Z Sat Oct 03 2026 - 12Z Mon Oct 05 2026 &middot; issued Fri 8 PM ET &middot; Kong</div>
+  
+  <div class="src" style="margin:4px 0">WPC forecaster narrative for the next two days: surface systems, QPF reasoning, severe potential.</div>
+  <div style="font-size:13.5px"><p style='margin:6px 0;line-height:1.55'>...Excessive rainfall threat across the Southeast on Sunday while continuing across the central Gulf Coast and southern Texas while this weekend...</p><p style='margin:6px 0;line-height:1.55'>...A long duration October heatwave emerging across central and southern California before spreading into the Great Basin...</p><p style='margin:6px 0;line-height:1.55'>Over the next couple of days, the excessive rainfall threat will remain focused along the Gulf Coast to the Southeast as an anomalous October heatwave builds across the western U.S. The lingering wet weather pattern results from a cool and dry air mass across the northern tier of the country interacting with a tropical wave over the Gulf. The Weather Prediction Center maintains a slight risk (at least 15% chance) of excessive rainfall for today near the central Gulf Coast to the Florida Panhandle in addition to the lower Texas Gulf Coast. By Sunday, the excessive rainfall threat is forecast to lift northeastward across the interior Southeast and into the Carolinas with the passage of a weak upper trough. A few additional inches of heavy rain can be expected along the central Gulf Coast, with a maximum of 7 inches possible near the immediate coast of Alabama. The heavy rainfall threat will gradually decrease from Sunday night to Monday morning for the Southeast and along the Gulf Coast as the trough nudges the front farther south.</p><p style='margin:6px 0;line-height:1.55'>Meanwhile, a low pressure system will sweep across the northern tier states bringing scattered to isolated showers and thunderstorms to the Upper Midwest/Great Lakes from today into Sunday morning. By early Monday morning, a stronger cold front trailing south from the intensifying low pressure system in Quebec could bring heavy showers and embedded thunderstorms into interior New England. Across the Mid-Atlantic, showers behind a cold front early this morning will move off the coast as the cool air mass from the Ohio Valley to the Northeast takes over.</p><p style='margin:6px 0;line-height:1.55'>As the wet pattern persists across the South, an anomalous ridge of high pressure will help build a late season October heatwave across the western U.S. through the weekend and into next week. Temperatures will run 15 to 20 degrees above normal, bringing highs well into the 90s toward the coast and adjacent urban areas, with some areas in the Central Valley reaching 100. Overnight lows in the mid to upper 70s in the Los Angeles and San Diego urban areas will provide little relief through the heat wave. Extreme heat warnings are in effect for much of coastal southern California, while heat advisories are in effect for central California. The heat will then expand farther northeast over the next couple of days, with high temperatures in the 80s and near 90 degrees emerging across the Great Basin. Elsewhere, clear conditions accompanying a high pressure system have prompted frost advisories and freeze warnings early this morning for portions of northern Wisconsin and Michigan.</p></div>
+</div>
+<div class="card"><h2>🌧️ Excessive Rainfall - Days 1-2</h2>
+  <div class="src">Valid 16Z Sat Oct 03 2026 - 12Z Sun Oct 04 2026 &middot; issued Sat 3:53 AM ET</div>
+  <div style="background:#1a2230;border-left:3px solid var(--acc);border-radius:6px;padding:6px 10px;margin:4px 0;font-weight:600;letter-spacing:.02em">THERE IS A SLIGHT RISK OF EXCESSIVE RAINFALL FOR THE CENTRAL GULF COAST, THE LOWER TEXAS COAST, AND EASTERN NORTH CAROLINA</div><div style="background:#1a2230;border-left:3px solid var(--acc);border-radius:6px;padding:6px 10px;margin:4px 0;font-weight:600;letter-spacing:.02em">THERE IS A SLIGHT RISK OF EXCESSIVE RAINFALL FOR PORTIONS OF THE SOUTHEAST AND LOWER TEXAS COAST</div><div style="background:#1a2230;border-left:3px solid var(--acc);border-radius:6px;padding:6px 10px;margin:4px 0;font-weight:600;letter-spacing:.02em">THERE IS A MARGINAL RISK OF EXCESSIVE RAINFALL FOR PORTIONS OF THE SOUTHEAST AND LOWER TEXAS COAST</div><div style="background:#1a2230;border-left:3px solid var(--acc);border-radius:6px;padding:6px 10px;margin:4px 0;font-weight:600;letter-spacing:.02em">THERE IS A MARGINAL RISK OF EXCESSIVE RAINFALL TUESDAY-TUESDAY NIGHT OVER FAR SOUTHEAST GEORGIA INTO NORTHERN AND CENTRAL PORTIONS OF THE FLORIDA PENINSULA</div>
+  
+  <div style="font-size:13.5px"><p style='margin:6px 0;line-height:1.55'>Day 1</p><p style='margin:6px 0;line-height:1.55'>...Central Gulf Coast...</p><p style='margin:6px 0;line-height:1.55'>16Z Update: Little change necessary for the SLGT risk located across the Central Gulf coast as the latest 12z CAMs and associated HREF remain confident in their presentation of locally 4-6+&quot; of rainfall through the period with a majority of the rainfall occurring with the approach of weak wave out of the eastern Gulf later this evening. HREF neighborhood probabilities for &gt;5&quot; remain elevated (50-80%) across the immediate coastal areas of southern MS/AL with the eastern extent right over the far western FL Panhandle. Some of the deterministic outputs from the CAMs are quite robust with 6+ inches of rain within that immediate coastal plain thanks to the greatest instability source co-located with the immediate Gulf waters. The area along I-10 between Biloxi to Mobile Bay continues to be the most noteworthy area for the higher probs for &gt;5&quot;, a signal that has been prevalent now for multiple runs of the hi-res guidance. This lends credence to the local threat of flash flooding and the continuation of the high-end SLGT risk located over southeast LA into the western FL Panhandle.</p><p style='margin:6px 0;line-height:1.55'>Kleebauer</p><p style='margin:6px 0;line-height:1.55'>..Previous Discussion..</p><p style='margin:6px 0;line-height:1.55'>A tropical wave moving across the Gulf will funnel record to near record amounts of atmospheric moisture into much of the Gulf Coast on Saturday. A 15-25 kt southerly flow into the coast at 850 mb will support numerous showers and thunderstorms associated with the wave moving into the central Gulf Coast both today and tonight. PWATs will be at or above 2.5 inches for many areas. Extensive cloud cover and the October sun should limit instability considerably with any reasonable distance from the coast. Thus, any convection that impacts the coast is unlikely to be able to travel too far inland without significant weakening. Thus, the Slight highlighting much of the coast remains unchanged. A higher-end Slight Risk was added with this update from New Orleans through much of the western Florida Panhandle. They were primarily included due to urban impacts and the sheer volume of water expected, as the coast can expect 3-6 inches of rain today, with locally higher amounts. Despite very high FFGs and dry soils in this area, this amount of rainfall may overcome that, especially in urban areas to result in widely scattered instances of flash flooding.</p><p style='margin:6px 0;line-height:1.55'>Wegman</p><p style='margin:6px 0;line-height:1.55'>...Lower Texas Coast...</p></div>
+</div>
+<div class="card"><h2>🌧️ Excessive Rainfall - Day 3</h2>
+  <div class="src">Valid 12Z Mon Oct 05 2026 - 12Z Tue Oct 06 2026 &middot; issued Sat 3:53 AM ET</div>
+  <div style="background:#1a2230;border-left:3px solid var(--acc);border-radius:6px;padding:6px 10px;margin:4px 0;font-weight:600;letter-spacing:.02em">THERE IS A MARGINAL RISK OF EXCESSIVE RAINFALL FOR PORTIONS OF THE SOUTHEAST AND LOWER TEXAS COAST</div>
+  
+  <div style="font-size:13.5px"><p style='margin:6px 0;line-height:1.55'>Day 3</p><p style='margin:6px 0;line-height:1.55'>...Southeast...</p><p style='margin:6px 0;line-height:1.55'>Very few changes were needed with this update across the Southeast. While the trends in the guidance continue to suggest a southward trend, given the heavier rains from Sunday, the ERO remains generous on the northern side of the rainfall footprint, to account for potential ongoing flooding continuing into Monday. The heaviest rains on Monday will focus in far southeastern Georgia and from Jacksonville north and west in Florida. As on previous days, instability will be at a premium due to extensive cloud cover from the extremely high moisture amounts in the atmosphere. Much of the Florida Peninsula will have PWATs at or above 2.25 inches, supporting highly efficient warm rain processes. This will be countered by the lack of instability, which will limit the lift any storms will have to work with. By Monday, a somewhat faster southward movement of the cold front lifting all this moisture should significantly limit overlap in the forecast rainfall footprints from Sunday to Monday. Given how difficult most of southeast Georgia can be to flood due to flat, sandy terrain and numerous swamps, a high-end Marginal remains in place.</p><p style='margin:6px 0;line-height:1.55'>A continued southward trend in the front could allow for trimming on the northern end of the Marginal with future updates.</p><p style='margin:6px 0;line-height:1.55'>...Lower Texas Coast...</p><p style='margin:6px 0;line-height:1.55'>An overall weakening of both the tropical wave over the Gulf and the subsequent easterly/onshore flow should limit additional rainfall along the immediate coast on Monday. Thus, despite several days of prior rains, the inherited Marginal was left in place with few changes.</p><p style='margin:6px 0;line-height:1.55'>Wegman</p><p style='margin:6px 0;line-height:1.55'>Day 3 threat area: www.wpc.ncep.noaa.gov/qpf/99epoints.txt</p></div>
+</div>
+<div class="card"><h2>🌧️ Excessive Rainfall - Days 4-5</h2>
+  <div class="src">Valid 12Z Tue Oct 06 2026 - 12Z Thu Oct 08 2026 &middot; issued Sat 3:53 AM ET &middot; Hurley</div>
+  <div style="background:#1a2230;border-left:3px solid var(--acc);border-radius:6px;padding:6px 10px;margin:4px 0;font-weight:600;letter-spacing:.02em">THERE IS A MARGINAL RISK OF EXCESSIVE RAINFALL TUESDAY-TUESDAY NIGHT OVER FAR SOUTHEAST GEORGIA INTO NORTHERN AND CENTRAL PORTIONS OF THE FLORIDA PENINSULA</div>
+  
+  <div style="font-size:13.5px"><p style='margin:6px 0;line-height:1.55'>Day 4 and Day 5</p><p style='margin:6px 0;line-height:1.55'>Day 4 (12Z Tue-12Z Wed) -- Little change made to yesterday&#x27;s Day 5 Marginal Risk area. The Marginal area slips a little farther south into North-Central FL and far southeast GA Tue-Tue night, where the surface front more than likely will begin to stall and become quasi- stationary. The axis of highest PWs (2-2.5&quot;) and mid-level shortwave energy will be draped along and south of the front, as will some (albeit weak) deep-layer instability. Deep west/west- southwesterly flow will enhanced the risk for training cells coming off the eastern Gulf, as all the global ensembles (GEFS/ECENS/CMC) have at least a few members noting rainfall totals of 3-5+&quot; within the 24hr period. However it should be noted the QPF (deterministic and probabilistic) trends in the guidance has decreased over the past couple of model cycles, with now the highest 3-5+ inch QPF probabilities over the waters of eastern Gulf and off the Atlantic Coast per the GEFS/ECENS/CMC (where deep-layer instability is more conducive).</p><p style='margin:6px 0;line-height:1.55'>For now, we did not include another Marginal Risk in the Day 5 ERO (12Z Wed-12Z Thu) across Central FL. Yes the front will remain hung up in the vicinity, however the heavy rainfall signal is more diffuse with the 0-6km Bulk Shear values over 20kts along and north of the front, implying more anafrontal rainfall where the deep- layer instability (elevated) is marginal at best. Areal spread in the QPF among the global models is also rather high, again with the heavier amounts over the water (Gulf and Atlantic) where the instability is decidedly more favorable. Meanwhile, of late the AI guidance (both ECMWF AIFS and AIGFS QPF) have verified better of late, largely due to the AI models having a better handle on the frontal progression. By day 5, both the AIGFS and EC AIFS show the QPF axis a bit farther south (Central-South FL) compared to the rest of the guidance, and not nearly as heavy with the amounts compared to the latest NBM. Given the high FFG over this area, and the concern that the rates will not be sufficiently high given the lack of deep-layer instability, we opted to refrain from hoisting a Marginal Risk area.</p></div>
+</div>
+<div class="card"><h2>❄️ Heavy Snow & Icing</h2>
+  <div class="src">Valid 12Z Sat Oct 03 2026 - 12Z Tue Oct 06 2026 &middot; issued Fri 8:33 PM ET &middot; Weiss</div>
+  
+  
+  <div style="font-size:13.5px"><p style='margin:6px 0;line-height:1.55'>The probability of significant snow and ice across the CONUS is less than ten percent.</p></div>
+</div>
+
+<div class="card"><h2>🛰️ WPC / OPC / SPC analysis charts - extended set</h2>
+  <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px" id="wpcGrpBtns"><button class="wbtn" data-g="surface">WPC Unified Surface Analysis</button><button class="wbtn" data-g="medr500">WPC 5-day 500 mb means &amp; anomalies</button><button class="wbtn" data-g="qpf">WPC QPF days 2-5 + 5-day total</button><button class="wbtn" data-g="spc48">SPC Day 4-8 severe outlooks</button><button class="wbtn" data-g="mpd">WPC Mesoscale Precipitation Discussions</button><button class="wbtn" data-g="opc">OPC ocean analyses (Atlantic / Pacific)</button><button class="wbtn" data-g="snow">NOHRSC national snow model</button></div>
+  <div class="ctl"><select id="wpcMapSel" style="max-width:560px"></select></div>
+  <img id="wpcMapImg" class="natimg" loading="lazy" src="" alt="Analysis chart"/>
+  <div class="cap src" id="wpcMapCap"></div>
+  <div class="ctl" id="wpcPlayer" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px">
+    <button class="wbtn" id="wpcPlay">▶ Play</button>
+    <input type="range" id="wpcSlider" min="0" max="0" value="0" style="flex:1;min-width:160px"/>
+    <span class="src" id="wpcT">live</span>
+  </div>
+  <div class="src">Surface analysis &amp; 500 mb analyses (WPC) · QPF days 2-5 · SPC Day 4-8 severe outlooks · OPC North Atlantic/Pacific surface + 500 mb analyses · NOHRSC national snow model (depth / SWE / melt / blowing snow). Mirrored from NOAA each refresh - free, no keys · updated 2026-10-03T16:56:35Z · 32 charts live.</div>
+  
+</div>
+
+<div class="card"><h2>🎈 Upper-air analyses (SPC obswx)</h2>
+  <div class="ctl">
+    <select id="uaLevel"></select>
+    <select id="uaTime"></select>
+  </div>
+  <img id="uaImg" class="natimg" loading="lazy" src="" alt="Upper-air analysis"/>
+  <div class="cap src" id="uaCap">Upper-air analyses unavailable right now.</div>
+  <div class="src">Levels: Surface, 925, 850, 700, 500, 300, 250 mb · valid 00Z / 12Z rawinsonde analyses.</div>
+</div>
+
+<script>
+const WPC = [{"key": "qpf_d1", "title": "QPF - Day 1 precipitation", "desc": "WPC quantitative precipitation forecast for the next 24 h.", "url": "https://www.wpc.ncep.noaa.gov/qpf/94ewbg.gif"}, {"key": "qpf_d1_fill", "title": "QPF - Day 1 (filled)", "desc": "Filled day-1 precipitation amounts.", "url": "https://www.wpc.ncep.noaa.gov/qpf/fill_94qwbg.gif"}, {"key": "snow_d1", "title": "Winter Storm - Day 1 snow", "desc": "Day-1 snowfall > 4 inches probabilities / outlines.", "url": "https://www.wpc.ncep.noaa.gov/wwd/day1_psnow_gt_04.gif"}, {"key": "snow_d2", "title": "Winter Storm - Day 2 snow", "desc": "Day-2 snowfall > 4 inches probabilities / outlines.", "url": "https://www.wpc.ncep.noaa.gov/wwd/day2_psnow_gt_04.gif"}, {"key": "winter_d4", "title": "Winter probabilities - Day 4", "desc": "Day 4 probability of exceeding winter-storm criteria (CONUS).", "url": "https://www.wpc.ncep.noaa.gov/wwd/pwpf_d47/gif/prbww_sn25_DAY4_conus.gif"}, {"key": "winter_d5", "title": "Winter probabilities - Day 5", "desc": "Day 5 probability of exceeding winter-storm criteria (CONUS).", "url": "https://www.wpc.ncep.noaa.gov/wwd/pwpf_d47/gif/prbww_sn25_DAY5_conus.gif"}, {"key": "medr_d3", "title": "Days 3-4 fronts & pressure", "desc": "WPC medium-range surface forecast, days 3-4.", "url": "https://www.wpc.ncep.noaa.gov/medr/9jhwbg_conus_sm.jpg"}, {"key": "medr_d4", "title": "Days 4-5 fronts & pressure", "desc": "WPC medium-range surface forecast, days 4-5.", "url": "https://www.wpc.ncep.noaa.gov/medr/9khwbg_conus_sm.jpg"}, {"key": "medr_d5", "title": "Days 5-6 fronts & pressure", "desc": "WPC medium-range surface forecast, days 5-6.", "url": "https://www.wpc.ncep.noaa.gov/medr/9lhwbg_conus_sm.jpg"}];
+const UA = [];
+const wpcSel = document.getElementById("wpcSel");
+wpcSel.onchange = () => {
+  const w = WPC.find(x => x.url === wpcSel.value);
+  document.getElementById("wpcImg").src = w.url;
+  document.getElementById("wpcCap").textContent = w.title + " - " + w.desc;
+};
+const uaLevel = document.getElementById("uaLevel"), uaTime = document.getElementById("uaTime");
+function fillUaTimes() {
+  const rows = UA.filter(u => u.level === uaLevel.value);
+  uaTime.innerHTML = rows.map((u, i) => `<option value="${i}">${u.time}</option>`).join("");
+  showUa();
+}
+function showUa() {
+  const rows = UA.filter(u => u.level === uaLevel.value);
+  const u = rows[+uaTime.value || 0]; if (!u) return;
+  document.getElementById("uaImg").src = u.url;
+  document.getElementById("uaCap").textContent = u.title;
+}
+uaLevel.onchange = fillUaTimes; uaTime.onchange = showUa;
+if (UA.length) fillUaTimes();
+
+const WPCGROUPS = [{"id": "surface", "label": "WPC Unified Surface Analysis", "charts": [{"file": "sfc_wpc.gif", "label": "Surface analysis - fronts, isobars, station plots (latest)", "url": "wpcmaps/sfc_wpc.gif", "frames": [{"url": "wpcmaps/archive/sfc_wpc/202610021421.gif", "t": "202610021421", "label": "10-02 14:21 UTC"}, {"url": "wpcmaps/archive/sfc_wpc/202610021649.gif", "t": "202610021649", "label": "10-02 16:49 UTC"}, {"url": "wpcmaps/archive/sfc_wpc/202610021950.gif", "t": "202610021950", "label": "10-02 19:50 UTC"}, {"url": "wpcmaps/archive/sfc_wpc/202610022236.gif", "t": "202610022236", "label": "10-02 22:36 UTC"}, {"url": "wpcmaps/archive/sfc_wpc/202610030210.gif", "t": "202610030210", "label": "10-03 02:10 UTC"}, {"url": "wpcmaps/archive/sfc_wpc/202610030449.gif", "t": "202610030449", "label": "10-03 04:49 UTC"}, {"url": "wpcmaps/archive/sfc_wpc/202610030737.gif", "t": "202610030737", "label": "10-03 07:37 UTC"}, {"url": "wpcmaps/archive/sfc_wpc/202610031058.gif", "t": "202610031058", "label": "10-03 10:58 UTC"}, {"url": "wpcmaps/archive/sfc_wpc/202610031434.gif", "t": "202610031434", "label": "10-03 14:34 UTC"}, {"url": "wpcmaps/archive/sfc_wpc/202610031640.gif", "t": "202610031640", "label": "10-03 16:40 UTC"}]}]}, {"id": "medr500", "label": "WPC 5-day 500 mb means & anomalies", "charts": [{"file": "medr_500_5day.gif", "label": "5-day mean 500 mb forecast (heights, GFS-based)", "url": "wpcmaps/medr_500_5day.gif", "frames": [{"url": "wpcmaps/archive/medr_500_5day/202610021421.gif", "t": "202610021421", "label": "10-02 14:21 UTC"}, {"url": "wpcmaps/archive/medr_500_5day/202610030105.gif", "t": "202610030105", "label": "10-03 01:05 UTC"}, {"url": "wpcmaps/archive/medr_500_5day/202610031300.gif", "t": "202610031300", "label": "10-03 13:00 UTC"}]}, {"file": "medr_500_5day_anom.gif", "label": "5-day mean 500 mb ANOMALY (ridge/trough vs normal)", "url": "wpcmaps/medr_500_5day_anom.gif", "frames": [{"url": "wpcmaps/archive/medr_500_5day_anom/202610021421.gif", "t": "202610021421", "label": "10-02 14:21 UTC"}, {"url": "wpcmaps/archive/medr_500_5day_anom/202610030105.gif", "t": "202610030105", "label": "10-03 01:05 UTC"}, {"url": "wpcmaps/archive/medr_500_5day_anom/202610031300.gif", "t": "202610031300", "label": "10-03 13:00 UTC"}]}, {"file": "medr_500_5day_ens.gif", "label": "5-day mean 500 mb ensemble spread", "url": "wpcmaps/medr_500_5day_ens.gif", "frames": [{"url": "wpcmaps/archive/medr_500_5day_ens/202610021421.gif", "t": "202610021421", "label": "10-02 14:21 UTC"}, {"url": "wpcmaps/archive/medr_500_5day_ens/202610030105.gif", "t": "202610030105", "label": "10-03 01:05 UTC"}, {"url": "wpcmaps/archive/medr_500_5day_ens/202610031300.gif", "t": "202610031300", "label": "10-03 13:00 UTC"}]}]}, {"id": "qpf", "label": "WPC QPF days 2-5 + 5-day total", "charts": [{"file": "qpf_d3.gif", "label": "QPF - Day 3 contours", "url": "wpcmaps/qpf_d3.gif", "frames": [{"url": "wpcmaps/archive/qpf_d3/202610022027.gif", "t": "202610022027", "label": "10-02 20:27 UTC"}, {"url": "wpcmaps/archive/qpf_d3/202610031058.gif", "t": "202610031058", "label": "10-03 10:58 UTC"}]}, {"file": "qpf_d3_fill.gif", "label": "QPF - Day 3 filled", "url": "wpcmaps/qpf_d3_fill.gif", "frames": [{"url": "wpcmaps/archive/qpf_d3_fill/202610021750.gif", "t": "202610021750", "label": "10-02 17:50 UTC"}, {"url": "wpcmaps/archive/qpf_d3_fill/202610022236.gif", "t": "202610022236", "label": "10-02 22:36 UTC"}, {"url": "wpcmaps/archive/qpf_d3_fill/202610030550.gif", "t": "202610030550", "label": "10-03 05:50 UTC"}, {"url": "wpcmaps/archive/qpf_d3_fill/202610030737.gif", "t": "202610030737", "label": "10-03 07:37 UTC"}, {"url": "wpcmaps/archive/qpf_d3_fill/202610031058.gif", "t": "202610031058", "label": "10-03 10:58 UTC"}]}, {"file": "qpf_d4.gif", "label": "QPF - Day 4 contours", "url": "wpcmaps/qpf_d4.gif", "frames": [{"url": "wpcmaps/archive/qpf_d4/202610030256.gif", "t": "202610030256", "label": "10-03 02:56 UTC"}]}, {"file": "qpf_d45.gif", "label": "QPF - Days 4-5 contours", "url": "wpcmaps/qpf_d45.gif", "frames": [{"url": "wpcmaps/archive/qpf_d45/202610022027.gif", "t": "202610022027", "label": "10-02 20:27 UTC"}, {"url": "wpcmaps/archive/qpf_d45/202610031058.gif", "t": "202610031058", "label": "10-03 10:58 UTC"}]}, {"file": "qpf_d5_fill.gif", "label": "QPF - Days 4-5 filled", "url": "wpcmaps/qpf_d5_fill.gif", "frames": [{"url": "wpcmaps/archive/qpf_d5_fill/202610021750.gif", "t": "202610021750", "label": "10-02 17:50 UTC"}, {"url": "wpcmaps/archive/qpf_d5_fill/202610022236.gif", "t": "202610022236", "label": "10-02 22:36 UTC"}, {"url": "wpcmaps/archive/qpf_d5_fill/202610030550.gif", "t": "202610030550", "label": "10-03 05:50 UTC"}, {"url": "wpcmaps/archive/qpf_d5_fill/202610030737.gif", "t": "202610030737", "label": "10-03 07:37 UTC"}, {"url": "wpcmaps/archive/qpf_d5_fill/202610031058.gif", "t": "202610031058", "label": "10-03 10:58 UTC"}]}]}, {"id": "spc48", "label": "SPC Day 4-8 severe outlooks", "charts": [{"file": "spc_d4.gif", "label": "Day 4 severe probability outlook", "url": "wpcmaps/spc_d4.gif", "frames": [{"url": "wpcmaps/archive/spc_d4/202610030754.gif", "t": "202610030754", "label": "10-03 07:54 UTC"}]}, {"file": "spc_d5.gif", "label": "Day 5 severe probability outlook", "url": "wpcmaps/spc_d5.gif", "frames": [{"url": "wpcmaps/archive/spc_d5/202610030754.gif", "t": "202610030754", "label": "10-03 07:54 UTC"}]}, {"file": "spc_d6.gif", "label": "Day 6 severe probability outlook", "url": "wpcmaps/spc_d6.gif", "frames": [{"url": "wpcmaps/archive/spc_d6/202610030754.gif", "t": "202610030754", "label": "10-03 07:54 UTC"}]}, {"file": "spc_d7.gif", "label": "Day 7 severe probability outlook", "url": "wpcmaps/spc_d7.gif", "frames": [{"url": "wpcmaps/archive/spc_d7/202610030754.gif", "t": "202610030754", "label": "10-03 07:54 UTC"}]}, {"file": "spc_d8.gif", "label": "Day 8 severe probability outlook", "url": "wpcmaps/spc_d8.gif", "frames": [{"url": "wpcmaps/archive/spc_d8/202610030754.gif", "t": "202610030754", "label": "10-03 07:54 UTC"}]}, {"file": "spc_d48.gif", "label": "Days 4-8 combined severe outlook", "url": "wpcmaps/spc_d48.gif", "frames": [{"url": "wpcmaps/archive/spc_d48/202610030256.gif", "t": "202610030256", "label": "10-03 02:56 UTC"}]}]}, {"id": "mpd", "label": "WPC Mesoscale Precipitation Discussions", "charts": [{"file": "mpd_latest.gif", "label": "Latest Mesoscale Precipitation Discussion map", "url": "wpcmaps/mpd_latest.gif", "frames": [{"url": "wpcmaps/archive/mpd_latest/202610021322.gif", "t": "202610021322", "label": "10-02 13:22 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610021421.gif", "t": "202610021421", "label": "10-02 14:21 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610021436.gif", "t": "202610021436", "label": "10-02 14:36 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610021516.gif", "t": "202610021516", "label": "10-02 15:16 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610021537.gif", "t": "202610021537", "label": "10-02 15:37 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610021628.gif", "t": "202610021628", "label": "10-02 16:28 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610021649.gif", "t": "202610021649", "label": "10-02 16:49 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610021750.gif", "t": "202610021750", "label": "10-02 17:50 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610021855.gif", "t": "202610021855", "label": "10-02 18:55 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610021950.gif", "t": "202610021950", "label": "10-02 19:50 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610022027.gif", "t": "202610022027", "label": "10-02 20:27 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610022041.gif", "t": "202610022041", "label": "10-02 20:41 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610022135.gif", "t": "202610022135", "label": "10-02 21:35 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610022236.gif", "t": "202610022236", "label": "10-02 22:36 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610022258.gif", "t": "202610022258", "label": "10-02 22:58 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610022329.gif", "t": "202610022329", "label": "10-02 23:29 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610030009.gif", "t": "202610030009", "label": "10-03 00:09 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610030023.gif", "t": "202610030023", "label": "10-03 00:23 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610030105.gif", "t": "202610030105", "label": "10-03 01:05 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610030210.gif", "t": "202610030210", "label": "10-03 02:10 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610030256.gif", "t": "202610030256", "label": "10-03 02:56 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610030309.gif", "t": "202610030309", "label": "10-03 03:09 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610030332.gif", "t": "202610030332", "label": "10-03 03:32 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610030346.gif", "t": "202610030346", "label": "10-03 03:46 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610030418.gif", "t": "202610030418", "label": "10-03 04:18 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610030449.gif", "t": "202610030449", "label": "10-03 04:49 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610030550.gif", "t": "202610030550", "label": "10-03 05:50 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610030652.gif", "t": "202610030652", "label": "10-03 06:52 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610030737.gif", "t": "202610030737", "label": "10-03 07:37 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610030754.gif", "t": "202610030754", "label": "10-03 07:54 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610030855.gif", "t": "202610030855", "label": "10-03 08:55 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610030957.gif", "t": "202610030957", "label": "10-03 09:57 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610031058.gif", "t": "202610031058", "label": "10-03 10:58 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610031200.gif", "t": "202610031200", "label": "10-03 12:00 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610031300.gif", "t": "202610031300", "label": "10-03 13:00 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610031344.gif", "t": "202610031344", "label": "10-03 13:44 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610031434.gif", "t": "202610031434", "label": "10-03 14:34 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610031529.gif", "t": "202610031529", "label": "10-03 15:29 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610031640.gif", "t": "202610031640", "label": "10-03 16:40 UTC"}, {"url": "wpcmaps/archive/mpd_latest/202610031656.gif", "t": "202610031656", "label": "10-03 16:56 UTC"}]}]}, {"id": "opc", "label": "OPC ocean analyses (Atlantic / Pacific)", "charts": [{"file": "opc_atl_sfc.gif", "label": "North Atlantic surface analysis (24 h valid)", "url": "wpcmaps/opc_atl_sfc.gif", "frames": [{"url": "wpcmaps/archive/opc_atl_sfc/202610021436.gif", "t": "202610021436", "label": "10-02 14:36 UTC"}, {"url": "wpcmaps/archive/opc_atl_sfc/202610022027.gif", "t": "202610022027", "label": "10-02 20:27 UTC"}, {"url": "wpcmaps/archive/opc_atl_sfc/202610030256.gif", "t": "202610030256", "label": "10-03 02:56 UTC"}, {"url": "wpcmaps/archive/opc_atl_sfc/202610030855.gif", "t": "202610030855", "label": "10-03 08:55 UTC"}, {"url": "wpcmaps/archive/opc_atl_sfc/202610031434.gif", "t": "202610031434", "label": "10-03 14:34 UTC"}]}, {"file": "opc_atl_sfc_d2.gif", "label": "North Atlantic surface forecast, day 2", "url": "wpcmaps/opc_atl_sfc_d2.gif", "frames": [{"url": "wpcmaps/archive/opc_atl_sfc_d2/202610021855.gif", "t": "202610021855", "label": "10-02 18:55 UTC"}, {"url": "wpcmaps/archive/opc_atl_sfc_d2/202610030550.gif", "t": "202610030550", "label": "10-03 05:50 UTC"}]}, {"file": "opc_atl_500_d1.gif", "label": "North Atlantic 500 mb forecast, day 1", "url": "wpcmaps/opc_atl_500_d1.gif", "frames": [{"url": "wpcmaps/archive/opc_atl_500_d1/202610021750.gif", "t": "202610021750", "label": "10-02 17:50 UTC"}, {"url": "wpcmaps/archive/opc_atl_500_d1/202610030418.gif", "t": "202610030418", "label": "10-03 04:18 UTC"}]}, {"file": "opc_atl_500_d2.gif", "label": "North Atlantic 500 mb forecast, day 2", "url": "wpcmaps/opc_atl_500_d2.gif", "frames": [{"url": "wpcmaps/archive/opc_atl_500_d2/202610021750.gif", "t": "202610021750", "label": "10-02 17:50 UTC"}, {"url": "wpcmaps/archive/opc_atl_500_d2/202610030418.gif", "t": "202610030418", "label": "10-03 04:18 UTC"}]}, {"file": "opc_atl_500_d3.gif", "label": "North Atlantic 500 mb forecast, day 3", "url": "wpcmaps/opc_atl_500_d3.gif", "frames": [{"url": "wpcmaps/archive/opc_atl_500_d3/202610021750.gif", "t": "202610021750", "label": "10-02 17:50 UTC"}]}, {"file": "opc_atl_500_d4.gif", "label": "North Atlantic 500 mb forecast, day 4", "url": "wpcmaps/opc_atl_500_d4.gif", "frames": [{"url": "wpcmaps/archive/opc_atl_500_d4/202610021750.gif", "t": "202610021750", "label": "10-02 17:50 UTC"}]}, {"file": "opc_pac_sfc.gif", "label": "North Pacific surface analysis (24 h valid)", "url": "wpcmaps/opc_pac_sfc.gif", "frames": [{"url": "wpcmaps/archive/opc_pac_sfc/202610021516.gif", "t": "202610021516", "label": "10-02 15:16 UTC"}, {"url": "wpcmaps/archive/opc_pac_sfc/202610022050.gif", "t": "202610022050", "label": "10-02 20:50 UTC"}, {"url": "wpcmaps/archive/opc_pac_sfc/202610022135.gif", "t": "202610022135", "label": "10-02 21:35 UTC"}, {"url": "wpcmaps/archive/opc_pac_sfc/202610030256.gif", "t": "202610030256", "label": "10-03 02:56 UTC"}, {"url": "wpcmaps/archive/opc_pac_sfc/202610030855.gif", "t": "202610030855", "label": "10-03 08:55 UTC"}, {"url": "wpcmaps/archive/opc_pac_sfc/202610031529.gif", "t": "202610031529", "label": "10-03 15:29 UTC"}]}, {"file": "opc_pac_sfc_d2.gif", "label": "North Pacific surface forecast, day 2", "url": "wpcmaps/opc_pac_sfc_d2.gif", "frames": [{"url": "wpcmaps/archive/opc_pac_sfc_d2/202610021855.gif", "t": "202610021855", "label": "10-02 18:55 UTC"}, {"url": "wpcmaps/archive/opc_pac_sfc_d2/202610030550.gif", "t": "202610030550", "label": "10-03 05:50 UTC"}]}, {"file": "opc_pac_500_d1.gif", "label": "North Pacific 500 mb forecast, day 1", "url": "wpcmaps/opc_pac_500_d1.gif", "frames": [{"url": "wpcmaps/archive/opc_pac_500_d1/202610021750.gif", "t": "202610021750", "label": "10-02 17:50 UTC"}, {"url": "wpcmaps/archive/opc_pac_500_d1/202610030550.gif", "t": "202610030550", "label": "10-03 05:50 UTC"}]}, {"file": "opc_pac_500_d2.gif", "label": "North Pacific 500 mb forecast, day 2", "url": "wpcmaps/opc_pac_500_d2.gif", "frames": [{"url": "wpcmaps/archive/opc_pac_500_d2/202610021750.gif", "t": "202610021750", "label": "10-02 17:50 UTC"}, {"url": "wpcmaps/archive/opc_pac_500_d2/202610030550.gif", "t": "202610030550", "label": "10-03 05:50 UTC"}]}, {"file": "opc_pac_500_d3.gif", "label": "North Pacific 500 mb forecast, day 3", "url": "wpcmaps/opc_pac_500_d3.gif", "frames": [{"url": "wpcmaps/archive/opc_pac_500_d3/202610021750.gif", "t": "202610021750", "label": "10-02 17:50 UTC"}]}, {"file": "opc_pac_500_d4.gif", "label": "North Pacific 500 mb forecast, day 4", "url": "wpcmaps/opc_pac_500_d4.gif", "frames": [{"url": "wpcmaps/archive/opc_pac_500_d4/202610021750.gif", "t": "202610021750", "label": "10-02 17:50 UTC"}]}]}, {"id": "snow", "label": "NOHRSC national snow model", "charts": [{"file": "snow_depth.jpg", "label": "Snow depth analysis (NOHRSC model)", "url": "wpcmaps/snow_depth.jpg", "frames": [{"url": "wpcmaps/archive/snow_depth/202610021220.jpg", "t": "202610021220", "label": "10-02 12:20 UTC"}, {"url": "wpcmaps/archive/snow_depth/202610031200.jpg", "t": "202610031200", "label": "10-03 12:00 UTC"}]}, {"file": "snow_swe.jpg", "label": "Snow water equivalent (NOHRSC model)", "url": "wpcmaps/snow_swe.jpg", "frames": [{"url": "wpcmaps/archive/snow_swe/202610021220.jpg", "t": "202610021220", "label": "10-02 12:20 UTC"}, {"url": "wpcmaps/archive/snow_swe/202610031200.jpg", "t": "202610031200", "label": "10-03 12:00 UTC"}]}, {"file": "snow_melt24.jpg", "label": "24-hour snow melt (NOHRSC model)", "url": "wpcmaps/snow_melt24.jpg", "frames": [{"url": "wpcmaps/archive/snow_melt24/202610021220.jpg", "t": "202610021220", "label": "10-02 12:20 UTC"}, {"url": "wpcmaps/archive/snow_melt24/202610031200.jpg", "t": "202610031200", "label": "10-03 12:00 UTC"}]}, {"file": "snow_blow24.jpg", "label": "24-hour blowing snow sublimation (NOHRSC)", "url": "wpcmaps/snow_blow24.jpg", "frames": [{"url": "wpcmaps/archive/snow_blow24/202610021220.jpg", "t": "202610021220", "label": "10-02 12:20 UTC"}, {"url": "wpcmaps/archive/snow_blow24/202610031200.jpg", "t": "202610031200", "label": "10-03 12:00 UTC"}]}]}];
+const wpcGrpBtns = document.getElementById("wpcGrpBtns");
+const wpcMapSel = document.getElementById("wpcMapSel");
+let wpcCurG = null;
+function wpcGroup() { return WPCGROUPS.find(x => x.id === wpcCurG) || WPCGROUPS[0] || null; }
+function wpcFill() {
+  const g = wpcGroup();
+  [...wpcGrpBtns.children].forEach(b => b.classList.toggle("on", !!g && b.dataset.g === g.id));
+  if (!g) { wpcMapSel.innerHTML = ""; return; }
+  wpcMapSel.innerHTML = g.charts.map((c, i) => `<option value="${i}">${c.label}</option>`).join("");
+  if (typeof wpcShowPlayer === "function") wpcShowPlayer(); else wpcShow();
+}
+function wpcShow() {
+  const g = wpcGroup(); if (!g) return;
+  const c = g.charts[+wpcMapSel.value || 0]; if (!c) return;
+  document.getElementById("wpcMapImg").src = c.url;
+  document.getElementById("wpcMapCap").textContent = c.label;
+}
+wpcGrpBtns.addEventListener("click", ev => {
+  const b = ev.target.closest("button.wbtn"); if (!b) return;
+  wpcCurG = b.dataset.g; wpcFill();
+});
+wpcMapSel.onchange = wpcShowPlayer;
+
+// archive replay: each chart's payload carries `frames` (timestamped past
+// versions mirrored from NOAA). Slider 0..N-1 replays history, N = live.
+let wpcTimer = null;
+const wpcPlayBtn = document.getElementById("wpcPlay");
+const wpcSlider = document.getElementById("wpcSlider");
+const wpcTEl = document.getElementById("wpcT");
+function wpcFrames() {
+  const g = wpcGroup(); if (!g) return [];
+  const c = g.charts[+wpcMapSel.value || 0];
+  return (c && c.frames) || [];
+}
+function wpcShowPos() {
+  const g = wpcGroup(); if (!g) return;
+  const c = g.charts[+wpcMapSel.value || 0]; if (!c) return;
+  const fr = c.frames || [];
+  const i = +wpcSlider.value;
+  const img = document.getElementById("wpcMapImg");
+  if (!fr.length || i >= fr.length) {
+    img.src = c.url; wpcTEl.textContent = "live";
+  } else {
+    img.src = fr[i].url; wpcTEl.textContent = fr[i].label;
+  }
+}
+function wpcShowPlayer() {
+  const fr = wpcFrames();
+  document.getElementById("wpcPlayer").style.display = fr.length ? "flex" : "none";
+  wpcSlider.max = fr.length;   // last position = live
+  wpcSlider.value = fr.length;
+  wpcShowPos();
+}
+function wpcStop() {
+  if (wpcTimer) { clearInterval(wpcTimer); wpcTimer = null; }
+  wpcPlayBtn.textContent = "▶ Play";
+}
+wpcPlayBtn.onclick = () => {
+  if (wpcTimer) { wpcStop(); return; }
+  const fr = wpcFrames(); if (fr.length < 2) return;
+  if (+wpcSlider.value >= fr.length) wpcSlider.value = 0;  // restart from oldest
+  wpcPlayBtn.textContent = "⏸ Pause";
+  wpcTimer = setInterval(() => {
+    let i = +wpcSlider.value + 1;
+    if (i > fr.length) { wpcStop(); return; }   // reached live
+    wpcSlider.value = i; wpcShowPos();
+  }, 700);
+};
+wpcSlider.oninput = () => { wpcStop(); wpcShowPos(); };
+wpcFill();
+</script>
+
+</div>
+<footer>
+  <div id="upd" style="color:#7d8794">checking data age…</div>
+  <div id="memStrip"></div>
+  Data: National Weather Service · NOAA · RainViewer · SPC — all free, no keys.<br/>
+  Page generated Oct 03 2026 16:53 UTC · auto-updated every few minutes by the Tennessee Weather Network weather center ·
+  <a href="https://www.facebook.com/tennesseeweathernetwork" target="_blank">Facebook page</a> ·
+  <a id="fbShareFt" href="#" target="_blank" rel="noopener">📘 Post this page to Facebook</a> ·
+  <a href="fb_page.html" target="_blank">📱 Facebook post page (stand-alone)</a>
+</footer>
+<script>
+/* Facebook share: use the canonical public URL when served from it,
+   otherwise share the page's public home (localhost shares are useless) */
+(function () {
+  var pub = "https://rpleasant12.github.io/http-localhost-8765-/";
+  window.TNWN_PUBLIC_URL = pub; /* reusable share target (certificate, etc.) */
+  var here = location.origin + location.pathname;
+  var target = (location.hostname === "localhost" || location.hostname === "127.0.0.1") && pub ? pub : here;
+  var u = "https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(target);
+  ["fbShare", "fbShareFt"].forEach(function (id) {
+    var a = document.getElementById(id); if (a) a.href = u;
+  });
+})();
+/* PWA: register the service worker (shell precache + offline fallback for
+   pages and data.json; tiles/gifs/CDN pass through untouched). Relative
+   scope so it covers every page under the GitHub Pages subpath. */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("sw.js").catch(function (_e) {
+      /* SW is an enhancement - offline support silently absent on failure */
+    });
+  });
+}
+</script>
+</body></html>

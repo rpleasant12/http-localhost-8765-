@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Storm Chaser&#x27;s Field Guide - Tennessee Weather Network</title>
+<meta property="og:title" content="Storm Chaser&#x27;s Field Guide - Tennessee Weather Network"/>
+<meta property="og:type" content="website"/>
+<meta property="og:description" content="Live radar, future cast, satellite, forecast models and East Tennessee forecasts - free, no keys, always updating."/>
+<meta property="og:url" content="https://rpleasant12.github.io/http-localhost-8765-/"/>
+<meta property="og:image" content="https://rpleasant12.github.io/http-localhost-8765-/og.png"/>
+<meta property="og:site_name" content="Tennessee Weather Network"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="https://rpleasant12.github.io/http-localhost-8765-/og.png"/>
+<meta name="description" content="Live East Tennessee weather: radar, future cast, satellite, all forecast models, severe weather, and city forecasts. Updated continuously."/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="manifest" href="manifest.webmanifest"/>
+<meta name="theme-color" content="#0e1117"/>
+<link rel="apple-touch-icon" href="icon-192.png"/>
+
+<!-- member.js in the HEAD: every page's inline member scripts (auth card,
+     strip, teasers) run before the footer, so loading it here is the only
+     way window.TWN exists when they run (was loaded in the footer and all
+     consumers silently bailed on if(!window.TWN) - member UI dead in every
+     real browser, found by the 2026-10-02 browser auth-lifecycle test) -->
+<script>window.TWN_WORKER="https://tnwn-members.nbasportstalk53.workers.dev";</script>
+<script src="member.js"></script>
+
+<style>
+  :root { color-scheme: dark; --bg:#0e1117; --card:#161b26; --line:rgba(255,255,255,.08); --dim:#9aa4b2; --acc:#4da3ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:var(--bg); color:#e8edf4; }
+  a { color:var(--acc); text-decoration:none; }
+  .wrap { max-width:1100px; margin:0 auto; padding:14px; }
+  nav { position:sticky; top:0; z-index:50; background:rgba(14,17,23,.95); backdrop-filter:blur(6px);
+        border-bottom:1px solid var(--line); }
+  nav .wrap { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; padding:10px 14px; }
+  nav .brand { font-weight:800; font-size:18px; margin-right:auto; }
+  nav .brand span { color:var(--acc); }
+  nav a.pg { color:#cdd7e4; font-size:14px; padding:4px 8px; border-radius:6px; }
+  nav a.pg:hover, nav a.pg.on { background:#1d2432; color:#fff; }
+  header.hero { text-align:center; padding:20px 8px 8px; }
+  header.hero h1 { margin:0; font-size:clamp(22px,5vw,36px); }
+  header.hero .sub { color:var(--dim); margin-top:6px; font-size:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin:14px 0; }
+  h2 { font-size:17px; margin:0 0 10px; color:#cdd7e4; }
+  .grid { display:grid; gap:10px; }
+  .cards7 { grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); }
+  .day { background:#10151f; border:1px solid var(--line); border-radius:12px; padding:12px; text-align:center; }
+  .day .hi { font-size:24px; font-weight:800; }
+  .day .tx { color:var(--dim); font-size:12.5px; min-height:30px; }
+  .now { display:flex; flex-wrap:wrap; gap:16px; align-items:center; }
+  .now .big { font-size:clamp(42px,10vw,64px); font-weight:800; }
+  .now .meta { color:var(--dim); font-size:14px; line-height:1.7; }
+  .chip { display:inline-block; padding:8px 18px; border-radius:12px; font-weight:900; color:#102015; }
+  .alerts { display:grid; gap:8px; }
+  .alert { background:#10151f; border-radius:10px; padding:10px 12px; border-left:6px solid #888; }
+  .alert b { color:#fff; } .alert span { color:var(--dim); font-size:13px; display:block; }
+  .alert.ok { border-left-color:#2e7d32; color:#a5d6a7; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; }
+  .kpi { background:#10151f; border:1px solid var(--line); border-radius:12px; padding:10px; text-align:center; }
+  .kpi b { display:block; font-size:22px; } .kpi span { color:var(--dim); font-size:12px; }
+  .ltg-row { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; margin-top:10px; }
+  .wpcfig { flex:1 1 300px; max-width:49%; min-width:260px; margin:0; }
+  .wpcfig img { width:100%; height:auto; display:block; border-radius:10px; }
+  .wpcfig figcaption { font-size:12px; opacity:.75; margin-top:4px; }
+  .wbtn { background:#1d2432; color:#cdd7e4; border:1px solid var(--line); border-radius:8px;
+          padding:6px 11px; font-size:12.5px; cursor:pointer; }
+  .wbtn.on { background:#2a3a55; color:#fff; font-weight:700; }
+  .npTab { background:#1d2432; color:#cdd7e4; border:1px solid var(--line); border-radius:8px;
+           padding:6px 11px; font-size:12.5px; cursor:pointer; }
+  .npTab.on { background:#2a3a55; color:#fff; font-weight:700; }
+  .ltg-cell { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px 10px; min-width:130px; flex:0 0 auto; }
+  .ltg-cell b { display:block; font-size:15px; }
+  .ltg-cell .h { color:var(--dim); font-size:11px; }
+  .ltg-bars { display:flex; align-items:flex-end; gap:2px; height:34px; margin-top:6px; }
+  .ltg-bars i { flex:1 1 0; min-width:4px; background:#ffeb3b; border-radius:2px 2px 0 0; opacity:.9; }
+  .ltg-badge { font-size:11px; font-weight:800; padding:2px 8px; border-radius:8px; color:#102015; }
+  #map { height:clamp(340px,56vh,580px); border-radius:12px; z-index:0; }
+  .ctl { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:10px; }
+  .ctl button { background:#2b80ff; color:#fff; border:none; border-radius:8px; padding:9px 20px; font-size:16px; cursor:pointer; }
+  .ctl button:active { transform:scale(.97); }
+  .ctl select { background:#1b1f27; color:#eee; border:1px solid rgba(255,255,255,.2); border-radius:6px; padding:8px; font-size:14px; max-width:100%; }
+  .stack { position:relative; width:100%; aspect-ratio:4/3; background:#0a0d13; border-radius:10px; overflow:hidden; }
+  .stack .layer { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+  .frame { font-family:ui-monospace,monospace; color:#ffd54f; }
+  .ctl input[type=range] { flex:1; min-width:110px; accent-color:#2b80ff; height:26px; }
+  .frame { min-width:84px; text-align:center; font-weight:700; color:#ffd54f; font-size:16px; }
+  .src { color:var(--dim); font-size:12px; margin-top:8px; }
+  .legend { display:flex; flex-wrap:wrap; gap:8px 14px; font-size:12.5px; color:var(--dim); margin-top:8px; }
+  .legend i { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+  table.cells { width:100%; border-collapse:collapse; font-size:14px; }
+  table.cells th { text-align:left; color:var(--dim); font-weight:600; font-size:12px; padding:6px; }
+  table.cells th.srt { cursor:pointer; user-select:none; white-space:nowrap; }
+  table.cells th.srt:hover { color:var(--ink); }
+  table.cells th.srt .dir { font-size:10px; margin-left:2px; color:var(--accent); }
+  .trend { font-size:11px; font-weight:700; margin-left:3px; }
+  .trend.up { color:#66bb6a; } .trend.dn { color:#ef5350; } .trend.fl { color:var(--dim); font-weight:400; }
+  table.cells td { border-top:1px solid var(--line); padding:7px 6px; }
+  .dbz { font-weight:800; } .sev { color:#ff5252; } .mod { color:#ffb74d; } .lit { color:#aed581; }
+  .gal { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }
+  .gal img { width:100%; border-radius:10px; border:1px solid var(--line); }
+  .gal .cap { color:var(--dim); font-size:12.5px; margin-top:4px; }
+  .stepper { display:flex; align-items:center; gap:8px; margin-top:8px; }
+  .stepper button { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:14px; }
+  .cmp4 { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+  .cmp4 .pane { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px; }
+  .cmp4 .pane h3 { margin:0 0 6px; font-size:13.5px; color:#cdd7e4; display:flex; align-items:center; gap:8px; }
+  .cmp4 .pane h3 .cap { color:var(--dim); font-weight:400; }
+  .cmp4 .pane select { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:3px 6px; font-size:13px; }
+  .cmp4 img { width:100%; border-radius:8px; }
+  .cmp4 .miss { color:var(--dim); font-size:12.5px; padding:22px 6px; text-align:center; }
+  @media (max-width:820px){ .cmp4 { grid-template-columns:1fr; } }
+  .hourly { display:flex; gap:8px; overflow-x:auto; padding-bottom:6px; }
+  .hr { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px 10px; text-align:center; min-width:72px; }
+  .hr b { display:block; } .hr span { color:var(--dim); font-size:11.5px; }
+  .natimg { width:100%; max-width:860px; display:block; margin:0 auto; border-radius:10px; border:1px solid var(--line); background:#fff; }
+  .pre { white-space:pre-wrap; font-size:12.5px; color:#cdd7e4; background:#10151f; border:1px solid var(--line); border-radius:10px; padding:12px; max-height:260px; overflow:auto; }
+  footer { text-align:center; color:var(--dim); font-size:12.5px; padding:18px 8px 26px; line-height:1.8; }
+  .navctl { display:flex; align-items:center; gap:6px; }
+  .navctl button { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:4px 10px; cursor:pointer; font-size:14px; }
+  .autolbl { color:var(--dim); font-size:12px; display:flex; align-items:center; gap:4px; }
+  .map-dark .leaflet-tile-pane { filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(1.05); }
+  /* radar load-state badge (set by the player: ok / loading / empty) */
+  #map { position: relative; }
+  #map::after {
+    content: "";
+    position: absolute; top: 8px; left: 8px; z-index: 800;
+    background: rgba(10, 14, 20, .75); color: #9fe199; border: 1px solid rgba(255,255,255,.15);
+    border-radius: 6px; padding: 2px 9px; font-size: 11.5px; pointer-events: none;
+  }
+  #map[data-radar-state="loading"]::after { content: "radar loading…"; color: #ffd54f; }
+  #map[data-radar-state="empty"]::after { content: "radar unavailable - retrying"; color: #ff8a80; }
+  #map[data-radar-state="ok"]::after { content: "radar live"; color: #9fe199; }
+  /* hide Leaflet's default home marker (the player draws its own) */
+  .leaflet-marker-icon.home-marker { display: none; }
+  .leaflet-control-attribution { background:rgba(14,17,23,.8) !important; color:var(--dim) !important; }
+  .mapctlbtn { background:#1d2432; border:1px solid var(--line); border-radius:6px; color:#eee;
+    padding:5px 9px; font-size:15px; cursor:pointer; margin-bottom:6px; box-shadow:0 1px 4px rgba(0,0,0,.4); text-align:center; }
+  .mapcoord { background:rgba(14,17,23,.85); color:#cdd7e4; border:1px solid var(--line); border-radius:6px;
+    font-size:11.5px; padding:3px 8px; }
+  /* ---------- mobile nav drawer (2026-09-28) ----------
+     phones get a hamburger that opens a grouped, sectioned menu instead
+     of hunting through the flat strip; desktop shows neither */
+  #navBtn { display:none; }
+  #navDrawer { display:none; }
+  @media (max-width:640px){
+    #navBtn { display:block; }
+    #navDrawer { display:block; position:fixed; inset:0; z-index:9999;
+                 background:rgba(5,8,12,.6); backdrop-filter:blur(2px); }
+    #navDrawer[hidden] { display:none; }   /* beats the display above */
+    #navDrawer > .dHead, #navDrawer .dGroup {
+      background:var(--card); border-bottom:1px solid var(--line); }
+    #navDrawer .dHead { position:sticky; top:0; font-weight:800;
+      padding:14px 16px; display:flex; justify-content:space-between;
+      align-items:center; }
+    #navDrawer .dHead button { background:none; border:none;
+      color:var(--dim); font-size:26px; line-height:1; cursor:pointer;
+      padding:2px 8px; }
+    #navDrawer .dGroup { padding:6px 12px; }
+    #navDrawer .dGroup b { display:block; color:var(--dim);
+      font-size:11.5px; text-transform:uppercase; letter-spacing:.08em;
+      margin:10px 4px 4px; }
+    #navDrawer .dGroup a.pg { display:block; padding:11px 10px;
+      font-size:15px; color:#cdd7e4; border-radius:8px; }
+    #navDrawer .dGroup a.pg.on { background:#1d2432; color:#fff;
+      font-weight:700; }
+    #navBtn { background:#1d2432; color:#e8edf4; border:1px solid var(--line);
+      border-radius:8px; font-size:18px; padding:6px 12px; cursor:pointer;
+      order:-1; }
+  }
+  /* ---------- mobile friendliness (2026-09-28) ----------
+     26 nav links wrap into a tall block on phones; wide alert tables
+     (min-width 420-520px) overflow the screen; .wpcfig min-width forces
+     one image per row. Consolidated responsive fixes below. */
+  @media (max-width:900px){
+    /* tighter nav rows before the phone strip kicks in at 640 */
+    nav .wrap { gap:4px 10px; padding:8px 10px; }
+    nav a.pg { font-size:13px; padding:4px 7px; }
+  }
+  @media (max-width:640px){
+    .wrap{padding:10px;} .card{padding:12px;} nav .brand{font-size:16px;}
+    /* nav = one thumb-swipeable strip instead of a 26-link tall block */
+    nav .wrap { flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch;
+                padding:8px; scrollbar-width:none; }
+    nav .wrap::-webkit-scrollbar { display:none; }
+    nav .brand { white-space:nowrap; }
+    nav a.pg { padding:8px 10px; font-size:13.5px; white-space:nowrap;
+               flex:0 0 auto; }
+    nav .navctl { flex:0 0 auto; }
+    /* 2-up KPI cards read better than 4-up squished */
+    .kpis { grid-template-columns:repeat(2,1fr); }
+    .kpi b { font-size:18px; }
+    .gal { grid-template-columns:1fr; }
+    .wpcfig { max-width:100%; flex-basis:100%; }
+    .ltg-cell { flex:1 1 100%; min-width:0; }
+    /* wide tables scroll inside their card instead of breaking the page */
+    .card { overflow-x:auto; }
+    .minitable, table.cells { display:block; overflow-x:auto;
+                              -webkit-overflow-scrolling:touch; }
+    .minitable { min-width:420px; }
+    /* 16px+ controls avoid the iOS Safari focus zoom */
+    select, button { font-size:16px; }
+    .ctl select { font-size:16px; }
+    #baseSel { max-width:110px; }
+    .mapcoord { display:none; }   /* mouse-only lat/lon readout */
+    footer { font-size:12px; }
+  }
+  @media (max-width:400px){ .kpis { grid-template-columns:1fr; } }
+</style>
+</head><body>
+<nav><div class="wrap">
+  <a class="brand" href="index.html">🌧️ <span>Tennessee Weather Network</span></a>
+  <a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/index.html">Home</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/radar.html">Radar</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/satellite.html">Satellite</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/forecast.html">Forecast</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/dashboard.html">Dashboard</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/national.html">National</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/models.html">Models</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/gefs.html">GEFS</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/hrrr.html">HRRR · RRFS</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/tropmodels.html">Trop Models</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/cfsv2.html">CFSv2 · Long Range</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/meso.html">Mesoanalysis</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/charts.html">Charts & MOS</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/severe.html">Severe ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/storms.html">Storms ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/tropical.html">NHC ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/winter.html">Winter Forecast ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/fronts.html">Fronts</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/fire.html">Fire</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/rivers.html">Rivers</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/history.html">History</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/climate.html">Climate</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/enso.html">El Niño</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/obs.html">Obs & Skew-T</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/education.html">Education</a><a class="pg on" href="https://tnwn-members.nbasportstalk53.workers.dev/p/fieldguide.html">Field Guide</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/traffic.html">Traffic</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/pricing.html">⭐ Premium</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/member.html">Account</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/admin.html">Admin</a>
+  <div class="navctl">
+    <select id="baseSel" title="Basemap" style="max-width:110px"></select>
+    <button id="refreshBtn" title="Refresh this page now">⟳ Refresh</button>
+    <label class="autolbl"><input type="checkbox" id="autoChk" checked/> auto <span id="autoCnt">90</span>s</label>
+    <a id="fbShare" title="Share this page on Facebook" target="_blank" rel="noopener"
+       style="text-decoration:none;background:#1877f2;color:#fff;padding:4px 10px;border-radius:8px;font-size:12.5px;font-weight:600;display:inline-block">📘 Share</a>
+  </div>
+</div></nav>
+
+<button id="navBtn" aria-label="Menu" aria-expanded="false" aria-controls="navDrawer">☰</button>
+<div id="navDrawer" hidden>
+  <div class="dHead">Tennessee Weather Network<button id="navClose" aria-label="Close menu">×</button></div>
+  <div class="dGroup"><b>Live & Forecast</b><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/index.html">Home</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/radar.html">Radar</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/satellite.html">Satellite</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/forecast.html">Forecast</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/dashboard.html">Dashboard</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/national.html">National</a></div><div class="dGroup"><b>Models</b><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/models.html">Models</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/gefs.html">GEFS</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/hrrr.html">HRRR · RRFS</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/tropmodels.html">Trop Models</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/cfsv2.html">CFSv2 · Long Range</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/meso.html">Mesoanalysis</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/charts.html">Charts & MOS</a></div><div class="dGroup"><b>Storms & Seasons</b><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/severe.html">Severe ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/storms.html">Storms ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/tropical.html">NHC ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/winter.html">Winter Forecast ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/fronts.html">Fronts</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/fire.html">Fire</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/rivers.html">Rivers</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/history.html">History</a></div><div class="dGroup"><b>Climate & Learn</b><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/climate.html">Climate</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/enso.html">El Niño</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/obs.html">Obs & Skew-T</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/education.html">Education</a><a class="pg on" href="https://tnwn-members.nbasportstalk53.workers.dev/p/fieldguide.html">Field Guide</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/traffic.html">Traffic</a></div><div class="dGroup"><b>Support</b><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/pricing.html">⭐ Premium</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/member.html">Account</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/admin.html">Admin</a></div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const SITE_DATA_URL = "data.json";
+/* footer member strip: logged-in members see their status + premium link;
+   everyone else sees a quiet upgrade nudge. Dormant when TWN_WORKER empty.
+   member.js loads in <head> but #memStrip is in the footer BELOW this
+   script, so paint on DOMContentLoaded (pre-fix this IIFE ran here, before
+   both TWN and the strip div existed, and silently did nothing). */
+document.addEventListener("DOMContentLoaded", function () {
+  if (!window.TWN || !window.TWN.member || !window.TWN_WORKER) return;
+  const el = document.getElementById("memStrip");
+  if (!el) return;
+  TWN.member.refreshMe().then(function (me) {
+    if (me && me.premiumActive) {
+      /* ad-free perk: hide every free-tier slot for active subscribers */
+      document.querySelectorAll(".adSlot").forEach(a => a.style.display = "none");
+    }
+    if (me && me.member) {
+      el.innerHTML = "<span class='src' style='color:#8ab4f8'>★ " + TWN.member.esc(me.email)
+        + (me.premiumActive ? " · ⭐ Premium active" : " · free account")
+        + " · <a href='member.html'>account</a>"
+        + (me.admin ? " · <a href='admin.html'>admin</a>" : "") + "</span><br/>";
+    } else {
+      el.innerHTML = "<span class='src'>⭐ <a href='pricing.html'>Go premium: weather centers, AI model maps, ad-free - $4.99/mo</a></span><br/>";
+    }
+  }).catch(function () {});
+});
+/* GitHub Pages caches data.json up to 10 min (max-age=600); the timestamp
+   query makes the browser fetch a fresh copy from the Pages CDN instead of
+   reusing a stale cached one. Public data publishes ~every 10 min, so the
+   footer age normally reads 0-10 min - that is the honest cadence. */
+function dataUrl() {
+  try { return SITE_DATA_URL + "?t=" + Date.now(); } catch (_e) { return SITE_DATA_URL; }
+}
+/* live-update watchdog: re-fetch data.json every 3 min and show its age.
+   The footer age is computed from dataEpochMs (server epoch), NOT from the
+   human-readable 'generated' string (now "... 12:17 AM ET" - unparseable). */
+let SITE_DATA = null;
+function fmtAge(mins) {
+  if (mins < 1) return "just now";
+  if (mins < 60) return mins + " min ago";
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return h + " h " + (m ? m + " min " : "") + "ago";
+}
+function updTick() {
+  if (!SITE_DATA) return;
+  const el = document.getElementById("upd");
+  if (!el) return;
+  const ms = Date.now() - (SITE_DATA.dataEpochMs || 0);
+  if (!SITE_DATA.dataEpochMs || ms < 0) { el.textContent = "\u2705 Live data"; return; }
+  const mins = Math.floor(ms / 60000);
+  /* Public site: GitHub publishes ~every 10 min, so age up to ~12 min is the
+     normal cadence - warn only past that. Pages' own max-age=600 means the
+     fetch itself can lag a couple minutes behind the publish. */
+  const took = (function () {
+    const lu = SITE_DATA.lastUpdate;
+    if (!lu || !(lu.lastDurationS > 0)) return "";
+    const s = lu.lastDurationS, m = Math.floor(s / 60);
+    let t = " \u00b7 last update took " + (m ? m + " min " + (s % 60) + " s" : s + " s");
+    if (lu.cycles > 1 && lu.avgDurationS > 0) {
+      const am = Math.floor(lu.avgDurationS / 60);
+      t += " \u00b7 avg " + (am ? am + " min " + (lu.avgDurationS % 60) + " s" : lu.avgDurationS + " s");
+    }
+    return t;
+  })();
+  const maxAge = (location.hostname === "localhost" || location.hostname === "127.0.0.1") ? 2 : 12;
+  const grew = SITE_DATA._lastAge != null && mins > SITE_DATA._lastAge + 2 && mins > maxAge;
+  SITE_DATA._lastAge = mins;
+  if (mins <= maxAge) el.textContent = "\u2705 Live data \u00b7 refreshed " + fmtAge(mins) + took;
+  else if (mins <= 30) el.textContent = "\u23f3 Data " + fmtAge(mins) + " old \u00b7 next publish soon" + took;
+  else if (grew) el.textContent = "\u23f3 Data " + fmtAge(mins) + " old \u00b7 waking the weather center - catching up now";
+  else el.textContent = "\u26a0\ufe0f Data " + fmtAge(mins) + " old \u00b7 PC asleep or offline - updates pause until it wakes";
+}
+async function siteRefresh() {
+  try {
+    SITE_DATA = await (await fetch(dataUrl(), {cache: "no-store"})).json();
+    if (typeof onDataRefresh === "function") onDataRefresh(SITE_DATA);
+    updTick();
+    try { syncAutoPref(); } catch (_e) {}   /* version now known: apply/wipe stale auto pref */
+    /* auto-heal: if the served copy is still 30+ min old on two consecutive
+       polls (6 min apart), force a cache-busted reload once - recovers from
+       a stuck CDN copy or a missed publish without looping. */
+    if (SITE_DATA.dataEpochMs && Date.now() - SITE_DATA.dataEpochMs > 30 * 60000) {
+      siteRefresh._stale = (siteRefresh._stale || 0) + 1;
+      if (siteRefresh._stale >= 2 && !sessionStorage.getItem("tnwxHealed")) {
+        sessionStorage.setItem("tnwxHealed", "1");
+        const u = new URL(location.href); u.searchParams.set("t", Date.now());
+        location.replace(u); return;
+      }
+    } else siteRefresh._stale = 0;
+  } catch (e) { /* offline: keep last data */ }
+}
+siteRefresh();
+setInterval(updTick, 30000);
+setInterval(siteRefresh, 180000);
+/* paused-banner: the STOP shortcut writes PAUSED.json, so any page that
+   still loads while updates are paused tells the truth instead of showing
+   a stale timestamp that looks like normal lag. START removes the marker. */
+(async function () {
+  try {
+    const pr = await fetch("PAUSED.json?t=" + Date.now(), { cache: "no-store" });
+    if (!pr.ok) return;   /* 404 = running normally */
+    const p = await pr.json();
+    const pb = document.createElement("div");
+    pb.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:99999;"
+      + "background:#b3261e;color:#fff;text-align:center;font-weight:700;"
+      + "padding:8px 12px;font-size:14px;font-family:inherit;";
+    pb.textContent = "\u23f8 Weather updates are PAUSED - press the START shortcut "
+      + "to resume. Data on this page is frozen"
+      + (p && p.since ? " (paused " + String(p.since).replace(/^paused\s*/, "") + ")" : "") + ".";
+    document.body.appendChild(pb);
+    document.body.style.paddingTop = "38px";
+    if (autoCnt) autoCnt.textContent = "\u221e";   /* freeze the auto-reload countdown too */
+  } catch (_e) { /* marker unreadable: treat as running */ }
+})();
+/* page auto-refresh: soft (map pages define onDataRefresh) or hard reload.
+   Hard reloads MUST cache-bust: GitHub Pages sends max-age=600, so a plain
+   location.reload() can serve the same stale HTML for up to 10 minutes. */
+function hardReload() {
+  try {
+    const u = new URL(location.href);
+    u.searchParams.set("t", Date.now());
+    location.replace(u);
+  } catch (_e) { location.reload(); }
+}
+let AUTO_LEFT = 90;
+const autoCnt = document.getElementById("autoCnt"), autoChk = document.getElementById("autoChk");
+document.getElementById("refreshBtn").onclick = () => {
+  const b = document.getElementById("refreshBtn");
+  if (b) { b.textContent = "…"; }
+  hardReload();
+};
+/* auto-refresh preference is remembered per siteVersion (a fingerprint of
+   the site code, served in data.json). A saved "off" therefore cannot
+   survive a site update: after new code pushes, the flag belongs to an old
+   version, is wiped, and auto-refresh resumes - an update always re-opens
+   the refresh tap. Before the first data pull resolves the version is
+   unknown, so the checkbox defaults ON and re-syncs the moment data lands. */
+function autoPrefKey() {
+  /* SITE_DATA is a script-level let - reachable by name in this scope but
+     never as window.SITE_DATA, so the bare (guarded) reference is required */
+  let v = "";
+  try { v = (typeof SITE_DATA !== "undefined" && SITE_DATA && SITE_DATA.siteVersion) || ""; } catch (_e) {}
+  return v ? "tnwxAuto." + v : "";
+}
+function syncAutoPref() {
+  const k = autoPrefKey();
+  if (!k) return;
+  try {
+    /* wipe the legacy flag and flags saved under other versions */
+    Object.keys(localStorage)
+      .filter(x => x === "tnwxAuto" || (x.indexOf("tnwxAuto.") === 0 && x !== k))
+      .forEach(x => localStorage.removeItem(x));
+    autoChk.checked = localStorage.getItem(k) !== "off";
+  } catch (_e) {}
+}
+syncAutoPref();
+autoChk.onchange = () => {
+  AUTO_LEFT = 90;
+  const k = autoPrefKey();
+  try { if (k) localStorage.setItem(k, autoChk.checked ? "on" : "off"); } catch (_e) {}
+};
+/* interacting with the page postpones the auto cycle: a hard reload in the
+   middle of a zoom/pinch/scrub reads as "the map won't zoom" (2026-09-18) */
+["pointerdown", "wheel", "touchstart"].forEach(function (ev) {
+  document.addEventListener(ev, function () { AUTO_LEFT = 90; }, { passive: true, capture: true });
+});
+setInterval(() => {
+  if (!autoChk.checked) { if (autoCnt) autoCnt.textContent = "\u221e"; return; }
+  AUTO_LEFT -= 1;
+  if (autoCnt) autoCnt.textContent = AUTO_LEFT;
+  if (AUTO_LEFT <= 0) {
+    AUTO_LEFT = 90;
+    if (typeof onDataRefresh === "function") siteRefresh(); else hardReload();
+  }
+}, 1000);
+
+const BASEMAPS = {
+  dark:  { label: "Dark", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", invert: true },
+  light: { label: "Light", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", invert: false },
+  sat:   { label: "Satellite", url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", invert: false },
+  topo:  { label: "Terrain", url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}", invert: false }
+};
+let _baseLayer = null, _baseKey = null;
+function setBase(key, map) {
+  if (key === "mapbox" && !BASEMAPS.mapbox && typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN)
+    BASEMAPS.mapbox = { label: "Mapbox", style: "mapbox://styles/mapbox/light-v11" };
+  const b = BASEMAPS[key] || BASEMAPS.dark;
+  if (_baseKey === key && _baseLayer) return;
+  if (_baseLayer) map.removeLayer(_baseLayer);
+  if (b.style) _baseLayer = L.mapboxGL({ accessToken: MAPBOX_TOKEN, style: b.style, attribution: "&copy; Mapbox" }).addTo(map);
+  else _baseLayer = L.tileLayer(b.url, { maxNativeZoom: 19, maxZoom: 21, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
+  map.getContainer().classList.toggle("map-dark", !!b.invert);
+  _baseKey = key;
+  try { localStorage.setItem("tnwxBase", key); } catch (_e) {}
+  const sel = document.getElementById("baseSel"); if (sel && sel.value !== key) sel.value = key;
+}
+function addMapControls(map, home, homeZoom) {
+  const btn = (txt, title, fn) => {
+    const c = L.control({ position: "topleft" });
+    c.onAdd = () => { const d = L.DomUtil.create("div", "mapctlbtn"); d.textContent = txt; d.title = title;
+      L.DomEvent.disableClickPropagation(d); d.onclick = fn; return d; };
+    c.addTo(map);
+  };
+  btn("⛶", "Fullscreen map", () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else map.getContainer().requestFullscreen();
+  });
+  btn("⌂", "Home view", () => map.setView(home, homeZoom));
+  btn("◎", "My location", () => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(p => {
+      map.setView([p.coords.latitude, p.coords.longitude], 10);
+      L.circleMarker([p.coords.latitude, p.coords.longitude], { radius: 7, color: "#fff", weight: 2, fillColor: "#4da3ff", fillOpacity: 1 })
+        .addTo(map).bindTooltip("You are here").openTooltip();
+    }, () => {}, { timeout: 8000 });
+  });
+  L.control.scale({ imperial: true, metric: false }).addTo(map);
+  document.addEventListener("fullscreenchange", () => setTimeout(() => map.invalidateSize(), 200));
+  const coord = L.control({ position: "bottomright" });
+  coord.onAdd = () => L.DomUtil.create("div", "mapcoord");
+  coord.addTo(map);
+  const el = document.querySelector(".mapcoord");
+  map.on("mousemove", e => { if (el) el.textContent = e.latlng.lat.toFixed(3) + ", " + e.latlng.lng.toFixed(3); });
+  map.on("mouseout", () => { if (el) el.textContent = ""; });
+  const sel = document.getElementById("baseSel");
+  if (sel) {
+    sel.innerHTML = Object.entries(BASEMAPS).map(([k, b]) => `<option value="${k}">${b.label}</option>`).join("");
+    let saved = null; try { saved = localStorage.getItem("tnwxBase"); } catch (_e) {}
+    setBase(saved && BASEMAPS[saved] ? saved : ((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark"), map);
+    sel.onchange = e => setBase(e.target.value, map);
+  } else setBase((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark", map);
+  if (typeof drawHomeMarker === "function") drawHomeMarker(map, home);
+}
+function drawHomeMarker(map, home) {
+  if (map._tnwxHome) return;
+  map._tnwxHome = L.circleMarker(home, { radius: 7, color: "#fff", weight: 2,
+    fillColor: "#ff5252", fillOpacity: 1 }).addTo(map).bindTooltip((typeof DATA_PLACE !== "undefined" && DATA_PLACE) || "Home");
+}
+
+
+setTimeout(function () {
+  /* mobile drawer: hamburger opens the grouped nav; scrim click, X,
+     Escape and link taps all close it */
+  var nb = document.getElementById("navBtn"),
+      nd = document.getElementById("navDrawer");
+  if (nb && nd) {
+    var setDrawer = function (open) {
+      nd.hidden = !open;
+      nb.setAttribute("aria-expanded", open ? "true" : "false");
+      document.body.style.overflow = open ? "hidden" : "";
+    };
+    nb.addEventListener("click", function () { setDrawer(nd.hidden); });
+    var xc = document.getElementById("navClose");
+    if (xc) xc.addEventListener("click", function () { setDrawer(false); });
+    nd.addEventListener("click", function (e) {
+      if (e.target === nd) setDrawer(false);   /* scrim tap, not a link */
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") setDrawer(false);
+    });
+    nd.addEventListener("click", function (e) {
+      if (e.target && e.target.closest && e.target.closest("a")) setDrawer(false);
+    });
+    setDrawer(false);
+  }
+  if (typeof map === "undefined" || !map) return;
+  const sel = document.getElementById("baseSel");
+  if (typeof addMapControls === "function" && (typeof _baseLayer === "undefined" || !_baseLayer)) {
+    const la = (typeof DATA_LAT !== "undefined") ? DATA_LAT : 36.2;
+    const lo = (typeof DATA_LON !== "undefined") ? DATA_LON : -83.0;
+    addMapControls(map, [la, lo], 6);
+  } else if (typeof setBase === "function") {
+    if (!_baseLayer) setBase((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark", map);
+    if (sel) sel.onchange = function (e) { setBase(e.target.value, map); };
+  }
+}, 600);
+
+</script>
+<div class="wrap">
+
+<div class="card"><h2>🌪️ Storm Chaser's Field Guide — reading the composites &amp; SPC colors together</h2>
+  <p>This guide teaches one skill: walking onto the <a href="models.html">Models page</a>, reading the severe-parameter walls — <b>SCP</b>, <b>STP</b>, <b>EHI</b> (and SHIP for hail) — and knowing <i>instantly</i> what the colors are telling you, because every wall, the Severe page outlooks and the Mesoanalysis composites all speak the same six-color SPC language.</p>
+  <div class="alert ok">Right now no East TN town crosses SCP/STP/EHI ≥ 1 in the next ~12 h (HRRR). The walls below still show where the ingredients are building.</div>
+</div>
+
+<div class="card"><h2>🎨 The SPC color language — one ladder, everywhere</h2>
+  <p>SPC's categorical outlook colors double as the fill ramp on the severe walls. Memorize the ladder once and every map on this site reads the same way — a yellow blob means <i>slight-risk-grade</i> environment whether it's an outlook polygon, an SCP wall, or a mesoanalysis composite:</p>
+  <div style="line-height:2.1"><span style="display:inline-flex;align-items:center;gap:6px;margin:2px 10px 2px 0"><span style="width:14px;height:14px;background:#c1e9c1;display:inline-block;border:1px solid #555;border-radius:3px"></span><b>TSTM</b> <span class="src">— unorganized — storms, if any, stay ordinary</span></span></div>
+  <div style="line-height:2.1"><span style="display:inline-flex;align-items:center;gap:6px;margin:2px 10px 2px 0"><span style="width:14px;height:14px;background:#66cdaa;display:inline-block;border:1px solid #555;border-radius:3px"></span><b>MRGL</b> <span class="src">— marginal — isolated severe possible</span></span></div>
+  <div style="line-height:2.1"><span style="display:inline-flex;align-items:center;gap:6px;margin:2px 10px 2px 0"><span style="width:14px;height:14px;background:#ffff00;display:inline-block;border:1px solid #555;border-radius:3px"></span><b>SLGT</b> <span class="src">— slight — scattered severe storms</span></span></div>
+  <div style="line-height:2.1"><span style="display:inline-flex;align-items:center;gap:6px;margin:2px 10px 2px 0"><span style="width:14px;height:14px;background:#ff8c00;display:inline-block;border:1px solid #555;border-radius:3px"></span><b>ENH</b> <span class="src">— enhanced — numerous severe storms</span></span></div>
+  <div style="line-height:2.1"><span style="display:inline-flex;align-items:center;gap:6px;margin:2px 10px 2px 0"><span style="width:14px;height:14px;background:#ff0000;display:inline-block;border:1px solid #555;border-radius:3px"></span><b>MDT</b> <span class="src">— moderate — widespread severe likely</span></span></div>
+  <div style="line-height:2.1"><span style="display:inline-flex;align-items:center;gap:6px;margin:2px 10px 2px 0"><span style="width:14px;height:14px;background:#ff00ff;display:inline-block;border:1px solid #555;border-radius:3px"></span><b>HIGH</b> <span class="src">— rare — long-track strong tornado / MCS outbreak</span></span></div>
+  <p class="src">On the walls the ramp is continuous (values blend between bands); the hex values above are the exact anchors shared with the Severe page and the mesoanalysis composites. A wall that is entirely green is simply saying "no organized-severe environment yet" — that is information, not a bug.</p>
+</div>
+
+<div class="card"><h2>🌪️ SCP — Supercell Composite: <i>can a rotating storm organize here?</i></h2>
+  <div class="kpi"><span>Formula</span><b style="font-family:monospace;font-size:13px">min(MUCAPE/1000, 1.5) × min(ESRH/50, 1.5) × min(EBWD/20, 1.5)</b></div>
+  <p>SCP multiplies the three supercell ingredients — instability, storm-relative helicity (spin), and deep-layer shear — so <b>all three must be present</b> for the value to climb. A wall goes yellow-orange only where fuel and spin overlap.</p>
+  <a href="models.html?pv=us&amp;pvProd=scp" title="Open the live Supercell Composite wall — zoomable, looping, all models"><img src="model_maps/HRRR_scp_f006_2026100315_us.png" alt="Current Supercell Composite composite map" style="width:100%;max-width:640px;display:block;margin:10px auto 2px;border:1px solid #444;border-radius:6px"></a><div class="src" style="text-align:center;margin:0 0 6px">Today&#39;s Supercell Composite — newest frame (valid Sat 5 PM ET). Click to open the live, zoomable wall.</div>
+  <div class="alert" style="border-left-color:#66cdaa"><b>SCP &lt; 1</b><span>ordinary cells at best — chase for lightning photos, not structure</span></div>
+  <div class="alert" style="border-left-color:#ffff00"><b>SCP 1–4</b><span>marginal supercells possible — watch storm mode closely</span></div>
+  <div class="alert" style="border-left-color:#ff0000"><b>SCP ≥ 4</b><span>significant supercells likely — the classic target area</span></div>
+  <p class="src">Read it on <a href="models.html?pv=us&amp;pvProd=scp">the Supercell Composite wall</a>. The strongest axis is where you stage <i>before</i> storms fire; the cap at 1.5 per term keeps one extreme ingredient (huge CAPE, dead air) from faking a signal.</p>
+</div>
+
+<div class="card"><h2>🎯 STP — Significant Tornado Parameter: <i>which end is tornadic?</i></h2>
+  <div class="kpi"><span>Formula</span><b style="font-family:monospace;font-size:13px">SCP's terms at tornado weights × LCL term — low cloud bases raise it</b></div>
+  <p>STP is SCP with tornado tuning: it weighs helicity and shear harder and adds a <b>cloud-base term</b> — low LCLs (humid surface air, small T/Td spread) are the tornadic ingredient. Where SCP says "supercells", STP says <i>which part of that area supports tornadoes</i>.</p>
+  <a href="models.html?pv=us&amp;pvProd=stp" title="Open the live Significant Tornado Parameter wall — zoomable, looping, all models"><img src="model_maps/HRRR_stp_f006_2026100312_us.png" alt="Current Significant Tornado Parameter composite map" style="width:100%;max-width:640px;display:block;margin:10px auto 2px;border:1px solid #444;border-radius:6px"></a><div class="src" style="text-align:center;margin:0 0 6px">Today&#39;s Significant Tornado Parameter — newest frame (valid Sat 2 PM ET). Click to open the live, zoomable wall.</div>
+  <div class="alert" style="border-left-color:#ffff00"><b>STP ≥ 1</b><span>tornado-favorable — tornado is a credible scenario in that corridor</span></div>
+  <div class="alert" style="border-left-color:#ff0000"><b>STP ≥ 2</b><span>significant-tornado environments — strong, long-track tornadoes possible</span></div>
+  <p class="src">Read it on <a href="models.html?pv=us&amp;pvProd=stp">the Significant Tornado Parameter wall</a>, animated hour by hour. In the field: when a QLCS or supercell cluster moves along an STP axis, the embedded rotation threat is highest where the axis and the storm path intersect.</p>
+</div>
+
+<div class="card"><h2>⚡ EHI — Energy Helicity Index: <i>the early spin-and-fuel check</i></h2>
+  <div class="kpi"><span>Formula</span><b style="font-family:monospace;font-size:13px">MUCAPE × ESRH / 160,000</b></div>
+  <p>EHI is deliberately simple — just instability × spin. It ignores shear direction and cloud bases, which makes it fast and honest: when EHI climbs toward 1 while the shearing is still organizing, supercells are becoming possible even before SCP agrees. It is often the <b>first</b> of the three to light up as a warm front or dryline sets up.</p>
+  <a href="models.html?pv=us&amp;pvProd=ehi" title="Open the live Energy Helicity Index wall — zoomable, looping, all models"><img src="model_maps/HRRR_ehi_f006_2026100312_us.png" alt="Current Energy Helicity Index composite map" style="width:100%;max-width:640px;display:block;margin:10px auto 2px;border:1px solid #444;border-radius:6px"></a><div class="src" style="text-align:center;margin:0 0 6px">Today&#39;s Energy Helicity Index — newest frame (valid Sat 2 PM ET). Click to open the live, zoomable wall.</div>
+  <div class="alert" style="border-left-color:#ffff00"><b>EHI ≥ 1</b><span>supercell-favorable — cross-check SCP and STP for the full picture</span></div>
+  <p class="src">Read it on <a href="models.html?pv=us&amp;pvProd=ehi">the EHI wall</a>. Hail hunters: pair it with <a href="models.html?pv=us&amp;pvProd=ship">the SHIP wall</a> — SHIP ≥ 1 marks significant-hail environments the same way.</p>
+</div>
+
+
+<div class="card"><h2>🧊 SHIP — Significant Hail Parameter: <i>how big might the stones get?</i></h2>
+  <div class="kpi"><span>Formula</span><b style="font-family:monospace;font-size:13px">min(MUCAPE/1000, 1.5) × min(LR75/5.6, 1.5) × min(mid-RH/50, 1.5) × min(EBWD/50, 1.5)</b></div>
+  <p>SHIP stacks the four hail ingredients — instability, <b>steep 700–500 mb lapse rates</b> (the growth-zone chill), mid-level moisture, and deep-layer shear (which keeps stones recycling through the growth zone instead of falling out). Like the other composites, each term caps at 1.5 so one extreme can't fake the signal. SHIP says <i>nothing</i> about tornadoes — a SHIP 4 day can carry zero torsional spin.</p>
+  <a href="models.html?pv=us&amp;pvProd=ship" title="Open the live Significant Hail Parameter wall — zoomable, looping, all models"><img src="model_maps/SREF_ship_f087_2026100309_us.png" alt="Current Significant Hail Parameter composite map" style="width:100%;max-width:640px;display:block;margin:10px auto 2px;border:1px solid #444;border-radius:6px"></a><div class="src" style="text-align:center;margin:0 0 6px">Today&#39;s Significant Hail Parameter — newest frame (valid Tue 8 PM ET). Click to open the live, zoomable wall.</div>
+  <a href="models.html?pv=us&amp;pvProd=600_tmp" title="Open the live 600 mb Temperature (melt layer) wall — zoomable, looping, all models"><img src="model_maps/AI-FourCastNet_600_tmp_f240_2026100212_us.png" alt="Current 600 mb Temperature (melt layer) composite map" style="width:100%;max-width:640px;display:block;margin:10px auto 2px;border:1px solid #444;border-radius:6px"></a><div class="src" style="text-align:center;margin:0 0 6px">Today&#39;s 600 mb Temperature (melt layer) — newest frame (valid Mon 8 AM ET). Click to open the live, zoomable wall.</div>
+  <div class="alert" style="border-left-color:#ffff00"><b>SHIP ≥ 1</b><span>significant-hail environment — severe hail is a credible scenario, quarter-to-golfball sized</span></div>
+  <div class="alert" style="border-left-color:#ef5350"><b>SHIP ≥ 2</b><span>very large hail likely — tennis-ball-plus stones; car position and shelter planning stop being optional</span></div>
+  <p class="src">Pair it with <a href="models.html?pv=us&amp;pvProd=lr75">the 700–500 mb lapse-rate wall</a> (steepness of the growth zone) and <a href="models.html?pv=us&amp;pvProd=600_tmp">the 600 mb temperature wall</a> (the melt layer — cold 600 mb air lets stones survive the fall). Both live on the same collage.</p>
+</div>
+
+<div class="card"><h2>📸 Hail structure — and when to trade the tornado target for the hail core</h2>
+  <p><b>Reading hail structure:</b> on <a href="radar.html">radar</a>, big hail announces itself — reflectivity cores <b>above 60 dBZ aloft</b>, a <b>three-body scatter spike</b> (the flaring 'hail spike' downstream of the core), and an unusually deep, tight core pedestal. Visually: greenish-white glow inside the vault, mamma under the anvil, and stones that look like splattered rubber. High-based storms (elevated updraft bases) drop bigger stones at the ground — more fall distance to accelerate and less warm air to melt them.</p>
+  <p><b>When to trade the tornado target:</b> tornado priority holds whenever <b>STP ≥ 1 shows anywhere in range</b> or a tornado watch is up — rotation beats photography, every time. Trade to the hail core when the walls split: <b>SHIP ≥ 2 with STP &lt; 0.5 and a fat cap</b> (huge fuel, no spin), high-based storms, or the SCP axis keeps dying while LR75 stays steep. The tell is in the pair, not one map — the <a href="models.html?pv=us&amp;pvProd=ship">SHIP wall</a> next to <a href="models.html?pv=us&amp;pvProd=stp">the STP wall</a> at the same hour makes the call obvious.</p>
+  <div class="alert" style="border-left-color:#ffa726"><b>Hail intercept is a different geometry</b><span>never wait under the core — position on the storm's inflank, shoot wide, and keep the car pointed out with glass away from the wind. Hail kills chasers' windshields far more often than tornadoes kill chasers.</span></div>
+  <div class="alert"><b>The honest hybrid</b><span>when SHIP and STP overlap in space, ride the storm's rear flank where you can frame the structure and stay clear of both cores — the overlap corridor is where the day pays twice.</span></div>
+  <p class="src">Hail photography prizes the same discipline as tornado work: a planned exit, distance, and letting the storm come to your camera. The <a href="#fg-chase-card">field card's</a> safety rules all still apply.</p>
+</div>
+
+<div class="card"><h2>🧭 The chase-day drill — one workflow, five maps</h2>
+  <p><b>1. Frame the day.</b> Open the <a href="severe.html">Severe page</a> — the SPC outlook colors set expectations. ENH+ anywhere in your range means today is a driving day.</p>
+  <p><b>2. Check the ingredients.</b> On the <a href="models.html">collage</a>, load <a href="models.html?pv=us&amp;pvProd=mucape">MUCAPE</a> and <a href="models.html?pv=us&amp;pvProd=shear06">0–6 km shear</a> at the same hour: fuel ≥ ~2000 J/kg under ≥ ~30 kt shear is the raw supercell pairing.</p>
+  <p><b>3. Find the organization zone.</b> Switch to <a href="models.html?pv=us&amp;pvProd=scp">SCP</a> — the yellow-orange axis is your staging area. Play the wall loop to see when it matures.</p>
+  <p><b>4. Find the tornado end.</b> Switch to <a href="models.html?pv=us&amp;pvProd=stp">STP</a> — where it crosses 1 inside the SCP axis is your tornado corridor. Advance the hours: corridors migrate with the low-level jet.</p>
+  <p><b>5. Verify live.</b> Watch the <a href="radar.html">radar</a> and the <a href="meso.html">mesoanalysis</a> as storms fire — the meso composites show what the storm is <i>actually</i> ingesting. The Models page town-ranking card tells you which communities sit in the parameter air.</p>
+  <div class="alert"><b>When the models disagree</b><span>different models painting SCP differently = timing/setup uncertainty. The wall's outlier badge flags the odd one out; lean toward the majority and hold a bigger safety margin.</span></div>
+</div>
+
+<div class="card"><h2>📋 Cheat sheet</h2>
+  <p style="margin:4px 0 8px"><b>SHIP — Significant Hail Parameter</b> rounds out the family; today's wall is below the table.</p>
+  <table style="width:100%;border-collapse:collapse;font-size:13.5px">
+    <tr style="text-align:left;border-bottom:2px solid #444"><th style="padding:6px">Wall</th><th>≥ 1 means</th><th>≥ 2 / 4 means</th><th>Field question it answers</th></tr>
+    <tr style="border-bottom:1px solid #333"><td style="padding:6px"><b>SCP</b></td><td>supercells possible</td><td>≥ 4: significant supercells</td><td>Where do rotating storms organize?</td></tr>
+    <tr style="border-bottom:1px solid #333"><td style="padding:6px"><b>STP</b></td><td>tornado-favorable</td><td>≥ 2: significant tornado</td><td>Which end is tornadic?</td></tr>
+    <tr style="border-bottom:1px solid #333"><td style="padding:6px"><b>EHI</b></td><td>supercell-favorable</td><td>use with STP</td><td>Is spin-and-fuel stacking yet?</td></tr>
+    <tr><td style="padding:6px"><b>SHIP</b></td><td>significant hail possible</td><td>very large hail</td><td>How big might the stones get?</td></tr>
+  </table>
+  <p class="src">All four walls share the SPC palette above — value bands climb green → teal → yellow → orange → red → magenta exactly like an outlook.</p>
+  <a href="models.html?pv=us&amp;pvProd=ship" title="Open the live Significant Hail Parameter wall — zoomable, looping, all models"><img src="model_maps/SREF_ship_f087_2026100309_us.png" alt="Current Significant Hail Parameter composite map" style="width:100%;max-width:640px;display:block;margin:10px auto 2px;border:1px solid #444;border-radius:6px"></a><div class="src" style="text-align:center;margin:0 0 6px">Today&#39;s Significant Hail Parameter — newest frame (valid Tue 8 PM ET). Click to open the live, zoomable wall.</div>
+</div>
+
+<div class="card" id="fg-quiz" style="border:2px solid #ffa726"><h2>🧠 Field quiz — read the walls, 8 of 10 to pass</h2><p style="margin:6px 0">Ten map-reading scenarios straight off the severe walls. The colored chips use the SPC fills from the ladder above — judge each answer like you would on a chase day. <b>8 of 10 (80%)</b> passes. Grading marks green-correct / red-picked, explains the why behind each answer, and your best score is saved on this device.</p><div class="fgq" data-correct="1" data-why="SCP ≥ 1 = supercell-favorable air; the orange band is your staging axis. Tornado wording needs STP, not SCP." style="margin:12px 0"><b>1. <span style="display:inline-block;background:#fff176;color:#1a1a1a;font-weight:700;padding:2px 10px;border-radius:4px;border:1px solid #555;margin-right:6px">SCP 1.6</span>An SCP wall shows a broad 1.2-2.0 orange corridor ahead of the dryline. What is that corridor telling you?</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq1" value="0" style="accent-color:#42a5f5;cursor:pointer"> Storms may form but stay ordinary</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq1" value="1" style="accent-color:#42a5f5;cursor:pointer"> Rotating supercells are possible — get in position</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq1" value="2" style="accent-color:#42a5f5;cursor:pointer"> Significant tornadoes are likely</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq1" value="3" style="accent-color:#42a5f5;cursor:pointer"> Nothing will fire today</label></div><div class="fgq" data-correct="2" data-why="STP ≥ 2 flags a significant-tornado environment. The narrow nose on the axis&#x27;s cool side is the classic tornadic end." style="margin:12px 0"><b>2. <span style="display:inline-block;background:#ffa726;color:#1a1a1a;font-weight:700;padding:2px 10px;border-radius:4px;border:1px solid #555;margin-right:6px">STP 2.3</span>A narrow STP maximum of 2-3 sits on the north edge of the SCP axis. What do you do with it?</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq2" value="0" style="accent-color:#42a5f5;cursor:pointer"> Note hail as the main threat there</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq2" value="1" style="accent-color:#42a5f5;cursor:pointer"> Dismiss it as a model artifact</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq2" value="2" style="accent-color:#42a5f5;cursor:pointer"> Treat it as the significant-tornado corridor — the most respect on the map</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq2" value="3" style="accent-color:#42a5f5;cursor:pointer"> It marks where storms will die</label></div><div class="fgq" data-correct="3" data-why="EHI is the early composite — it often lights up first as CAPE and helicity come together. The guide&#x27;s &#x27;early check&#x27;." style="margin:12px 0"><b>3. <span style="display:inline-block;background:#fff176;color:#1a1a1a;font-weight:700;padding:2px 10px;border-radius:4px;border:1px solid #555;margin-right:6px">EHI 1.1</span>EHI crosses 1.0 two hours before SCP or STP show anything meaningful. What is this?</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq3" value="0" style="accent-color:#42a5f5;cursor:pointer"> The other walls are broken</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq3" value="1" style="accent-color:#42a5f5;cursor:pointer"> A wet-bulb realm where storms can&#x27;t form</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq3" value="2" style="accent-color:#42a5f5;cursor:pointer"> A hail signal</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq3" value="3" style="accent-color:#42a5f5;cursor:pointer"> The early heads-up: spin and fuel are stacking — watch for the others to follow</label></div><div class="fgq" data-correct="0" data-why="Read the ladder: green unorganized → yellow slight-grade → orange enhanced/moderate-grade. The orange blob is the maximum." style="margin:12px 0"><b>4. An SCP wall shows deep green almost everywhere, a yellow batch, and one orange blob. What is the orange blob?</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq4" value="0" style="accent-color:#42a5f5;cursor:pointer"> The day&#x27;s target area — where parameters peak</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq4" value="1" style="accent-color:#42a5f5;cursor:pointer"> A rendering error</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq4" value="2" style="accent-color:#42a5f5;cursor:pointer"> Proof the whole map is High risk</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq4" value="3" style="accent-color:#42a5f5;cursor:pointer"> A less-dangerous area than the yellow</label></div><div class="fgq" data-correct="0" data-why="SHIP ≥ 1 = significant-hail environment; low STP says the tornado ingredient is missing. Read the family together." style="margin:12px 0"><b>5. <span style="display:inline-block;background:#ffa726;color:#1a1a1a;font-weight:700;padding:2px 10px;border-radius:4px;border:1px solid #555;margin-right:6px">SHIP 2.2</span>A SHIP wall paints 2.0-2.5 over your county while STP stays at 0.3. What kind of day is this?</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq5" value="0" style="accent-color:#42a5f5;cursor:pointer"> A hail day, not a tornado day</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq5" value="1" style="accent-color:#42a5f5;cursor:pointer"> A quiet day</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq5" value="2" style="accent-color:#42a5f5;cursor:pointer"> A major tornado outbreak</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq5" value="3" style="accent-color:#42a5f5;cursor:pointer"> A snow day</label></div><div class="fgq" data-correct="3" data-why="Walls describe the environment&#x27;s potential, not a storm forecast. A stubborn cap is the classic forecast bust." style="margin:12px 0"><b>6. SCP reads 2.5 on the wall, but a capping inversion holds all day and nothing fires. What happened?</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq6" value="0" style="accent-color:#42a5f5;cursor:pointer"> The model was garbage</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq6" value="1" style="accent-color:#42a5f5;cursor:pointer"> Walls guarantee storms</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq6" value="2" style="accent-color:#42a5f5;cursor:pointer"> The cap only matters over 3.0</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq6" value="3" style="accent-color:#42a5f5;cursor:pointer"> Ingredients ≠ storms — a cap can choke even strong parameters; watch erosion timing</label></div><div class="fgq" data-correct="3" data-why="The safety section&#x27;s night-discipline rule: fewer escape options in the dark — treat nocturnal STP axes with extra respect." style="margin:12px 0"><b>7. After dark, STP climbs to 2.5 along a squall line&#x27;s leading edge. What does the field guide say?</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq7" value="0" style="accent-color:#42a5f5;cursor:pointer"> Night chasing is safest — go punch the core</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq7" value="1" style="accent-color:#42a5f5;cursor:pointer"> Nocturnal STP always means nothing</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq7" value="2" style="accent-color:#42a5f5;cursor:pointer"> The hail threat ends at sunset</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq7" value="3" style="accent-color:#42a5f5;cursor:pointer"> Take it extra seriously — night chasing halves your options; reposition early, keep an out</label></div><div class="fgq" data-correct="3" data-why="The wall&#x27;s outlier badge exists for this: extremes are often resolution artifacts, so lean majority + bigger margin." style="margin:12px 0"><b>8. One model&#x27;s SCP shows 4+ where three other models show 0.5-1.0. How do you handle the outlier?</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq8" value="0" style="accent-color:#42a5f5;cursor:pointer"> Trust the extreme model — it&#x27;s scarier</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq8" value="1" style="accent-color:#42a5f5;cursor:pointer"> Average everything to zero and ignore all</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq8" value="2" style="accent-color:#42a5f5;cursor:pointer"> Assume an outbreak is certain</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq8" value="3" style="accent-color:#42a5f5;cursor:pointer"> Lean toward the majority, hold a bigger safety margin, verify on radar/meso</label></div><div class="fgq" data-correct="3" data-why="Straight from the color-language lesson: the ladder&#x27;s bottom rung is still useful information. No forcing today." style="margin:12px 0"><b>9. The whole wall is deep green with values under 0.5 everywhere. What does an all-green wall mean?</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq9" value="0" style="accent-color:#42a5f5;cursor:pointer"> The map is broken — data is missing</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq9" value="1" style="accent-color:#42a5f5;cursor:pointer"> Green means High risk is out</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq9" value="2" style="accent-color:#42a5f5;cursor:pointer"> The green shading means hail</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq9" value="3" style="accent-color:#42a5f5;cursor:pointer"> A genuinely quiet pattern — all-green is information, not a bug</label></div><div class="fgq" data-correct="3" data-why="The chase-day drill&#x27;s verify step: when reality lags the wall, interrogate the mesoanalysis and radar instead of forcing a core punch." style="margin:12px 0"><b>10. You chase to the SCP 3 axis and storms are struggling — radar shows junky, disorganized cells. Now what?</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq10" value="0" style="accent-color:#42a5f5;cursor:pointer"> Punch the core to force a look</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq10" value="1" style="accent-color:#42a5f5;cursor:pointer"> The models failed; give up entirely</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq10" value="2" style="accent-color:#42a5f5;cursor:pointer"> Drive into the hail to get closer</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="fgq10" value="3" style="accent-color:#42a5f5;cursor:pointer"> Verify live on radar/meso, check the cap and observations — adjust rather than force it</label></div><button id="fg-grade" style="background:#2e7d32;color:#fff;border:none;border-radius:6px;padding:8px 18px;font-weight:700;cursor:pointer;margin:6px 6px 0 0">Grade my scenarios</button> <button id="fg-retake" style="background:transparent;color:inherit;border:1px solid currentColor;border-radius:6px;padding:8px 14px;cursor:pointer;margin:6px 0 0">Retake (clears answers)</button> <span id="fg-best" class="src" style="margin-left:8px"></span><p id="fg-result" style="margin:10px 0 2px;font-weight:700;font-size:1.05em"></p></div>
+
+<div class="card"><h2>⚠️ Safety — the part that actually matters</h2>
+  <div class="alert" style="border-left-color:#ff0000"><b>The forecast gets you close. The radar, an escape route, and discipline keep you alive.</b>
+  <span>Never core-punch a hook or hail core — approach from the south/southeast, keep an escape route planned, and know the road network before convection fires.</span></div>
+  <div class="alert"><b>Chase with an out.</b><span>Always know where you would drive if the storm turns. Night chasing halves your options — treat nocturnal STP axes with extra respect.</span></div>
+  <div class="alert"><b>Warnings win.</b><span>Model walls are guidance, not guarantees — when the NWS issues a warning for your location, act on it first and argue with the models later.</span></div>
+  <p class="src">This guide is educational. It is not official forecasting guidance — the <a href="severe.html">Severe page's NWS/SPC products</a> and local warnings are the authoritative source.</p>
+</div>
+
+
+<style>
+@media print {
+  @page { margin: 10mm; }
+  body * { visibility: hidden; }
+  #fg-chase-card, #fg-chase-card * { visibility: visible; }
+  #fg-chase-card { position: absolute; top: 0; left: 0; width: 100%;
+    background: #fff !important; border: 3px double #1d3557 !important;
+    padding: 14px 18px !important; }
+  #fg-chase-card * { color: #111 !important; }
+  #fg-chase-card .src { color: #444 !important; }
+  #fg-chase-card .no-print { display: none !important; }
+}
+</style>
+<div class="card" id="fg-chase-card" style="border:2px solid #1d3557">
+  <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+    <h2 style="margin:0">🌪️ TNWN Storm Chaser's Field Card</h2>
+    <span class="src">one page — colors · thresholds · the drill · safety</span>
+    <button id="fg-card-print" class="no-print" style="margin-left:auto;background:#1d3557;color:#fff;border:none;border-radius:6px;padding:7px 14px;cursor:pointer;font-weight:700">🖨️ Print chase card</button>
+  </div>
+  <p style="margin:8px 0 4px"><b>1 · Read the colors</b> — one ladder on every map: outlooks, severe walls, mesoanalysis:</p>
+  <div style="line-height:1.9"><span style="display:inline-flex;align-items:center;gap:5px;margin:3px 14px 3px 0"><span style="width:13px;height:13px;background:#c1e9c1;display:inline-block;border:1px solid #555;border-radius:3px"></span><b>TSTM</b> <span style="font-size:11.5px">unorganized</span></span><span style="display:inline-flex;align-items:center;gap:5px;margin:3px 14px 3px 0"><span style="width:13px;height:13px;background:#66bb6a;display:inline-block;border:1px solid #555;border-radius:3px"></span><b>MRGL</b> <span style="font-size:11.5px">isolated severe</span></span><span style="display:inline-flex;align-items:center;gap:5px;margin:3px 14px 3px 0"><span style="width:13px;height:13px;background:#fff176;display:inline-block;border:1px solid #555;border-radius:3px"></span><b>SLGT</b> <span style="font-size:11.5px">scattered severe</span></span><span style="display:inline-flex;align-items:center;gap:5px;margin:3px 14px 3px 0"><span style="width:13px;height:13px;background:#ffa726;display:inline-block;border:1px solid #555;border-radius:3px"></span><b>ENH</b> <span style="font-size:11.5px">numerous severe</span></span><span style="display:inline-flex;align-items:center;gap:5px;margin:3px 14px 3px 0"><span style="width:13px;height:13px;background:#ef5350;display:inline-block;border:1px solid #555;border-radius:3px"></span><b>MDT</b> <span style="font-size:11.5px">widespread severe</span></span><span style="display:inline-flex;align-items:center;gap:5px;margin:3px 14px 3px 0"><span style="width:13px;height:13px;background:#ff00ff;display:inline-block;border:1px solid #555;border-radius:3px"></span><b>HIGH</b> <span style="font-size:11.5px">rare, long-track outbreak</span></span></div>
+  <p style="margin:8px 0 2px"><b>2 · Composite thresholds</b> (green wall ≠ bad data — it's information):</p>
+  <table style="width:100%;border-collapse:collapse;font-size:12px">
+    <tr style="text-align:left;border-bottom:2px solid #666"><th style="padding:4px 8px">Wall</th><th>≥ 1 means</th><th>Stronger</th><th>Field question</th></tr>
+    <tr style="border-bottom:1px solid #444"><td style="padding:4px 8px"><b>SCP</b></td><td style="padding:4px 8px">supercells possible</td><td style="padding:4px 8px">≥ 4: significant supercells</td><td style="padding:4px 8px;font-style:italic">Where do rotating storms organize?</td></tr><tr style="border-bottom:1px solid #444"><td style="padding:4px 8px"><b>STP</b></td><td style="padding:4px 8px">tornado-favorable</td><td style="padding:4px 8px">≥ 2: significant tornado</td><td style="padding:4px 8px;font-style:italic">Which end is tornadic?</td></tr><tr style="border-bottom:1px solid #444"><td style="padding:4px 8px"><b>EHI</b></td><td style="padding:4px 8px">supercell-favorable — usually first</td><td style="padding:4px 8px">cross-check STP</td><td style="padding:4px 8px;font-style:italic">Is spin-and-fuel stacking yet?</td></tr><tr style="border-bottom:1px solid #444"><td style="padding:4px 8px"><b>SHIP</b></td><td style="padding:4px 8px">significant hail</td><td style="padding:4px 8px">very large hail</td><td style="padding:4px 8px;font-style:italic">How big might stones get?</td></tr>
+  </table>
+  <p style="margin:8px 0 2px"><b>3 · The drill</b>: Outlook colors frame the day → MUCAPE × shear pair → <b>SCP axis</b> = staging → <b>STP corridor</b> = tornado target → verify live (radar · meso · town card).</p>
+  <p style="margin:8px 0 2px"><b>4 · Safety — non-negotiable</b>:</p>
+  <div style="border-left:5px solid #ef5350;padding:3px 10px;margin:5px 0"><b>Plan the out</b> — know your escape route before storms fire — and a second one</div><div style="border-left:5px solid #ef5350;padding:3px 10px;margin:5px 0"><b>No core punches</b> — approach hooks and hail cores from the south/southeast only</div><div style="border-left:5px solid #ffa726;padding:3px 10px;margin:5px 0"><b>Respect night</b> — halve the ambition, double the margin — nocturnal STP axes deserve extra respect</div><div style="border-left:5px solid #ffa726;padding:3px 10px;margin:5px 0"><b>Outlier humility</b> — one model screaming while others sleep → lean majority, hold bigger margin</div><div style="border-left:5px solid #ff0000;padding:3px 10px;margin:5px 0"><b>Warnings win</b> — an NWS warning outranks every model wall — act first, argue later</div>
+  <p class="src" style="margin:8px 0 0;font-size:11.5px">Educational guidance only · official sources: weather.gov · spc.noaa.gov · your local NWS office · Tennessee Weather Network field guide</p>
+</div>
+
+
+<script>
+(function () {
+  var KEY = 'tnwn.fg.quiz.v1';
+  var qs = Array.prototype.slice.call(document.querySelectorAll('.fgq'));
+  var PASS = 8;
+  function best() { try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { return null; } }
+  function paintBest() {
+    var el = document.getElementById('fg-best'), b = best();
+    if (el) el.textContent = b ? ('best: ' + b.score + ' / ' + qs.length + ' (' + b.pct + '%)' + (b.score >= PASS ? ' ✓' : '')) : 'no attempts yet';
+  }
+  function clearMarks() {
+    qs.forEach(function (q) {
+      Array.prototype.forEach.call(q.querySelectorAll('label'), function (l) { l.style.background = ''; l.style.color = ''; });
+      var w = q.querySelector('.fgq-why'); if (w) w.remove();
+    });
+  }
+  function grade() {
+    clearMarks();
+    var score = 0, un = 0;
+    qs.forEach(function (q) {
+      var inputs = q.querySelectorAll('input');
+      var pick = q.querySelector('input:checked');
+      var labels = q.querySelectorAll('label');
+      var ci = parseInt(q.dataset.correct, 10);
+      var w = document.createElement('div');
+      w.className = 'fgq-why src';
+      w.style.margin = '2px 0 2px 16px';
+      w.textContent = '✓ ' + q.dataset.why;
+      q.appendChild(w);
+      if (!pick) { un++; labels[ci].style.background = '#2e7d32'; labels[ci].style.color = '#fff'; return; }
+      var idx = Array.prototype.indexOf.call(inputs, pick);
+      if (idx === ci) { score++; }
+      labels[ci].style.background = '#2e7d32'; labels[ci].style.color = '#fff';
+      if (idx !== ci) { labels[idx].style.background = '#b71c1c'; labels[idx].style.color = '#fff'; }
+    });
+    var res = document.getElementById('fg-result');
+    if (un > 0) { res.textContent = 'Answer all ' + qs.length + ' scenarios first — ' + un + ' left.'; res.style.color = '#ffb74d'; return; }
+    var pct = Math.round(100 * score / qs.length), pass = score >= PASS;
+    res.textContent = pass
+      ? ('🎉 ' + score + ' / ' + qs.length + ' (' + pct + '%) — you read the walls like a chaser. Field-ready.')
+      : (score + ' / ' + qs.length + ' (' + pct + '%) — ' + PASS + ' to pass. Re-read the green-marked whys and retake.');
+    res.style.color = pass ? '#8ef2a0' : '#ffb74d';
+    var b = best();
+    if (!b || score > b.score) { try { localStorage.setItem(KEY, JSON.stringify({ score: score, pct: pct, date: new Date().toISOString().slice(0, 10) })); } catch (e) {} }
+    paintBest();
+  }
+  var g = document.getElementById('fg-grade');
+  if (g) g.addEventListener('click', grade);
+  var r = document.getElementById('fg-retake');
+  if (r) r.addEventListener('click', function () {
+    Array.prototype.forEach.call(document.querySelectorAll('.fgq input'), function (i) { i.checked = false; });
+    clearMarks();
+    var res = document.getElementById('fg-result'); if (res) res.textContent = '';
+  });
+  var pc = document.getElementById('fg-card-print');
+  if (pc) pc.addEventListener('click', function () { window.print(); });
+  paintBest();
+})();
+</script>
+
+
+</div>
+<footer>
+  <div id="upd" style="color:#7d8794">checking data age…</div>
+  <div id="memStrip"></div>
+  Data: National Weather Service · NOAA · RainViewer · SPC — all free, no keys.<br/>
+  Page generated Oct 03 2026 16:53 UTC · auto-updated every few minutes by the Tennessee Weather Network weather center ·
+  <a href="https://www.facebook.com/tennesseeweathernetwork" target="_blank">Facebook page</a> ·
+  <a id="fbShareFt" href="#" target="_blank" rel="noopener">📘 Post this page to Facebook</a> ·
+  <a href="fb_page.html" target="_blank">📱 Facebook post page (stand-alone)</a>
+</footer>
+<script>
+/* Facebook share: use the canonical public URL when served from it,
+   otherwise share the page's public home (localhost shares are useless) */
+(function () {
+  var pub = "https://rpleasant12.github.io/http-localhost-8765-/";
+  window.TNWN_PUBLIC_URL = pub; /* reusable share target (certificate, etc.) */
+  var here = location.origin + location.pathname;
+  var target = (location.hostname === "localhost" || location.hostname === "127.0.0.1") && pub ? pub : here;
+  var u = "https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(target);
+  ["fbShare", "fbShareFt"].forEach(function (id) {
+    var a = document.getElementById(id); if (a) a.href = u;
+  });
+})();
+/* PWA: register the service worker (shell precache + offline fallback for
+   pages and data.json; tiles/gifs/CDN pass through untouched). Relative
+   scope so it covers every page under the GitHub Pages subpath. */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("sw.js").catch(function (_e) {
+      /* SW is an enhancement - offline support silently absent on failure */
+    });
+  });
+}
+</script>
+</body></html>

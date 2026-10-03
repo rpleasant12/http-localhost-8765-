@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Education - Tennessee Weather Network</title>
+<meta property="og:title" content="Education - Tennessee Weather Network"/>
+<meta property="og:type" content="website"/>
+<meta property="og:description" content="Live radar, future cast, satellite, forecast models and East Tennessee forecasts - free, no keys, always updating."/>
+<meta property="og:url" content="https://rpleasant12.github.io/http-localhost-8765-/"/>
+<meta property="og:image" content="https://rpleasant12.github.io/http-localhost-8765-/og.png"/>
+<meta property="og:site_name" content="Tennessee Weather Network"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="https://rpleasant12.github.io/http-localhost-8765-/og.png"/>
+<meta name="description" content="Live East Tennessee weather: radar, future cast, satellite, all forecast models, severe weather, and city forecasts. Updated continuously."/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="manifest" href="manifest.webmanifest"/>
+<meta name="theme-color" content="#0e1117"/>
+<link rel="apple-touch-icon" href="icon-192.png"/>
+
+<!-- member.js in the HEAD: every page's inline member scripts (auth card,
+     strip, teasers) run before the footer, so loading it here is the only
+     way window.TWN exists when they run (was loaded in the footer and all
+     consumers silently bailed on if(!window.TWN) - member UI dead in every
+     real browser, found by the 2026-10-02 browser auth-lifecycle test) -->
+<script>window.TWN_WORKER="https://tnwn-members.nbasportstalk53.workers.dev";</script>
+<script src="member.js"></script>
+
+<style>
+  :root { color-scheme: dark; --bg:#0e1117; --card:#161b26; --line:rgba(255,255,255,.08); --dim:#9aa4b2; --acc:#4da3ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:var(--bg); color:#e8edf4; }
+  a { color:var(--acc); text-decoration:none; }
+  .wrap { max-width:1100px; margin:0 auto; padding:14px; }
+  nav { position:sticky; top:0; z-index:50; background:rgba(14,17,23,.95); backdrop-filter:blur(6px);
+        border-bottom:1px solid var(--line); }
+  nav .wrap { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; padding:10px 14px; }
+  nav .brand { font-weight:800; font-size:18px; margin-right:auto; }
+  nav .brand span { color:var(--acc); }
+  nav a.pg { color:#cdd7e4; font-size:14px; padding:4px 8px; border-radius:6px; }
+  nav a.pg:hover, nav a.pg.on { background:#1d2432; color:#fff; }
+  header.hero { text-align:center; padding:20px 8px 8px; }
+  header.hero h1 { margin:0; font-size:clamp(22px,5vw,36px); }
+  header.hero .sub { color:var(--dim); margin-top:6px; font-size:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin:14px 0; }
+  h2 { font-size:17px; margin:0 0 10px; color:#cdd7e4; }
+  .grid { display:grid; gap:10px; }
+  .cards7 { grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); }
+  .day { background:#10151f; border:1px solid var(--line); border-radius:12px; padding:12px; text-align:center; }
+  .day .hi { font-size:24px; font-weight:800; }
+  .day .tx { color:var(--dim); font-size:12.5px; min-height:30px; }
+  .now { display:flex; flex-wrap:wrap; gap:16px; align-items:center; }
+  .now .big { font-size:clamp(42px,10vw,64px); font-weight:800; }
+  .now .meta { color:var(--dim); font-size:14px; line-height:1.7; }
+  .chip { display:inline-block; padding:8px 18px; border-radius:12px; font-weight:900; color:#102015; }
+  .alerts { display:grid; gap:8px; }
+  .alert { background:#10151f; border-radius:10px; padding:10px 12px; border-left:6px solid #888; }
+  .alert b { color:#fff; } .alert span { color:var(--dim); font-size:13px; display:block; }
+  .alert.ok { border-left-color:#2e7d32; color:#a5d6a7; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; }
+  .kpi { background:#10151f; border:1px solid var(--line); border-radius:12px; padding:10px; text-align:center; }
+  .kpi b { display:block; font-size:22px; } .kpi span { color:var(--dim); font-size:12px; }
+  .ltg-row { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; margin-top:10px; }
+  .wpcfig { flex:1 1 300px; max-width:49%; min-width:260px; margin:0; }
+  .wpcfig img { width:100%; height:auto; display:block; border-radius:10px; }
+  .wpcfig figcaption { font-size:12px; opacity:.75; margin-top:4px; }
+  .wbtn { background:#1d2432; color:#cdd7e4; border:1px solid var(--line); border-radius:8px;
+          padding:6px 11px; font-size:12.5px; cursor:pointer; }
+  .wbtn.on { background:#2a3a55; color:#fff; font-weight:700; }
+  .npTab { background:#1d2432; color:#cdd7e4; border:1px solid var(--line); border-radius:8px;
+           padding:6px 11px; font-size:12.5px; cursor:pointer; }
+  .npTab.on { background:#2a3a55; color:#fff; font-weight:700; }
+  .ltg-cell { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px 10px; min-width:130px; flex:0 0 auto; }
+  .ltg-cell b { display:block; font-size:15px; }
+  .ltg-cell .h { color:var(--dim); font-size:11px; }
+  .ltg-bars { display:flex; align-items:flex-end; gap:2px; height:34px; margin-top:6px; }
+  .ltg-bars i { flex:1 1 0; min-width:4px; background:#ffeb3b; border-radius:2px 2px 0 0; opacity:.9; }
+  .ltg-badge { font-size:11px; font-weight:800; padding:2px 8px; border-radius:8px; color:#102015; }
+  #map { height:clamp(340px,56vh,580px); border-radius:12px; z-index:0; }
+  .ctl { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:10px; }
+  .ctl button { background:#2b80ff; color:#fff; border:none; border-radius:8px; padding:9px 20px; font-size:16px; cursor:pointer; }
+  .ctl button:active { transform:scale(.97); }
+  .ctl select { background:#1b1f27; color:#eee; border:1px solid rgba(255,255,255,.2); border-radius:6px; padding:8px; font-size:14px; max-width:100%; }
+  .stack { position:relative; width:100%; aspect-ratio:4/3; background:#0a0d13; border-radius:10px; overflow:hidden; }
+  .stack .layer { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+  .frame { font-family:ui-monospace,monospace; color:#ffd54f; }
+  .ctl input[type=range] { flex:1; min-width:110px; accent-color:#2b80ff; height:26px; }
+  .frame { min-width:84px; text-align:center; font-weight:700; color:#ffd54f; font-size:16px; }
+  .src { color:var(--dim); font-size:12px; margin-top:8px; }
+  .legend { display:flex; flex-wrap:wrap; gap:8px 14px; font-size:12.5px; color:var(--dim); margin-top:8px; }
+  .legend i { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+  table.cells { width:100%; border-collapse:collapse; font-size:14px; }
+  table.cells th { text-align:left; color:var(--dim); font-weight:600; font-size:12px; padding:6px; }
+  table.cells th.srt { cursor:pointer; user-select:none; white-space:nowrap; }
+  table.cells th.srt:hover { color:var(--ink); }
+  table.cells th.srt .dir { font-size:10px; margin-left:2px; color:var(--accent); }
+  .trend { font-size:11px; font-weight:700; margin-left:3px; }
+  .trend.up { color:#66bb6a; } .trend.dn { color:#ef5350; } .trend.fl { color:var(--dim); font-weight:400; }
+  table.cells td { border-top:1px solid var(--line); padding:7px 6px; }
+  .dbz { font-weight:800; } .sev { color:#ff5252; } .mod { color:#ffb74d; } .lit { color:#aed581; }
+  .gal { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }
+  .gal img { width:100%; border-radius:10px; border:1px solid var(--line); }
+  .gal .cap { color:var(--dim); font-size:12.5px; margin-top:4px; }
+  .stepper { display:flex; align-items:center; gap:8px; margin-top:8px; }
+  .stepper button { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:14px; }
+  .cmp4 { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+  .cmp4 .pane { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px; }
+  .cmp4 .pane h3 { margin:0 0 6px; font-size:13.5px; color:#cdd7e4; display:flex; align-items:center; gap:8px; }
+  .cmp4 .pane h3 .cap { color:var(--dim); font-weight:400; }
+  .cmp4 .pane select { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:3px 6px; font-size:13px; }
+  .cmp4 img { width:100%; border-radius:8px; }
+  .cmp4 .miss { color:var(--dim); font-size:12.5px; padding:22px 6px; text-align:center; }
+  @media (max-width:820px){ .cmp4 { grid-template-columns:1fr; } }
+  .hourly { display:flex; gap:8px; overflow-x:auto; padding-bottom:6px; }
+  .hr { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px 10px; text-align:center; min-width:72px; }
+  .hr b { display:block; } .hr span { color:var(--dim); font-size:11.5px; }
+  .natimg { width:100%; max-width:860px; display:block; margin:0 auto; border-radius:10px; border:1px solid var(--line); background:#fff; }
+  .pre { white-space:pre-wrap; font-size:12.5px; color:#cdd7e4; background:#10151f; border:1px solid var(--line); border-radius:10px; padding:12px; max-height:260px; overflow:auto; }
+  footer { text-align:center; color:var(--dim); font-size:12.5px; padding:18px 8px 26px; line-height:1.8; }
+  .navctl { display:flex; align-items:center; gap:6px; }
+  .navctl button { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:4px 10px; cursor:pointer; font-size:14px; }
+  .autolbl { color:var(--dim); font-size:12px; display:flex; align-items:center; gap:4px; }
+  .map-dark .leaflet-tile-pane { filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(1.05); }
+  /* radar load-state badge (set by the player: ok / loading / empty) */
+  #map { position: relative; }
+  #map::after {
+    content: "";
+    position: absolute; top: 8px; left: 8px; z-index: 800;
+    background: rgba(10, 14, 20, .75); color: #9fe199; border: 1px solid rgba(255,255,255,.15);
+    border-radius: 6px; padding: 2px 9px; font-size: 11.5px; pointer-events: none;
+  }
+  #map[data-radar-state="loading"]::after { content: "radar loading…"; color: #ffd54f; }
+  #map[data-radar-state="empty"]::after { content: "radar unavailable - retrying"; color: #ff8a80; }
+  #map[data-radar-state="ok"]::after { content: "radar live"; color: #9fe199; }
+  /* hide Leaflet's default home marker (the player draws its own) */
+  .leaflet-marker-icon.home-marker { display: none; }
+  .leaflet-control-attribution { background:rgba(14,17,23,.8) !important; color:var(--dim) !important; }
+  .mapctlbtn { background:#1d2432; border:1px solid var(--line); border-radius:6px; color:#eee;
+    padding:5px 9px; font-size:15px; cursor:pointer; margin-bottom:6px; box-shadow:0 1px 4px rgba(0,0,0,.4); text-align:center; }
+  .mapcoord { background:rgba(14,17,23,.85); color:#cdd7e4; border:1px solid var(--line); border-radius:6px;
+    font-size:11.5px; padding:3px 8px; }
+  /* ---------- mobile nav drawer (2026-09-28) ----------
+     phones get a hamburger that opens a grouped, sectioned menu instead
+     of hunting through the flat strip; desktop shows neither */
+  #navBtn { display:none; }
+  #navDrawer { display:none; }
+  @media (max-width:640px){
+    #navBtn { display:block; }
+    #navDrawer { display:block; position:fixed; inset:0; z-index:9999;
+                 background:rgba(5,8,12,.6); backdrop-filter:blur(2px); }
+    #navDrawer[hidden] { display:none; }   /* beats the display above */
+    #navDrawer > .dHead, #navDrawer .dGroup {
+      background:var(--card); border-bottom:1px solid var(--line); }
+    #navDrawer .dHead { position:sticky; top:0; font-weight:800;
+      padding:14px 16px; display:flex; justify-content:space-between;
+      align-items:center; }
+    #navDrawer .dHead button { background:none; border:none;
+      color:var(--dim); font-size:26px; line-height:1; cursor:pointer;
+      padding:2px 8px; }
+    #navDrawer .dGroup { padding:6px 12px; }
+    #navDrawer .dGroup b { display:block; color:var(--dim);
+      font-size:11.5px; text-transform:uppercase; letter-spacing:.08em;
+      margin:10px 4px 4px; }
+    #navDrawer .dGroup a.pg { display:block; padding:11px 10px;
+      font-size:15px; color:#cdd7e4; border-radius:8px; }
+    #navDrawer .dGroup a.pg.on { background:#1d2432; color:#fff;
+      font-weight:700; }
+    #navBtn { background:#1d2432; color:#e8edf4; border:1px solid var(--line);
+      border-radius:8px; font-size:18px; padding:6px 12px; cursor:pointer;
+      order:-1; }
+  }
+  /* ---------- mobile friendliness (2026-09-28) ----------
+     26 nav links wrap into a tall block on phones; wide alert tables
+     (min-width 420-520px) overflow the screen; .wpcfig min-width forces
+     one image per row. Consolidated responsive fixes below. */
+  @media (max-width:900px){
+    /* tighter nav rows before the phone strip kicks in at 640 */
+    nav .wrap { gap:4px 10px; padding:8px 10px; }
+    nav a.pg { font-size:13px; padding:4px 7px; }
+  }
+  @media (max-width:640px){
+    .wrap{padding:10px;} .card{padding:12px;} nav .brand{font-size:16px;}
+    /* nav = one thumb-swipeable strip instead of a 26-link tall block */
+    nav .wrap { flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch;
+                padding:8px; scrollbar-width:none; }
+    nav .wrap::-webkit-scrollbar { display:none; }
+    nav .brand { white-space:nowrap; }
+    nav a.pg { padding:8px 10px; font-size:13.5px; white-space:nowrap;
+               flex:0 0 auto; }
+    nav .navctl { flex:0 0 auto; }
+    /* 2-up KPI cards read better than 4-up squished */
+    .kpis { grid-template-columns:repeat(2,1fr); }
+    .kpi b { font-size:18px; }
+    .gal { grid-template-columns:1fr; }
+    .wpcfig { max-width:100%; flex-basis:100%; }
+    .ltg-cell { flex:1 1 100%; min-width:0; }
+    /* wide tables scroll inside their card instead of breaking the page */
+    .card { overflow-x:auto; }
+    .minitable, table.cells { display:block; overflow-x:auto;
+                              -webkit-overflow-scrolling:touch; }
+    .minitable { min-width:420px; }
+    /* 16px+ controls avoid the iOS Safari focus zoom */
+    select, button { font-size:16px; }
+    .ctl select { font-size:16px; }
+    #baseSel { max-width:110px; }
+    .mapcoord { display:none; }   /* mouse-only lat/lon readout */
+    footer { font-size:12px; }
+  }
+  @media (max-width:400px){ .kpis { grid-template-columns:1fr; } }
+</style>
+</head><body>
+<nav><div class="wrap">
+  <a class="brand" href="index.html">🌧️ <span>Tennessee Weather Network</span></a>
+  <a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/index.html">Home</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/radar.html">Radar</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/satellite.html">Satellite</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/forecast.html">Forecast</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/dashboard.html">Dashboard</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/national.html">National</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/models.html">Models</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/gefs.html">GEFS</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/hrrr.html">HRRR · RRFS</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/tropmodels.html">Trop Models</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/cfsv2.html">CFSv2 · Long Range</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/meso.html">Mesoanalysis</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/charts.html">Charts & MOS</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/severe.html">Severe ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/storms.html">Storms ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/tropical.html">NHC ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/winter.html">Winter Forecast ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/fronts.html">Fronts</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/fire.html">Fire</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/rivers.html">Rivers</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/history.html">History</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/climate.html">Climate</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/enso.html">El Niño</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/obs.html">Obs & Skew-T</a><a class="pg on" href="https://tnwn-members.nbasportstalk53.workers.dev/p/education.html">Education</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/fieldguide.html">Field Guide</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/traffic.html">Traffic</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/pricing.html">⭐ Premium</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/member.html">Account</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/admin.html">Admin</a>
+  <div class="navctl">
+    <select id="baseSel" title="Basemap" style="max-width:110px"></select>
+    <button id="refreshBtn" title="Refresh this page now">⟳ Refresh</button>
+    <label class="autolbl"><input type="checkbox" id="autoChk" checked/> auto <span id="autoCnt">90</span>s</label>
+    <a id="fbShare" title="Share this page on Facebook" target="_blank" rel="noopener"
+       style="text-decoration:none;background:#1877f2;color:#fff;padding:4px 10px;border-radius:8px;font-size:12.5px;font-weight:600;display:inline-block">📘 Share</a>
+  </div>
+</div></nav>
+
+<button id="navBtn" aria-label="Menu" aria-expanded="false" aria-controls="navDrawer">☰</button>
+<div id="navDrawer" hidden>
+  <div class="dHead">Tennessee Weather Network<button id="navClose" aria-label="Close menu">×</button></div>
+  <div class="dGroup"><b>Live & Forecast</b><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/index.html">Home</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/radar.html">Radar</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/satellite.html">Satellite</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/forecast.html">Forecast</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/dashboard.html">Dashboard</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/national.html">National</a></div><div class="dGroup"><b>Models</b><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/models.html">Models</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/gefs.html">GEFS</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/hrrr.html">HRRR · RRFS</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/tropmodels.html">Trop Models</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/cfsv2.html">CFSv2 · Long Range</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/meso.html">Mesoanalysis</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/charts.html">Charts & MOS</a></div><div class="dGroup"><b>Storms & Seasons</b><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/severe.html">Severe ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/storms.html">Storms ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/tropical.html">NHC ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/winter.html">Winter Forecast ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/fronts.html">Fronts</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/fire.html">Fire</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/rivers.html">Rivers</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/history.html">History</a></div><div class="dGroup"><b>Climate & Learn</b><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/climate.html">Climate</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/enso.html">El Niño</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/obs.html">Obs & Skew-T</a><a class="pg on" href="https://tnwn-members.nbasportstalk53.workers.dev/p/education.html">Education</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/fieldguide.html">Field Guide</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/traffic.html">Traffic</a></div><div class="dGroup"><b>Support</b><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/pricing.html">⭐ Premium</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/member.html">Account</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/admin.html">Admin</a></div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const SITE_DATA_URL = "data.json";
+/* footer member strip: logged-in members see their status + premium link;
+   everyone else sees a quiet upgrade nudge. Dormant when TWN_WORKER empty.
+   member.js loads in <head> but #memStrip is in the footer BELOW this
+   script, so paint on DOMContentLoaded (pre-fix this IIFE ran here, before
+   both TWN and the strip div existed, and silently did nothing). */
+document.addEventListener("DOMContentLoaded", function () {
+  if (!window.TWN || !window.TWN.member || !window.TWN_WORKER) return;
+  const el = document.getElementById("memStrip");
+  if (!el) return;
+  TWN.member.refreshMe().then(function (me) {
+    if (me && me.premiumActive) {
+      /* ad-free perk: hide every free-tier slot for active subscribers */
+      document.querySelectorAll(".adSlot").forEach(a => a.style.display = "none");
+    }
+    if (me && me.member) {
+      el.innerHTML = "<span class='src' style='color:#8ab4f8'>★ " + TWN.member.esc(me.email)
+        + (me.premiumActive ? " · ⭐ Premium active" : " · free account")
+        + " · <a href='member.html'>account</a>"
+        + (me.admin ? " · <a href='admin.html'>admin</a>" : "") + "</span><br/>";
+    } else {
+      el.innerHTML = "<span class='src'>⭐ <a href='pricing.html'>Go premium: weather centers, AI model maps, ad-free - $4.99/mo</a></span><br/>";
+    }
+  }).catch(function () {});
+});
+/* GitHub Pages caches data.json up to 10 min (max-age=600); the timestamp
+   query makes the browser fetch a fresh copy from the Pages CDN instead of
+   reusing a stale cached one. Public data publishes ~every 10 min, so the
+   footer age normally reads 0-10 min - that is the honest cadence. */
+function dataUrl() {
+  try { return SITE_DATA_URL + "?t=" + Date.now(); } catch (_e) { return SITE_DATA_URL; }
+}
+/* live-update watchdog: re-fetch data.json every 3 min and show its age.
+   The footer age is computed from dataEpochMs (server epoch), NOT from the
+   human-readable 'generated' string (now "... 12:17 AM ET" - unparseable). */
+let SITE_DATA = null;
+function fmtAge(mins) {
+  if (mins < 1) return "just now";
+  if (mins < 60) return mins + " min ago";
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return h + " h " + (m ? m + " min " : "") + "ago";
+}
+function updTick() {
+  if (!SITE_DATA) return;
+  const el = document.getElementById("upd");
+  if (!el) return;
+  const ms = Date.now() - (SITE_DATA.dataEpochMs || 0);
+  if (!SITE_DATA.dataEpochMs || ms < 0) { el.textContent = "\u2705 Live data"; return; }
+  const mins = Math.floor(ms / 60000);
+  /* Public site: GitHub publishes ~every 10 min, so age up to ~12 min is the
+     normal cadence - warn only past that. Pages' own max-age=600 means the
+     fetch itself can lag a couple minutes behind the publish. */
+  const took = (function () {
+    const lu = SITE_DATA.lastUpdate;
+    if (!lu || !(lu.lastDurationS > 0)) return "";
+    const s = lu.lastDurationS, m = Math.floor(s / 60);
+    let t = " \u00b7 last update took " + (m ? m + " min " + (s % 60) + " s" : s + " s");
+    if (lu.cycles > 1 && lu.avgDurationS > 0) {
+      const am = Math.floor(lu.avgDurationS / 60);
+      t += " \u00b7 avg " + (am ? am + " min " + (lu.avgDurationS % 60) + " s" : lu.avgDurationS + " s");
+    }
+    return t;
+  })();
+  const maxAge = (location.hostname === "localhost" || location.hostname === "127.0.0.1") ? 2 : 12;
+  const grew = SITE_DATA._lastAge != null && mins > SITE_DATA._lastAge + 2 && mins > maxAge;
+  SITE_DATA._lastAge = mins;
+  if (mins <= maxAge) el.textContent = "\u2705 Live data \u00b7 refreshed " + fmtAge(mins) + took;
+  else if (mins <= 30) el.textContent = "\u23f3 Data " + fmtAge(mins) + " old \u00b7 next publish soon" + took;
+  else if (grew) el.textContent = "\u23f3 Data " + fmtAge(mins) + " old \u00b7 waking the weather center - catching up now";
+  else el.textContent = "\u26a0\ufe0f Data " + fmtAge(mins) + " old \u00b7 PC asleep or offline - updates pause until it wakes";
+}
+async function siteRefresh() {
+  try {
+    SITE_DATA = await (await fetch(dataUrl(), {cache: "no-store"})).json();
+    if (typeof onDataRefresh === "function") onDataRefresh(SITE_DATA);
+    updTick();
+    try { syncAutoPref(); } catch (_e) {}   /* version now known: apply/wipe stale auto pref */
+    /* auto-heal: if the served copy is still 30+ min old on two consecutive
+       polls (6 min apart), force a cache-busted reload once - recovers from
+       a stuck CDN copy or a missed publish without looping. */
+    if (SITE_DATA.dataEpochMs && Date.now() - SITE_DATA.dataEpochMs > 30 * 60000) {
+      siteRefresh._stale = (siteRefresh._stale || 0) + 1;
+      if (siteRefresh._stale >= 2 && !sessionStorage.getItem("tnwxHealed")) {
+        sessionStorage.setItem("tnwxHealed", "1");
+        const u = new URL(location.href); u.searchParams.set("t", Date.now());
+        location.replace(u); return;
+      }
+    } else siteRefresh._stale = 0;
+  } catch (e) { /* offline: keep last data */ }
+}
+siteRefresh();
+setInterval(updTick, 30000);
+setInterval(siteRefresh, 180000);
+/* paused-banner: the STOP shortcut writes PAUSED.json, so any page that
+   still loads while updates are paused tells the truth instead of showing
+   a stale timestamp that looks like normal lag. START removes the marker. */
+(async function () {
+  try {
+    const pr = await fetch("PAUSED.json?t=" + Date.now(), { cache: "no-store" });
+    if (!pr.ok) return;   /* 404 = running normally */
+    const p = await pr.json();
+    const pb = document.createElement("div");
+    pb.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:99999;"
+      + "background:#b3261e;color:#fff;text-align:center;font-weight:700;"
+      + "padding:8px 12px;font-size:14px;font-family:inherit;";
+    pb.textContent = "\u23f8 Weather updates are PAUSED - press the START shortcut "
+      + "to resume. Data on this page is frozen"
+      + (p && p.since ? " (paused " + String(p.since).replace(/^paused\s*/, "") + ")" : "") + ".";
+    document.body.appendChild(pb);
+    document.body.style.paddingTop = "38px";
+    if (autoCnt) autoCnt.textContent = "\u221e";   /* freeze the auto-reload countdown too */
+  } catch (_e) { /* marker unreadable: treat as running */ }
+})();
+/* page auto-refresh: soft (map pages define onDataRefresh) or hard reload.
+   Hard reloads MUST cache-bust: GitHub Pages sends max-age=600, so a plain
+   location.reload() can serve the same stale HTML for up to 10 minutes. */
+function hardReload() {
+  try {
+    const u = new URL(location.href);
+    u.searchParams.set("t", Date.now());
+    location.replace(u);
+  } catch (_e) { location.reload(); }
+}
+let AUTO_LEFT = 90;
+const autoCnt = document.getElementById("autoCnt"), autoChk = document.getElementById("autoChk");
+document.getElementById("refreshBtn").onclick = () => {
+  const b = document.getElementById("refreshBtn");
+  if (b) { b.textContent = "…"; }
+  hardReload();
+};
+/* auto-refresh preference is remembered per siteVersion (a fingerprint of
+   the site code, served in data.json). A saved "off" therefore cannot
+   survive a site update: after new code pushes, the flag belongs to an old
+   version, is wiped, and auto-refresh resumes - an update always re-opens
+   the refresh tap. Before the first data pull resolves the version is
+   unknown, so the checkbox defaults ON and re-syncs the moment data lands. */
+function autoPrefKey() {
+  /* SITE_DATA is a script-level let - reachable by name in this scope but
+     never as window.SITE_DATA, so the bare (guarded) reference is required */
+  let v = "";
+  try { v = (typeof SITE_DATA !== "undefined" && SITE_DATA && SITE_DATA.siteVersion) || ""; } catch (_e) {}
+  return v ? "tnwxAuto." + v : "";
+}
+function syncAutoPref() {
+  const k = autoPrefKey();
+  if (!k) return;
+  try {
+    /* wipe the legacy flag and flags saved under other versions */
+    Object.keys(localStorage)
+      .filter(x => x === "tnwxAuto" || (x.indexOf("tnwxAuto.") === 0 && x !== k))
+      .forEach(x => localStorage.removeItem(x));
+    autoChk.checked = localStorage.getItem(k) !== "off";
+  } catch (_e) {}
+}
+syncAutoPref();
+autoChk.onchange = () => {
+  AUTO_LEFT = 90;
+  const k = autoPrefKey();
+  try { if (k) localStorage.setItem(k, autoChk.checked ? "on" : "off"); } catch (_e) {}
+};
+/* interacting with the page postpones the auto cycle: a hard reload in the
+   middle of a zoom/pinch/scrub reads as "the map won't zoom" (2026-09-18) */
+["pointerdown", "wheel", "touchstart"].forEach(function (ev) {
+  document.addEventListener(ev, function () { AUTO_LEFT = 90; }, { passive: true, capture: true });
+});
+setInterval(() => {
+  if (!autoChk.checked) { if (autoCnt) autoCnt.textContent = "\u221e"; return; }
+  AUTO_LEFT -= 1;
+  if (autoCnt) autoCnt.textContent = AUTO_LEFT;
+  if (AUTO_LEFT <= 0) {
+    AUTO_LEFT = 90;
+    if (typeof onDataRefresh === "function") siteRefresh(); else hardReload();
+  }
+}, 1000);
+
+const BASEMAPS = {
+  dark:  { label: "Dark", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", invert: true },
+  light: { label: "Light", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", invert: false },
+  sat:   { label: "Satellite", url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", invert: false },
+  topo:  { label: "Terrain", url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}", invert: false }
+};
+let _baseLayer = null, _baseKey = null;
+function setBase(key, map) {
+  if (key === "mapbox" && !BASEMAPS.mapbox && typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN)
+    BASEMAPS.mapbox = { label: "Mapbox", style: "mapbox://styles/mapbox/light-v11" };
+  const b = BASEMAPS[key] || BASEMAPS.dark;
+  if (_baseKey === key && _baseLayer) return;
+  if (_baseLayer) map.removeLayer(_baseLayer);
+  if (b.style) _baseLayer = L.mapboxGL({ accessToken: MAPBOX_TOKEN, style: b.style, attribution: "&copy; Mapbox" }).addTo(map);
+  else _baseLayer = L.tileLayer(b.url, { maxNativeZoom: 19, maxZoom: 21, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
+  map.getContainer().classList.toggle("map-dark", !!b.invert);
+  _baseKey = key;
+  try { localStorage.setItem("tnwxBase", key); } catch (_e) {}
+  const sel = document.getElementById("baseSel"); if (sel && sel.value !== key) sel.value = key;
+}
+function addMapControls(map, home, homeZoom) {
+  const btn = (txt, title, fn) => {
+    const c = L.control({ position: "topleft" });
+    c.onAdd = () => { const d = L.DomUtil.create("div", "mapctlbtn"); d.textContent = txt; d.title = title;
+      L.DomEvent.disableClickPropagation(d); d.onclick = fn; return d; };
+    c.addTo(map);
+  };
+  btn("⛶", "Fullscreen map", () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else map.getContainer().requestFullscreen();
+  });
+  btn("⌂", "Home view", () => map.setView(home, homeZoom));
+  btn("◎", "My location", () => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(p => {
+      map.setView([p.coords.latitude, p.coords.longitude], 10);
+      L.circleMarker([p.coords.latitude, p.coords.longitude], { radius: 7, color: "#fff", weight: 2, fillColor: "#4da3ff", fillOpacity: 1 })
+        .addTo(map).bindTooltip("You are here").openTooltip();
+    }, () => {}, { timeout: 8000 });
+  });
+  L.control.scale({ imperial: true, metric: false }).addTo(map);
+  document.addEventListener("fullscreenchange", () => setTimeout(() => map.invalidateSize(), 200));
+  const coord = L.control({ position: "bottomright" });
+  coord.onAdd = () => L.DomUtil.create("div", "mapcoord");
+  coord.addTo(map);
+  const el = document.querySelector(".mapcoord");
+  map.on("mousemove", e => { if (el) el.textContent = e.latlng.lat.toFixed(3) + ", " + e.latlng.lng.toFixed(3); });
+  map.on("mouseout", () => { if (el) el.textContent = ""; });
+  const sel = document.getElementById("baseSel");
+  if (sel) {
+    sel.innerHTML = Object.entries(BASEMAPS).map(([k, b]) => `<option value="${k}">${b.label}</option>`).join("");
+    let saved = null; try { saved = localStorage.getItem("tnwxBase"); } catch (_e) {}
+    setBase(saved && BASEMAPS[saved] ? saved : ((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark"), map);
+    sel.onchange = e => setBase(e.target.value, map);
+  } else setBase((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark", map);
+  if (typeof drawHomeMarker === "function") drawHomeMarker(map, home);
+}
+function drawHomeMarker(map, home) {
+  if (map._tnwxHome) return;
+  map._tnwxHome = L.circleMarker(home, { radius: 7, color: "#fff", weight: 2,
+    fillColor: "#ff5252", fillOpacity: 1 }).addTo(map).bindTooltip((typeof DATA_PLACE !== "undefined" && DATA_PLACE) || "Home");
+}
+
+
+setTimeout(function () {
+  /* mobile drawer: hamburger opens the grouped nav; scrim click, X,
+     Escape and link taps all close it */
+  var nb = document.getElementById("navBtn"),
+      nd = document.getElementById("navDrawer");
+  if (nb && nd) {
+    var setDrawer = function (open) {
+      nd.hidden = !open;
+      nb.setAttribute("aria-expanded", open ? "true" : "false");
+      document.body.style.overflow = open ? "hidden" : "";
+    };
+    nb.addEventListener("click", function () { setDrawer(nd.hidden); });
+    var xc = document.getElementById("navClose");
+    if (xc) xc.addEventListener("click", function () { setDrawer(false); });
+    nd.addEventListener("click", function (e) {
+      if (e.target === nd) setDrawer(false);   /* scrim tap, not a link */
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") setDrawer(false);
+    });
+    nd.addEventListener("click", function (e) {
+      if (e.target && e.target.closest && e.target.closest("a")) setDrawer(false);
+    });
+    setDrawer(false);
+  }
+  if (typeof map === "undefined" || !map) return;
+  const sel = document.getElementById("baseSel");
+  if (typeof addMapControls === "function" && (typeof _baseLayer === "undefined" || !_baseLayer)) {
+    const la = (typeof DATA_LAT !== "undefined") ? DATA_LAT : 36.2;
+    const lo = (typeof DATA_LON !== "undefined") ? DATA_LON : -83.0;
+    addMapControls(map, [la, lo], 6);
+  } else if (typeof setBase === "function") {
+    if (!_baseLayer) setBase((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark", map);
+    if (sel) sel.onchange = function (e) { setBase(e.target.value, map); };
+  }
+}, 600);
+
+</script>
+<div class="wrap">
+
+<header class="hero"><h1>📚 Education & Resources</h1>
+<div class="sub">Learn to read weather data like a forecaster - official NOAA/NWS learning links,
+safety guides, and how to use every tool on this site · free, always here</div></header>
+
+<div class="card" style="background:linear-gradient(135deg,#1d3557,#2a6f97);color:#fff">
+  <h2 style="color:#fff">Weather school, in order</h2>
+  <p style="margin:6px 0">New to meteorology? Do these three: <b>1)</b> skim NOAA JetStream for the big picture,
+  <b>2)</b> read the radar &amp; model guides below while looking at this site's real data,
+  <b>3)</b> join SKYWARN for local, hands-on severe-weather training. That path takes most people
+  from "just curious" to reading soundings in a few weeks.</p>
+</div>
+
+<div class="card" style="background:linear-gradient(135deg,#14532d,#2a6f97);color:#fff">
+  <h2 style="color:#fff">🎓 Free meteorology classes - 17 lessons, start anytime</h2>
+  <p style="margin:6px 0">A self-paced mini-course built from the data this site already serves. Classes 1-12 are the
+  core course; 13-17 go deeper (satellite bands, Skew-T soundings, ensemble forecasting, radar velocity &amp;
+  dual-pol, how the NWS decides to warn). Take one class a day:
+  read the lesson, do the homework on the live maps, then take the 3-question self-quiz (think first, click to
+  reveal the answer). Click a class to expand it.</p>
+</div>
+
+<div style="display:flex;align-items:flex-start;gap:12px">
+
+<style>
+html { scroll-behavior:smooth; }
+details.met-class, #edu-exam { scroll-margin-top:130px; }
+#edx-side { position:sticky; top:118px; flex:0 0 224px; width:224px; max-height:calc(100vh - 134px);
+            overflow-y:auto; z-index:10; margin:14px 0; }
+.edx-row { display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:8px;
+           color:#cdd7e4; font-size:12.5px; }
+.edx-row:hover { background:#1d2432; color:#fff; }
+.edx-row.active { background:#1d3557; color:#fff; }
+.edx-num { flex:0 0 20px; height:20px; border-radius:50%; background:#1d2432; color:#8ef2a0;
+           font-weight:700; font-size:11px; display:flex; align-items:center; justify-content:center; }
+.edx-row.done .edx-num { background:#2e7d32; color:#fff; }
+.edx-name { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.edx-check { margin-left:auto; font-size:11px; color:#66bb6a; opacity:0; }
+.edx-row.done .edx-check { opacity:1; }
+@media (max-width:900px){ #edx-side { display:none; } }
+</style>
+<aside id="edx-side" class="card" style="padding:10px 8px">
+  <div style="font-weight:800;font-size:13px;padding:2px 8px 6px;color:#cdd7e4">📖 Class index</div>
+  <div style="padding:0 8px 8px">
+    <div style="background:#1d2432;height:8px;border-radius:4px;overflow:hidden">
+      <div id="edx-bar" style="background:#8ef2a0;height:100%;width:0%;transition:width .3s"></div>
+    </div>
+    <span id="edx-count" style="font-size:11px;color:#9aa4b2">0 / 17 done</span>
+  </div>
+<a class="edx-row" href="#class-1" data-cls="1" title="Class 1 · The atmosphere: layers and pressure"><span class="edx-num">1</span><span class="edx-name">Class 1 · The atmosphere</span><span class="edx-check">✓</span></a><a class="edx-row" href="#class-2" data-cls="2" title="Class 2 · Temperature, dew point and humidity"><span class="edx-num">2</span><span class="edx-name">Class 2 · Temperature, dew point…</span><span class="edx-check">✓</span></a><a class="edx-row" href="#class-3" data-cls="3" title="Class 3 · Clouds: what they tell you"><span class="edx-num">3</span><span class="edx-name">Class 3 · Clouds</span><span class="edx-check">✓</span></a><a class="edx-row" href="#class-4" data-cls="4" title="Class 4 · Air masses and fronts"><span class="edx-num">4</span><span class="edx-name">Class 4 · Air masses and fronts</span><span class="edx-check">✓</span></a><a class="edx-row" href="#class-5" data-cls="5" title="Class 5 · Why wind blows (pressure gradient)"><span class="edx-num">5</span><span class="edx-name">Class 5 · Why wind blows (pressur…</span><span class="edx-check">✓</span></a><a class="edx-row" href="#class-6" data-cls="6" title="Class 6 · Instability: CAPE, lapse rates and storm fuel"><span class="edx-num">6</span><span class="edx-name">Class 6 · Instability</span><span class="edx-check">✓</span></a><a class="edx-row" href="#class-7" data-cls="7" title="Class 7 · Reading radar like a forecaster"><span class="edx-num">7</span><span class="edx-name">Class 7 · Reading radar like a fo…</span><span class="edx-check">✓</span></a><a class="edx-row" href="#class-8" data-cls="8" title="Class 8 · Forecast models and how to use them"><span class="edx-num">8</span><span class="edx-name">Class 8 · Forecast models and how…</span><span class="edx-check">✓</span></a><a class="edx-row" href="#class-9" data-cls="9" title="Class 9 · Tropical cyclones: structure and hazards"><span class="edx-num">9</span><span class="edx-name">Class 9 · Tropical cyclones</span><span class="edx-check">✓</span></a><a class="edx-row" href="#class-10" data-cls="10" title="Class 10 · Winter weather: snow ratios and the 32°F fight"><span class="edx-num">10</span><span class="edx-name">Class 10 · Winter weather</span><span class="edx-check">✓</span></a><a class="edx-row" href="#class-11" data-cls="11" title="Class 11 · Flooding: from rain to river crest"><span class="edx-num">11</span><span class="edx-name">Class 11 · Flooding</span><span class="edx-check">✓</span></a><a class="edx-row" href="#class-12" data-cls="12" title="Class 12 · Climate: our seasons and what a 30-year normal means"><span class="edx-num">12</span><span class="edx-name">Class 12 · Climate</span><span class="edx-check">✓</span></a><a class="edx-row" href="#class-13" data-cls="13" title="Class 13 · Satellite interpretation: choosing the right band"><span class="edx-num">13</span><span class="edx-name">Class 13 · Satellite interpretati…</span><span class="edx-check">✓</span></a><a class="edx-row" href="#class-14" data-cls="14" title="Class 14 · Skew-T soundings: the atmosphere&#x27;s vertical profile"><span class="edx-num">14</span><span class="edx-name">Class 14 · Skew-T soundings</span><span class="edx-check">✓</span></a><a class="edx-row" href="#class-15" data-cls="15" title="Class 15 · Ensemble forecasting: forecasting the forecast"><span class="edx-num">15</span><span class="edx-name">Class 15 · Ensemble forecasting</span><span class="edx-check">✓</span></a><a class="edx-row" href="#class-16" data-cls="16" title="Class 16 · Radar velocity &amp; dual-pol: the storm&#x27;s insides"><span class="edx-num">16</span><span class="edx-name">Class 16 · Radar velocity &amp; dual-…</span><span class="edx-check">✓</span></a><a class="edx-row" href="#class-17" data-cls="17" title="Class 17 · How the NWS decides to warn"><span class="edx-num">17</span><span class="edx-name">Class 17 · How the NWS decides to…</span><span class="edx-check">✓</span></a>
+  <a class="edx-row" href="#edu-exam" title="Graduation exam - 20 questions, 80% to pass">
+    <span class="edx-num" style="background:#3a2f00;color:#ffd54f">🎓</span>
+    <span class="edx-name">Graduation exam</span>
+  </a>
+</aside>
+
+<div style="flex:1;min-width:0">
+
+
+<div class="card" style="background:linear-gradient(135deg,#14532d,#2a6f97);color:#fff">
+  <h2 style="color:#fff;margin:0 0 4px">📊 Your progress</h2>
+  <p id="edu-done" style="margin:2px 0;font-weight:700">0 classes done</p>
+  <p id="edu-quiz-done" style="margin:2px 0">0 quiz answers checked</p>
+  <div style="background:rgba(255,255,255,.25);height:10px;border-radius:5px;overflow:hidden;margin:8px 0 6px">
+    <div id="edu-bar" style="background:#8ef2a0;height:100%;width:0%;transition:width .3s"></div></div>
+  <button id="edu-reset" style="background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.4);border-radius:6px;padding:4px 12px;cursor:pointer">Reset progress</button>
+  <span style="opacity:.85"> · saved in your browser - your check-offs survive refreshes and visits</span>
+</div>
+
+
+<details class="card met-class" id="class-1" data-class="1" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700"><span class="met-done-box" data-n="1" title="Mark this class complete" style="cursor:pointer;user-select:none"><input type="checkbox" class="met-done-cb" style="cursor:pointer;vertical-align:middle;accent-color:#66bb6a"> </span><span class="met-title">Class 1 · The atmosphere: layers and pressure</span></summary><p style="margin:8px 0 2px">The atmosphere is layered: the troposphere (0-11 km) holds almost all weather; above it the stratosphere is calm. Pressure is just the weight of air above you - about 1013 mb at sea level, and it halves roughly every 18,000 ft. That is why the Models page stacks 500 mb (≈18,000 ft, storm steering) above 850 mb (≈5,000 ft, low-level moisture). Falling surface pressure = air rising = the classic storm signature.</p><p style="margin:6px 0 2px"><b>📝 Homework:</b> <a class="src" href="models.html">Open Models and find the 850-mb map. Note the pressure value printed on it, then open any station on the Dashboard and compare its sea-level pressure - they should be within a few millibars of each other.</a></p><p style="margin:8px 0 2px"><b>🧠 Quiz yourself - think, then click to check:</b></p><details class="met-q" data-quiz="1.1" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">Roughly how quickly does atmospheric pressure halve as you climb?</summary><p style="margin:3px 0 2px 24px">✅ About every 18,000 ft - which is why the 500-mb level (half of sea-level pressure) sits near 18,000 ft.</p></details><details class="met-q" data-quiz="1.2" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What does falling surface pressure usually signal?</summary><p style="margin:3px 0 2px 24px">✅ Air is rising above you - the classic signature of an approaching storm system.</p></details><details class="met-q" data-quiz="1.3" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">Which layer of the atmosphere holds almost all weather?</summary><p style="margin:3px 0 2px 24px">✅ The troposphere (0-11 km). The stratosphere above it is calm.</p></details></details><details class="card met-class" id="class-2" data-class="2" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700"><span class="met-done-box" data-n="2" title="Mark this class complete" style="cursor:pointer;user-select:none"><input type="checkbox" class="met-done-cb" style="cursor:pointer;vertical-align:middle;accent-color:#66bb6a"> </span><span class="met-title">Class 2 · Temperature, dew point and humidity</span></summary><p style="margin:8px 0 2px">Temperature is energy; dew point is moisture. The dew point is the temperature air must cool to for saturation - it NEVER exceeds the air temperature. Relative humidity alone is misleading (cooler nights push it to 100% with no new moisture). Forecasters live by dew point: 55°F feels muggy, 65°F+ fuels storms, 70°F+ in Tennessee means torrential-rain potential. The overnight low often lands near the afternoon dew point - that is the model trick.</p><p style="margin:6px 0 2px"><b>📝 Homework:</b> <a class="src" href="forecast.html">On Forecast, find today's dew point column. Predict tonight's low using it, then check tomorrow whether you beat the NWS number.</a></p><p style="margin:8px 0 2px"><b>🧠 Quiz yourself - think, then click to check:</b></p><details class="met-q" data-quiz="2.1" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">Can the dew point ever exceed the air temperature?</summary><p style="margin:3px 0 2px 24px">✅ No - dew point never exceeds the air temperature; the two meet only at saturation (100% humidity).</p></details><details class="met-q" data-quiz="2.2" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">Which is the better moisture measure, dew point or relative humidity - and why?</summary><p style="margin:3px 0 2px 24px">✅ Dew point. It tracks real moisture; relative humidity changes whenever temperature changes, even with no new moisture.</p></details><details class="met-q" data-quiz="2.3" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What dew-point values mark &#x27;muggy&#x27; and &#x27;storm fuel&#x27; in Tennessee?</summary><p style="margin:3px 0 2px 24px">✅ About 55°F starts feeling muggy, 65°F+ fuels storms, and 70°F+ means torrential-rain potential.</p></details></details><details class="card met-class" id="class-3" data-class="3" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700"><span class="met-done-box" data-n="3" title="Mark this class complete" style="cursor:pointer;user-select:none"><input type="checkbox" class="met-done-cb" style="cursor:pointer;vertical-align:middle;accent-color:#66bb6a"> </span><span class="met-title">Class 3 · Clouds: what they tell you</span></summary><p style="margin:8px 0 2px">Clouds form when air rises and cools to its dew point. Cumulus = rising thermals (fair-weather if flat, storm if towering cumulonimbus). Stratus = gentle lifting over a wide area (drizzle). Cirrus = ice crystals 20,000+ ft up, often the first sign of an approaching warm front 24-48 h out. Mammatus under an anvil means violent turbulence - storms capable of it deserve your full attention. Satellite's IR band sees cloud-top COLDNESS: colder = taller = stronger.</p><p style="margin:6px 0 2px"><b>📝 Homework:</b> <a class="src" href="satellite.html">Open Satellite, switch to the infrared band, and find the coldest cloud tops on the map. The colder the colors, the deeper the storm.</a></p><p style="margin:8px 0 2px"><b>🧠 Quiz yourself - think, then click to check:</b></p><details class="met-q" data-quiz="3.1" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">Which cloud type is often the first sign of an approaching warm front?</summary><p style="margin:3px 0 2px 24px">✅ Cirrus - ice crystals 20,000+ ft up, arriving 24-48 h ahead of the front.</p></details><details class="met-q" data-quiz="3.2" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">On satellite infrared, what do colder cloud tops tell you?</summary><p style="margin:3px 0 2px 24px">✅ Colder = taller = stronger. The coldest tops belong to the deepest storms.</p></details><details class="met-q" data-quiz="3.3" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">Mammatus clouds hanging under an anvil mean what?</summary><p style="margin:3px 0 2px 24px">✅ Violent turbulence - storms capable of producing mammatus deserve your full attention.</p></details></details><details class="card met-class" id="class-4" data-class="4" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700"><span class="met-done-box" data-n="4" title="Mark this class complete" style="cursor:pointer;user-select:none"><input type="checkbox" class="met-done-cb" style="cursor:pointer;vertical-align:middle;accent-color:#66bb6a"> </span><span class="met-title">Class 4 · Air masses and fronts</span></summary><p style="margin:8px 0 2px">An air mass is a huge blob of air with uniform temperature and moisture: continental polar (cold, dry), maritime tropical (warm, humid - the Gulf does the supplying for Tennessee). A front is the battle line between two: cold fronts shove in fast with a line of storms; warm fronts slide over slowly with long stratus and steady rain. On surface maps, winds turn across the front and dew points JUMP - a 15°F dew-point jump marks a boundary better than temperature.</p><p style="margin:6px 0 2px"><b>📝 Homework:</b> <a class="src" href="obs.html">On Obs, watch the wind barbs across our region. Find where winds flip direction north-to-south - that is today's front.</a></p><p style="margin:8px 0 2px"><b>🧠 Quiz yourself - think, then click to check:</b></p><details class="met-q" data-quiz="4.1" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">Which air mass supplies Tennessee&#x27;s warm, humid weather?</summary><p style="margin:3px 0 2px 24px">✅ Maritime tropical - the warm, humid air the Gulf of Mexico keeps supplying.</p></details><details class="met-q" data-quiz="4.2" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What surface clue marks a front better than temperature does?</summary><p style="margin:3px 0 2px 24px">✅ A dew-point jump (15°F+ marks a boundary sharply), along with winds turning across the line.</p></details><details class="met-q" data-quiz="4.3" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">How do cold and warm fronts differ?</summary><p style="margin:3px 0 2px 24px">✅ Cold fronts shove in fast, often with a line of storms; warm fronts slide over slowly with long stratus and steady rain.</p></details></details><details class="card met-class" id="class-5" data-class="5" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700"><span class="met-done-box" data-n="5" title="Mark this class complete" style="cursor:pointer;user-select:none"><input type="checkbox" class="met-done-cb" style="cursor:pointer;vertical-align:middle;accent-color:#66bb6a"> </span><span class="met-title">Class 5 · Why wind blows (pressure gradient)</span></summary><p style="margin:8px 0 2px">Wind is air flowing from high to low pressure - the tighter the isobar spacing, the stronger the wind. But Earth's rotation bends it: winds flow ALONG isobars aloft (geostrophic) and angle slightly across them near the ground (friction). Above the friction layer, jet streams race at 100-200 mph and their dips (troughs) are what spin up our storm systems. Look for isobars squeezed together on any pressure map - that squeeze is the blow.</p><p style="margin:6px 0 2px"><b>📝 Homework:</b> <a class="src" href="meso.html">On Mesoanalysis, find the strongest surface winds and check whether the pressure contours around them are packed tightly.</a></p><p style="margin:8px 0 2px"><b>🧠 Quiz yourself - think, then click to check:</b></p><details class="met-q" data-quiz="5.1" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What makes wind stronger on a pressure map?</summary><p style="margin:3px 0 2px 24px">✅ Tighter isobar spacing - the tighter the packing, the stronger the wind.</p></details><details class="met-q" data-quiz="5.2" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">Why do winds aloft flow along isobars while surface winds cross them?</summary><p style="margin:3px 0 2px 24px">✅ Earth's rotation bends flow along isobars (geostrophic) aloft; near the ground, friction angles the wind slightly across them.</p></details><details class="met-q" data-quiz="5.3" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">Which jet-stream feature helps spin up our storm systems?</summary><p style="margin:3px 0 2px 24px">✅ Its dips (troughs) - they are what spin up surface low-pressure systems.</p></details></details><details class="card met-class" id="class-6" data-class="6" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700"><span class="met-done-box" data-n="6" title="Mark this class complete" style="cursor:pointer;user-select:none"><input type="checkbox" class="met-done-cb" style="cursor:pointer;vertical-align:middle;accent-color:#66bb6a"> </span><span class="met-title">Class 6 · Instability: CAPE, lapse rates and storm fuel</span></summary><p style="margin:8px 0 2px">A rising bubble of air stays buoyant if it is warmer than its surroundings - that surplus is instability. CAPE integrates it: under 1000 J/kg ordinary storms, 1000-2500 strong storms, 2500+ severe potential. Lapse rate is the cooling per km of height: 8°C/km+ makes air rise explosively. Instability is the engine, wind shear is the steering - engine alone gives gusty storms, engine + shear gives rotating supercells. That pairing is the whole game.</p><p style="margin:6px 0 2px"><b>📝 Homework:</b> <a class="src" href="severe.html">Open Mesoanalysis, find today's CAPE maximum, then check SPC's outlook: does the risk zone sit over the CAPE bullseye?</a></p><p style="margin:8px 0 2px"><b>🧠 Quiz yourself - think, then click to check:</b></p><details class="met-q" data-quiz="6.1" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What CAPE values separate ordinary, strong, and severe-potential storms?</summary><p style="margin:3px 0 2px 24px">✅ Under 1000 J/kg ordinary; 1000-2500 strong; 2500+ severe potential.</p></details><details class="met-q" data-quiz="6.2" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What does a steep lapse rate do?</summary><p style="margin:3px 0 2px 24px">✅ Cools 8°C/km+ with height, so rising air stays buoyant - air rises explosively and fuels storms.</p></details><details class="met-q" data-quiz="6.3" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What pairing turns ordinary storms into rotating supercells?</summary><p style="margin:3px 0 2px 24px">✅ Instability (the engine) plus wind shear (the steering). Engine alone gives gusty storms; both together give supercells.</p></details></details><details class="card met-class" id="class-7" data-class="7" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700"><span class="met-done-box" data-n="7" title="Mark this class complete" style="cursor:pointer;user-select:none"><input type="checkbox" class="met-done-cb" style="cursor:pointer;vertical-align:middle;accent-color:#66bb6a"> </span><span class="met-title">Class 7 · Reading radar like a forecaster</span></summary><p style="margin:8px 0 2px">Radar bounces microwaves off raindrops. Reflectivity (dBZ) = echo strength: 20 light rain, 40 heavy, 55+ hail. A bow echo = damaging straight-line winds; a hook echo with an inflow notch = possible tornado. Velocity products show motion toward/away from the radar - tightly coupled inbound/outbound couplets mean rotation. Warning: radar measures DROPS not rainfall - a big-drop drizzle can out-echo a steady soaker, which is why we pair it with MRMS gauge-calibrated totals.</p><p style="margin:6px 0 2px"><b>📝 Homework:</b> <a class="src" href="radar.html">On Radar, during the next rain event, identify: the heaviest core (colors), which way cells track, and whether any show a hook shape.</a></p><p style="margin:8px 0 2px"><b>🧠 Quiz yourself - think, then click to check:</b></p><details class="met-q" data-quiz="7.1" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">Which dBZ values mark heavy rain and likely hail?</summary><p style="margin:3px 0 2px 24px">✅ About 40 for heavy rain and 55+ for likely hail (20 is light rain).</p></details><details class="met-q" data-quiz="7.2" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What does a hook echo with an inflow notch suggest?</summary><p style="margin:3px 0 2px 24px">✅ Possible tornado - that shape signals rotation within the storm.</p></details><details class="met-q" data-quiz="7.3" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">Why pair radar with MRMS gauge-calibrated totals?</summary><p style="margin:3px 0 2px 24px">✅ Radar measures drops, not rainfall - big-drop drizzle can out-echo a steady soaker; MRMS adds rain-gauge truth.</p></details></details><details class="card met-class" id="class-8" data-class="8" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700"><span class="met-done-box" data-n="8" title="Mark this class complete" style="cursor:pointer;user-select:none"><input type="checkbox" class="met-done-cb" style="cursor:pointer;vertical-align:middle;accent-color:#66bb6a"> </span><span class="met-title">Class 8 · Forecast models and how to use them</span></summary><p style="margin:8px 0 2px">Models are physics run on a grid. Global models (GFS, ECMWF) cover the world coarsely to 16+ days; mesoscale models (HRRR, NAM, SREF) zoom in with fine grids to ~2 days. Ensembles (GEFS, EPS, SREF) run the model many times with tiny tweaks - TIGHT spread = high confidence, WIDE spread = uncertain outcome. Trust rules: days 1-2 high-res, days 3-7 ensemble means, day 8+ pattern hints only. When GFS and ECMWF agree, believe it.</p><p style="margin:6px 0 2px"><b>📝 Homework:</b> <a class="src" href="models.html">Open Models in GFS and ECMWF (or GEFS spread). Compare the 500-mb pattern over Tennessee: agree or diverge? Note which and how it matches the actual forecast.</a></p><p style="margin:8px 0 2px"><b>🧠 Quiz yourself - think, then click to check:</b></p><details class="met-q" data-quiz="8.1" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What does WIDE ensemble spread tell you?</summary><p style="margin:3px 0 2px 24px">✅ The outcome is uncertain. Tight spread means the forecast is confident.</p></details><details class="met-q" data-quiz="8.2" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">Which models do you trust days 1-2, and what about day 8+?</summary><p style="margin:3px 0 2px 24px">✅ Days 1-2 the high-res models (HRRR/NAM); days 3-7 the ensemble means; day 8+ treat everything as a pattern hint.</p></details><details class="met-q" data-quiz="8.3" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What does it mean when GFS and ECMWF agree?</summary><p style="margin:3px 0 2px 24px">✅ Believe it - agreement between independent global models is a strong confidence signal.</p></details></details><details class="card met-class" id="class-9" data-class="9" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700"><span class="met-done-box" data-n="9" title="Mark this class complete" style="cursor:pointer;user-select:none"><input type="checkbox" class="met-done-cb" style="cursor:pointer;vertical-align:middle;accent-color:#66bb6a"> </span><span class="met-title">Class 9 · Tropical cyclones: structure and hazards</span></summary><p style="margin:8px 0 2px">A tropical cyclone is a heat engine over warm (26°C+) ocean: air spirals inward, rises in the eyewall, and vents out the top. The eye is calm SINKING air - danger resumes when the back side arrives. Hazards are ranked by kills: 1) WATER - storm surge and inland freshwater flooding, 2) wind, 3) tornadoes in outer rainbands. Spaghetti plots show each model's path idea; where lines converge, confidence is high. East Tennessee's lesson is Helene: remnants 300+ miles inland still dropped catastrophic rain on our mountains.</p><p style="margin:6px 0 2px"><b>📝 Homework:</b> <a class="src" href="tropmodels.html">On Tropical Models, when a storm is active, count how many members take it one way vs another. Where do the most lines agree?</a></p><p style="margin:8px 0 2px"><b>🧠 Quiz yourself - think, then click to check:</b></p><details class="met-q" data-quiz="9.1" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What ocean temperature fuels a tropical cyclone?</summary><p style="margin:3px 0 2px 24px">✅ About 26°C+ - a tropical cyclone is a heat engine running on warm ocean water.</p></details><details class="met-q" data-quiz="9.2" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">Rank the deadliest tropical hazards.</summary><p style="margin:3px 0 2px 24px">✅ 1) Water - storm surge and inland freshwater flooding; 2) wind; 3) tornadoes in outer rainbands.</p></details><details class="met-q" data-quiz="9.3" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What is inside the eye of a hurricane?</summary><p style="margin:3px 0 2px 24px">✅ Calm sinking air - danger resumes when the back side of the eyewall arrives.</p></details></details><details class="card met-class" id="class-10" data-class="10" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700"><span class="met-done-box" data-n="10" title="Mark this class complete" style="cursor:pointer;user-select:none"><input type="checkbox" class="met-done-cb" style="cursor:pointer;vertical-align:middle;accent-color:#66bb6a"> </span><span class="met-title">Class 10 · Winter weather: snow ratios and the 32°F fight</span></summary><p style="margin:8px 0 2px">Snow is forecast from the QPF (liquid equivalent) times a ratio. The classic 10:1 rule is a floor: Arctic air behind a front can push 15-20:1, while marginal 33-35°F air crushes it to 3-5:1 or plain rain. Watch the vertical profile on the Skew-T: a warm nose above freezing gives sleet, a deep subfreezing layer gives snow, surface melting gives freezing rain. In East Tennessee elevation wins - ridge-top events often never reach the valleys.</p><p style="margin:6px 0 2px"><b>📝 Homework:</b> <a class="src" href="winter.html">Open Winter, find the storm-total snow map, then compare the temperature column below it: is anything hovering 30-35°F? Flag where ratio busting is most likely.</a></p><p style="margin:8px 0 2px"><b>🧠 Quiz yourself - think, then click to check:</b></p><details class="met-q" data-quiz="10.1" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">How do you turn a snow forecast&#x27;s QPF into inches?</summary><p style="margin:3px 0 2px 24px">✅ Multiply the liquid equivalent by a ratio: 10:1 is a floor, Arctic air can push 15-20:1, and marginal 33-35°F air crushes it to 3-5:1.</p></details><details class="met-q" data-quiz="10.2" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">Which vertical profile gives sleet, and which gives freezing rain?</summary><p style="margin:3px 0 2px 24px">✅ A warm nose above freezing gives sleet; a surface melting layer gives freezing rain. A deep subfreezing layer gives snow.</p></details><details class="met-q" data-quiz="10.3" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">Why do ridge communities get winter events the valleys miss?</summary><p style="margin:3px 0 2px 24px">✅ Elevation - valleys sit 5-8°F warmer at night, so ridge-top events often never reach the valley floor.</p></details></details><details class="card met-class" id="class-11" data-class="11" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700"><span class="met-done-box" data-n="11" title="Mark this class complete" style="cursor:pointer;user-select:none"><input type="checkbox" class="met-done-cb" style="cursor:pointer;vertical-align:middle;accent-color:#66bb6a"> </span><span class="met-title">Class 11 · Flooding: from rain to river crest</span></summary><p style="margin:8px 0 2px">Flood forecasting is a chain: soil moisture → runoff → creeks → main-stem rivers. Saturated ground can absorb almost nothing, so the SAME rain that soaked in last month becomes a flood today. Rivers lag rain - mountain gauges can keep rising 12-24 h after skies clear. Gauge categories (action/minor/moderate/major) mark where impacts start: minor floods fields and low roads, major floods structures. The trend beats the number.</p><p style="margin:6px 0 2px"><b>📝 Homework:</b> <a class="src" href="rivers.html">On Rivers, after the next heavy rain, pick one gauge and log it morning and evening for three days. Chart the rise - how long after the rain did it crest?</a></p><p style="margin:8px 0 2px"><b>🧠 Quiz yourself - think, then click to check:</b></p><details class="met-q" data-quiz="11.1" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">Why can the same rain flood today when it didn&#x27;t last month?</summary><p style="margin:3px 0 2px 24px">✅ Soil moisture - saturated ground absorbs almost nothing, so far more of the rain runs off into creeks.</p></details><details class="met-q" data-quiz="11.2" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">How long after the rain stops can rivers keep rising?</summary><p style="margin:3px 0 2px 24px">✅ 12-24 hours or more - mountain gauges can keep climbing long after skies clear.</p></details><details class="met-q" data-quiz="11.3" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What matters more than a single gauge reading?</summary><p style="margin:3px 0 2px 24px">✅ The trend - rising, steady, or falling tells you what happens next; the number alone does not.</p></details></details><details class="card met-class" id="class-12" data-class="12" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700"><span class="met-done-box" data-n="12" title="Mark this class complete" style="cursor:pointer;user-select:none"><input type="checkbox" class="met-done-cb" style="cursor:pointer;vertical-align:middle;accent-color:#66bb6a"> </span><span class="met-title">Class 12 · Climate: our seasons and what a 30-year normal means</span></summary><p style="margin:8px 0 2px">East Tennessee sits in the humid subtropical/Cfa border zone: hot, muggy summers (July mean near 78°F), mild winters with occasional Arctic outbreaks, and two storm seasons (March-May severe, November secondary). The Smokies wring moisture from the prevailing westerlies, so the mountains out-rain the valley nearly 2:1. A climatological 'normal' is just a 30-year average (currently 1991-2020) - a useful baseline, not a prediction: records exist precisely because weather routinely ignores it.</p><p style="margin:6px 0 2px"><b>📝 Homework:</b> <a class="src" href="dashboard.html">On Dashboard, compare a station's current temperature to its 24-hour trend and think: is today running above or below our seasonal normal - and why?</a></p><p style="margin:8px 0 2px"><b>🧠 Quiz yourself - think, then click to check:</b></p><details class="met-q" data-quiz="12.1" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What are East Tennessee&#x27;s two storm seasons?</summary><p style="margin:3px 0 2px 24px">✅ March-May is the main severe season, with a secondary peak in November.</p></details><details class="met-q" data-quiz="12.2" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">Why do the Smokies out-rain the valley nearly 2:1?</summary><p style="margin:3px 0 2px 24px">✅ The mountains wring moisture out of the prevailing westerlies as air is forced up and over them.</p></details><details class="met-q" data-quiz="12.3" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What does a 30-year &#x27;normal&#x27; actually mean?</summary><p style="margin:3px 0 2px 24px">✅ A 1991-2020 average - a useful baseline, not a prediction; records exist because weather routinely ignores it.</p></details></details><details class="card met-class" id="class-13" data-class="13" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700"><span class="met-done-box" data-n="13" title="Mark this class complete" style="cursor:pointer;user-select:none"><input type="checkbox" class="met-done-cb" style="cursor:pointer;vertical-align:middle;accent-color:#66bb6a"> </span><span class="met-title">Class 13 · Satellite interpretation: choosing the right band</span></summary><p style="margin:8px 0 2px">Weather satellites measure different slices of light, and each answers a different question. VISIBLE (0.64 µm) is sunlight bounced off cloud tops - sharpest detail, but blind at night. INFRARED (10.3 µm) measures cloud-top temperature, so it works day and night: colder = higher = deeper storms, and the coldest tops often overshoot into the stratosphere on severe storms. WATER VAPOR (6.9 µm) sees moisture at mid-levels - it shows the jets, dry slots and rivers of moisture that STEER storms, often before clouds even form. The 3.9 µm shortwave window is the night-owl: low clouds glow against warmer ground (fog detection) and fires show as hot spots. Pros stack bands: visible for detail, IR for height, water vapor for the big picture, 3.9 for fog and fire.</p><p style="margin:6px 0 2px"><b>📝 Homework:</b> <a class="src" href="satellite.html">Open Satellite on a cloudy night. Switch bands and answer: which band shows the storm tops, and which shows the moisture stream feeding them?</a></p><p style="margin:8px 0 2px"><b>🧠 Quiz yourself - think, then click to check:</b></p><details class="met-q" data-quiz="13.1" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">Which satellite band works at night, and which is sharpest in daylight?</summary><p style="margin:3px 0 2px 24px">✅ Infrared (10.3 µm) works day and night by measuring cloud-top temperature; visible (0.64 µm) is sharpest but blind without sun.</p></details><details class="met-q" data-quiz="13.2" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What does the water vapor channel show that clouds do not?</summary><p style="margin:3px 0 2px 24px">✅ Mid-level moisture flow - jets, dry slots and moisture rivers that steer storms, often before clouds form.</p></details><details class="met-q" data-quiz="13.3" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">Which band detects fog at night, and how?</summary><p style="margin:3px 0 2px 24px">✅ The 3.9 µm shortwave window - low clouds glow against warmer ground, and fires show as hot spots.</p></details></details><details class="card met-class" id="class-14" data-class="14" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700"><span class="met-done-box" data-n="14" title="Mark this class complete" style="cursor:pointer;user-select:none"><input type="checkbox" class="met-done-cb" style="cursor:pointer;vertical-align:middle;accent-color:#66bb6a"> </span><span class="met-title">Class 14 · Skew-T soundings: the atmosphere&#x27;s vertical profile</span></summary><p style="margin:8px 0 2px">A Skew-T plots temperature and dew point from ground to jet stream on a chart whose temperature lines slant (that is the 'skew'). The gap between the red temperature and green dew point curves is moisture; where they nearly touch is a cloud layer. Forecasters mark three levels: the LCL (cloud base), the LFC (where rising air turns freely buoyant) and the EL (storm top). The area between LFC and EL is CAPE - the storm's fuel tank. A CAP (warm layer aloft, or CIN) is a lid: small caps let storms fire cleanly, big caps hold energy until something breaks them - then storms explode. The wind barbs on the right edge form the hodograph: a big clockwise curl means storm rotation is possible. Read a sounding bottom-up: is the surface moist? Is there a cap? Is CAPE loaded? Is wind turning with height? Those four answers ARE the forecast.</p><p style="margin:6px 0 2px"><b>📝 Homework:</b> <a class="src" href="obs.html">On Obs, open today's nearest sounding. Find the LCL height, estimate whether a cap (CIN) is present, and describe the low-level wind curl.</a></p><p style="margin:8px 0 2px"><b>🧠 Quiz yourself - think, then click to check:</b></p><details class="met-q" data-quiz="14.1" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">Name the three levels that frame a storm&#x27;s fuel tank.</summary><p style="margin:3px 0 2px 24px">✅ LCL (cloud base), LFC (where rising air turns freely buoyant) and EL (storm top); CAPE is the area between LFC and EL.</p></details><details class="met-q" data-quiz="14.2" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What is a cap (CIN), and when is it dangerous vs useful?</summary><p style="margin:3px 0 2px 24px">✅ A warm layer aloft that blocks rising air. It holds energy until something breaks it - then storms explode; no cap lets storms fire weakly and early.</p></details><details class="met-q" data-quiz="14.3" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What does a big clockwise curl in the hodograph wind barbs mean?</summary><p style="margin:3px 0 2px 24px">✅ Storm-scale rotation is possible - the low-level winds turn strongly with height, feeding rotating updrafts.</p></details></details><details class="card met-class" id="class-15" data-class="15" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700"><span class="met-done-box" data-n="15" title="Mark this class complete" style="cursor:pointer;user-select:none"><input type="checkbox" class="met-done-cb" style="cursor:pointer;vertical-align:middle;accent-color:#66bb6a"> </span><span class="met-title">Class 15 · Ensemble forecasting: forecasting the forecast</span></summary><p style="margin:8px 0 2px">A single model run is one opinion; an ensemble is a whole panel of experts. Run the same model 31 times with slightly different starting points (GEFS) or physics (SREF), and the differences reveal what the atmosphere itself is unsure about. The MEAN is the consensus; the SPREAD is the honesty meter - tight clusters mean high confidence, wide scatter means the atmosphere has not decided. Count members instead of trusting one: '23 of 31 members show snow' is a real probability you can plan around, far better than a single map's best guess. Watch for clusters - when members split into two distinct solutions (say, a northern vs southern storm track), the truth usually lands near one cluster, not in the mushy middle. Ensembles also extend range: EPS weeklies push useful pattern signals to 2-4 weeks where a single run is noise. Rules: day 1-3 use high-res deterministic, day 4+ shift to the ensemble mean, and always check spread before you trust any single frame.</p><p style="margin:6px 0 2px"><b>📝 Homework:</b> <a class="src" href="models.html">Open Models and find the GEFS (or SREF) spread panel for the same product as the deterministic run. Compare: where spread is tight, how closely does the deterministic map match the mean?</a></p><p style="margin:8px 0 2px"><b>🧠 Quiz yourself - think, then click to check:</b></p><details class="met-q" data-quiz="15.1" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What is the difference between ensemble mean and spread?</summary><p style="margin:3px 0 2px 24px">✅ The mean is the members' consensus forecast; the spread is how far apart they are - the honesty meter for confidence.</p></details><details class="met-q" data-quiz="15.2" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">Which is more useful: &#x27;the model shows snow&#x27; or &#x27;23 of 31 members show snow&#x27;?</summary><p style="margin:3px 0 2px 24px">✅ The member count - it is a real probability you can plan around, instead of one map's best guess.</p></details><details class="met-q" data-quiz="15.3" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">When members split into two distinct storm tracks, where does truth usually land?</summary><p style="margin:3px 0 2px 24px">✅ Near one of the clusters, not in the mushy middle - and the odds follow the size of each cluster.</p></details></details><details class="card met-class" id="class-16" data-class="16" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700"><span class="met-done-box" data-n="16" title="Mark this class complete" style="cursor:pointer;user-select:none"><input type="checkbox" class="met-done-cb" style="cursor:pointer;vertical-align:middle;accent-color:#66bb6a"> </span><span class="met-title">Class 16 · Radar velocity &amp; dual-pol: the storm&#x27;s insides</span></summary><p style="margin:8px 0 2px">Velocity products are the radar's motion detector: greens move TOWARD the radar, reds AWAY. A tight green-red pair in a storm's low levels is a couplet - that is rotation, and if it tightens while descending, a tornado may be forming or already on the ground. Dual-pol adds material science: ZDR (differential reflectivity) is high for big flat raindrops - and also for debris. Correlation coefficient (CC) collapses near zero when the beam mixes unlike targets: rain suddenly wrapped in non-weather objects means a tornado is lofting material (the debris ball / TDS signature) - a tornado CONFIRMED on the ground even where no spotter can see it. KDP responds only to pure liquid and pinpoints the heaviest rain cores, the flash-flood signal. The pro's rule: velocity says ROTATE, dual-pol says WHAT IS FLYING - together they turn 'possible tornado' into 'take cover now'.</p><p style="margin:6px 0 2px"><b>📝 Homework:</b> <a class="src" href="meso.html">On Mesoanalysis during a storm day, check 0-1 km storm-relative helicity and 0-6 km shear. The environment tells you WHICH cells can rotate before the radar shows one doing it.</a></p><p style="margin:8px 0 2px"><b>🧠 Quiz yourself - think, then click to check:</b></p><details class="met-q" data-quiz="16.1" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What does a tight inbound/outbound velocity couplet at low levels mean?</summary><p style="margin:3px 0 2px 24px">✅ Rotation inside the storm - if it tightens while descending, a tornado may be forming or already on the ground.</p></details><details class="met-q" data-quiz="16.2" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What does LOW correlation coefficient near the hook echo signal?</summary><p style="margin:3px 0 2px 24px">✅ Debris: the beam is mixing non-weather targets, meaning a tornado has lofted material - the confirmed-landed (TDS) signature.</p></details><details class="met-q" data-quiz="16.3" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">Which dual-pol field pinpoints the heaviest rain cores?</summary><p style="margin:3px 0 2px 24px">✅ KDP (specific differential phase) - it responds only to pure liquid and highlights heavy-rain cores for flash-flood work.</p></details></details><details class="card met-class" id="class-17" data-class="17" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700"><span class="met-done-box" data-n="17" title="Mark this class complete" style="cursor:pointer;user-select:none"><input type="checkbox" class="met-done-cb" style="cursor:pointer;vertical-align:middle;accent-color:#66bb6a"> </span><span class="met-title">Class 17 · How the NWS decides to warn</span></summary><p style="margin:8px 0 2px">A warning is the last link of a decision chain that starts hours earlier: SPC outlooks flag the environment, watches (county-scale, hours ahead) say 'conditions favorable', and warnings are the storm-scale act-now message. The forecaster polls three streams on every radar scan: the environment (CAPE, shear, soundings), the radar trend (is that couplet tightening? is the hook strengthening?), and ground truth (spotters, law enforcement, damage reports). Severe criteria: hail 1 inch+ or winds 58+ mph. Tornado warnings carry tags - RADAR INDICATED (rotation on radar, no ground confirmation) vs CONFIRMED, plus the rare PDS (particularly dangerous situation) - and modern warning text leads with the THREAT, because 'take cover now' beats a meteorology lecture when minutes count. Warnings are storm-based polygons drawn only where the threat lives. When yours fires: lowest floor, interior room, away from windows - the warning is the end of a chain built to give you those minutes.</p><p style="margin:6px 0 2px"><b>📝 Homework:</b> <a class="src" href="severe.html">On Severe, read today's SPC outlook and any MCD. Then open Home and, for any active warning, note its tag - RADAR INDICATED vs CONFIRMED - and whether your county is inside the polygon.</a></p><p style="margin:8px 0 2px"><b>🧠 Quiz yourself - think, then click to check:</b></p><details class="met-q" data-quiz="17.1" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What is the difference between a watch and a warning?</summary><p style="margin:3px 0 2px 24px">✅ A watch is county-scale, hours ahead: conditions are favorable, keep planning. A warning is storm-scale: imminent or occurring - act now.</p></details><details class="met-q" data-quiz="17.2" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What do the tags RADAR INDICATED and CONFIRMED mean in a tornado warning?</summary><p style="margin:3px 0 2px 24px">✅ RADAR INDICATED: rotation on radar without ground confirmation. CONFIRMED (or PDS): spotters or debris signatures verify - shelter immediately.</p></details><details class="met-q" data-quiz="17.3" style="margin:3px 0"><summary style="cursor:pointer;margin-left:10px">What are the official severe thunderstorm criteria?</summary><p style="margin:3px 0 2px 24px">✅ Hail 1 inch or larger and/or winds of 58+ mph.</p></details></details>
+
+
+<style>
+@media print {
+  body * { visibility: hidden; }
+  #edu-cert, #edu-cert * { visibility: visible; }
+  #edu-cert { position: absolute; top: 0; left: 0; width: 100%; }
+  #edu-cert button, #edu-cert .cert-hint { display: none; }
+}
+</style>
+<div class="card" id="edu-exam" style="border:2px solid #ffd54f">
+  <h2>🎓 Graduation exam - 20 questions, 80% to pass · optional 15-minute timed mode</h2>
+  <p style="margin:6px 0">One question from every class (plus three extras). Score <b>16 of 20 (80%)</b> to graduate
+  with your printable certificate. Wrong answers are marked green-correct/red-picked after grading so you can review.
+  Practice untimed as long as you like - or hit <b>Start timed attempt</b> for a real test run: 15 minutes on the clock,
+  answers cleared, and the exam auto-grades with whatever you finished when time expires.
+  <b style="display:block;margin:4px 0;color:#ffd54f">🔒 The exam stays locked until all 17 classes are checked off and every quiz answer worked through.</b>
+  <b id="exam-best" style="display:block;margin:4px 0"></b>
+  <b id="exam-best-timed" style="display:block;margin:2px 0;color:#ffd54f"></b></p>
+  <div id="exam-lock" style="display:none;margin:8px 0;padding:14px;border:1px dashed #ffd54f;border-radius:8px;text-align:center">
+    <div style="font-size:24px">🔒</div>
+    <b style="display:block;margin:4px 0">Exam locked - finish the course first</b>
+    <span id="lock-classes" style="display:block;font-size:14px;margin:2px 0"></span>
+    <span id="lock-quizzes" style="display:block;font-size:14px;margin:2px 0"></span>
+    <span style="display:block;font-size:12.5px;color:#9aa4b2;margin-top:4px">Check off every class ✅ and work through every quiz answer, then this exam unlocks automatically.</span>
+  </div>
+  <div id="exam-body" style="display:none">
+  <div id="timer-wrap" style="display:none;align-items:center;gap:10px;margin:10px 0;padding:8px 12px;border:1px solid #ffd54f;border-radius:8px">
+    <span style="font-size:20px">⏱️</span>
+    <b id="exam-timer" style="font-family:Consolas,monospace;font-size:26px;min-width:74px;color:#8ef2a0">15:00</b>
+    <span style="opacity:.85">on the clock - the exam auto-grades when time expires</span>
+  </div>
+  <button id="exam-timed-start" style="background:#e65100;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;margin:6px 0">⏱️ Start timed attempt (15:00)</button>
+  <span style="opacity:.75;font-size:13px"> - clears your answers and starts the countdown. Untimed practice: just answer and grade below.</span>
+<div class="exam-q" data-correct="1" style="margin:12px 0"><b>1. Roughly how quickly does atmospheric pressure halve as you climb?</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq1" value="0" style="accent-color:#42a5f5;cursor:pointer"> About every 5,000 ft</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq1" value="1" style="accent-color:#42a5f5;cursor:pointer"> About every 18,000 ft</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq1" value="2" style="accent-color:#42a5f5;cursor:pointer"> About every 50,000 ft</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq1" value="3" style="accent-color:#42a5f5;cursor:pointer"> Pressure never changes with height</label></div><div class="exam-q" data-correct="1" style="margin:12px 0"><b>2. Which measurement tells you the REAL moisture in the air?</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq2" value="0" style="accent-color:#42a5f5;cursor:pointer"> Relative humidity</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq2" value="1" style="accent-color:#42a5f5;cursor:pointer"> Dew point</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq2" value="2" style="accent-color:#42a5f5;cursor:pointer"> Heat index</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq2" value="3" style="accent-color:#42a5f5;cursor:pointer"> Wind chill</label></div><div class="exam-q" data-correct="2" style="margin:12px 0"><b>3. Which cloud is often the first sign of an approaching warm front, 24-48 h out?</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq3" value="0" style="accent-color:#42a5f5;cursor:pointer"> Cumulonimbus</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq3" value="1" style="accent-color:#42a5f5;cursor:pointer"> Mammatus</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq3" value="2" style="accent-color:#42a5f5;cursor:pointer"> Cirrus</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq3" value="3" style="accent-color:#42a5f5;cursor:pointer"> Stratus</label></div><div class="exam-q" data-correct="0" style="margin:12px 0"><b>4. What surface clue marks a front better than temperature does?</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq4" value="0" style="accent-color:#42a5f5;cursor:pointer"> A 15°F dew-point jump</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq4" value="1" style="accent-color:#42a5f5;cursor:pointer"> A wind speed maximum</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq4" value="2" style="accent-color:#42a5f5;cursor:pointer"> A steady pressure reading</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq4" value="3" style="accent-color:#42a5f5;cursor:pointer"> The sun angle</label></div><div class="exam-q" data-correct="1" style="margin:12px 0"><b>5. On a pressure map, tightly packed isobars mean:</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq5" value="0" style="accent-color:#42a5f5;cursor:pointer"> Calm winds</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq5" value="1" style="accent-color:#42a5f5;cursor:pointer"> Strong winds</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq5" value="2" style="accent-color:#42a5f5;cursor:pointer"> Rain is certain</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq5" value="3" style="accent-color:#42a5f5;cursor:pointer"> Nothing useful</label></div><div class="exam-q" data-correct="2" style="margin:12px 0"><b>6. A CAPE of 2500+ J/kg signals:</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq6" value="0" style="accent-color:#42a5f5;cursor:pointer"> No storms possible</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq6" value="1" style="accent-color:#42a5f5;cursor:pointer"> Ordinary storms</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq6" value="2" style="accent-color:#42a5f5;cursor:pointer"> Severe-potential storms</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq6" value="3" style="accent-color:#42a5f5;cursor:pointer"> A certain tornado</label></div><div class="exam-q" data-correct="3" style="margin:12px 0"><b>7. Radar reflectivity of 55+ dBZ usually means:</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq7" value="0" style="accent-color:#42a5f5;cursor:pointer"> Light rain</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq7" value="1" style="accent-color:#42a5f5;cursor:pointer"> Moderate rain</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq7" value="2" style="accent-color:#42a5f5;cursor:pointer"> Drizzle</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq7" value="3" style="accent-color:#42a5f5;cursor:pointer"> Likely hail</label></div><div class="exam-q" data-correct="1" style="margin:12px 0"><b>8. WIDE ensemble spread means:</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq8" value="0" style="accent-color:#42a5f5;cursor:pointer"> High confidence</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq8" value="1" style="accent-color:#42a5f5;cursor:pointer"> The outcome is uncertain</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq8" value="2" style="accent-color:#42a5f5;cursor:pointer"> The model is broken</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq8" value="3" style="accent-color:#42a5f5;cursor:pointer"> A storm is certain</label></div><div class="exam-q" data-correct="2" style="margin:12px 0"><b>9. The deadliest tropical cyclone hazard is:</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq9" value="0" style="accent-color:#42a5f5;cursor:pointer"> Wind</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq9" value="1" style="accent-color:#42a5f5;cursor:pointer"> Tornadoes in rainbands</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq9" value="2" style="accent-color:#42a5f5;cursor:pointer"> Water - surge and flooding</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq9" value="3" style="accent-color:#42a5f5;cursor:pointer"> Lightning</label></div><div class="exam-q" data-correct="1" style="margin:12px 0"><b>10. A warm nose (above-freezing layer) aloft gives:</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq10" value="0" style="accent-color:#42a5f5;cursor:pointer"> Snow</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq10" value="1" style="accent-color:#42a5f5;cursor:pointer"> Sleet</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq10" value="2" style="accent-color:#42a5f5;cursor:pointer"> Freezing rain</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq10" value="3" style="accent-color:#42a5f5;cursor:pointer"> Rain</label></div><div class="exam-q" data-correct="2" style="margin:12px 0"><b>11. After rain ends, mountain rivers can keep rising for:</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq11" value="0" style="accent-color:#42a5f5;cursor:pointer"> 30 minutes</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq11" value="1" style="accent-color:#42a5f5;cursor:pointer"> 2 hours</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq11" value="2" style="accent-color:#42a5f5;cursor:pointer"> 12-24 hours</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq11" value="3" style="accent-color:#42a5f5;cursor:pointer"> Rivers never rise after rain ends</label></div><div class="exam-q" data-correct="1" style="margin:12px 0"><b>12. A 30-year climate &#x27;normal&#x27; is:</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq12" value="0" style="accent-color:#42a5f5;cursor:pointer"> A prediction for the next 30 years</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq12" value="1" style="accent-color:#42a5f5;cursor:pointer"> A 1991-2020 average baseline</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq12" value="2" style="accent-color:#42a5f5;cursor:pointer"> The all-time record</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq12" value="3" style="accent-color:#42a5f5;cursor:pointer"> A guarantee of the weather</label></div><div class="exam-q" data-correct="1" style="margin:12px 0"><b>13. Which satellite band works day AND night?</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq13" value="0" style="accent-color:#42a5f5;cursor:pointer"> Visible 0.64 µm</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq13" value="1" style="accent-color:#42a5f5;cursor:pointer"> Infrared 10.3 µm</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq13" value="2" style="accent-color:#42a5f5;cursor:pointer"> Neither one</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq13" value="3" style="accent-color:#42a5f5;cursor:pointer"> Both, but only at noon</label></div><div class="exam-q" data-correct="2" style="margin:12px 0"><b>14. On a Skew-T, the CAPE area sits between:</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq14" value="0" style="accent-color:#42a5f5;cursor:pointer"> Surface and LCL</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq14" value="1" style="accent-color:#42a5f5;cursor:pointer"> LCL and LFC</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq14" value="2" style="accent-color:#42a5f5;cursor:pointer"> LFC and EL</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq14" value="3" style="accent-color:#42a5f5;cursor:pointer"> EL and tropopause</label></div><div class="exam-q" data-correct="1" style="margin:12px 0"><b>15. The ensemble MEAN is:</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq15" value="0" style="accent-color:#42a5f5;cursor:pointer"> The first member&#x27;s forecast</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq15" value="1" style="accent-color:#42a5f5;cursor:pointer"> The members&#x27; consensus</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq15" value="2" style="accent-color:#42a5f5;cursor:pointer"> The highest member</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq15" value="3" style="accent-color:#42a5f5;cursor:pointer"> The forecast error</label></div><div class="exam-q" data-correct="2" style="margin:12px 0"><b>16. LOW correlation coefficient near a hook echo means:</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq16" value="0" style="accent-color:#42a5f5;cursor:pointer"> Pure rain</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq16" value="1" style="accent-color:#42a5f5;cursor:pointer"> Certain hail</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq16" value="2" style="accent-color:#42a5f5;cursor:pointer"> Possible debris lofted by a tornado - the TDS signature</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq16" value="3" style="accent-color:#42a5f5;cursor:pointer"> Radar calibration error</label></div><div class="exam-q" data-correct="2" style="margin:12px 0"><b>17. The difference between a watch and a warning:</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq17" value="0" style="accent-color:#42a5f5;cursor:pointer"> They are identical</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq17" value="1" style="accent-color:#42a5f5;cursor:pointer"> A watch means act now; a warning means stay alert</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq17" value="2" style="accent-color:#42a5f5;cursor:pointer"> A warning means act now - the hazard is imminent or occurring</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq17" value="3" style="accent-color:#42a5f5;cursor:pointer"> Watches cover storms, warnings cover counties</label></div><div class="exam-q" data-correct="0" style="margin:12px 0"><b>18. A tight inbound/outbound velocity couplet at low levels means:</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq18" value="0" style="accent-color:#42a5f5;cursor:pointer"> Rotation inside the storm</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq18" value="1" style="accent-color:#42a5f5;cursor:pointer"> Certain hail</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq18" value="2" style="accent-color:#42a5f5;cursor:pointer"> Calm air</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq18" value="3" style="accent-color:#42a5f5;cursor:pointer"> A radar malfunction</label></div><div class="exam-q" data-correct="1" style="margin:12px 0"><b>19. For day 8+ forecasts, treat model output as:</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq19" value="0" style="accent-color:#42a5f5;cursor:pointer"> Exact truth</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq19" value="1" style="accent-color:#42a5f5;cursor:pointer"> A pattern hint only</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq19" value="2" style="accent-color:#42a5f5;cursor:pointer"> Completely useless</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq19" value="3" style="accent-color:#42a5f5;cursor:pointer"> A guarantee</label></div><div class="exam-q" data-correct="1" style="margin:12px 0"><b>20. The classic 10:1 snow ratio is:</b><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq20" value="0" style="accent-color:#42a5f5;cursor:pointer"> A law of physics</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq20" value="1" style="accent-color:#42a5f5;cursor:pointer"> A floor - Arctic air can push 15-20:1</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq20" value="2" style="accent-color:#42a5f5;cursor:pointer"> The maximum possible</label><label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px"><input type="radio" name="exq20" value="3" style="accent-color:#42a5f5;cursor:pointer"> Only valid for rain</label></div>
+  <button id="exam-grade" style="background:#2e7d32;color:#fff;border:none;border-radius:6px;padding:8px 18px;font-weight:700;cursor:pointer;margin:6px 6px 0 0">Grade my exam</button>
+  <button id="exam-retake" style="background:transparent;color:inherit;border:1px solid currentColor;border-radius:6px;padding:8px 14px;cursor:pointer;margin:6px 0 0">Retake (clears answers)</button>
+  <p id="exam-result" style="margin:10px 0 2px;font-weight:700;font-size:1.05em"></p>
+  <div id="edu-cert" style="display:none;margin-top:16px;background:#fffdf5;color:#1a1a1a;border:6px double #1d3557;border-radius:8px;padding:26px;text-align:center">
+    <div style="font-size:13px;letter-spacing:3px;color:#1d3557">TENNESSEE WEATHER NETWORK · WEATHER SCHOOL</div>
+    <h2 style="margin:10px 0;color:#1d3557;font-size:30px">Certificate of Completion</h2>
+    <p style="margin:6px 0">This certifies that</p>
+    <input id="cert-name" placeholder="type your name here" style="border:none;border-bottom:2px dotted #555;background:transparent;font-size:24px;text-align:center;width:70%;color:#111;font-family:Georgia,serif">
+    <p style="margin:12px 0">has completed the free meteorology course - all 17 classes -<br>with a graduation-exam score of <b id="cert-score"></b><span id="cert-timed"></span></p>
+    <p style="margin:6px 0;font-size:13px;color:#444">Course covered: the atmosphere · moisture · clouds · fronts · wind · instability · radar · models ·
+    tropical cyclones · winter weather · flooding · climate · satellite bands · Skew-T soundings ·
+    ensembles · velocity &amp; dual-pol · NWS warnings · <span id="cert-date"></span></p>
+    <button id="cert-print" style="margin-top:12px;background:#1d3557;color:#fff;border:none;border-radius:6px;padding:8px 16px;cursor:pointer">🖨️ Print certificate</button>
+    <button id="cert-share" title="Opens Facebook with a link to the course and copies a ready-made graduation post to your clipboard" style="margin-top:12px;margin-left:8px;background:#1877f2;color:#fff;border:none;border-radius:6px;padding:8px 16px;cursor:pointer">📘 Post your graduation to Facebook</button>
+    <div class="cert-hint" style="font-size:12px;color:#666;margin-top:8px">Sharing opens Facebook with the course link and copies a ready-made graduation post - just paste it into the composer.</div>
+  </div>
+  </div>
+</div>
+
+</div>
+</div>
+
+<h2 style="margin:14px 0 6px">Learn with this site</h2>
+<div class="kpis"><div class="card"><h2>📡 Radar &amp; RainViewer</h2><p style="margin:6px 0">Colors are reflectivity (dBZ): green = light rain, yellow = moderate, red = heavy rain or hail. The Futurecast layers are a 30-60 min projection of where storms are moving - great for "is it about to rain on me?".</p><a class="src" href="radar.html">Open the Radar page →</a></div><div class="card"><h2>🧭 Forecast Models</h2><p style="margin:6px 0">GFS, NAM, RRFS and AI models each divide the atmosphere into stacked pressure levels (500 mb ≈ 18,000 ft, 850 mb ≈ 5,000 ft). Lower vorticity values usually mark storm systems. Compare several models - when they agree, confidence is high.</p><a class="src" href="models.html">Open the Forecast Models page →</a></div><div class="card"><h2>🎈 Obs &amp; Skew-T</h2><p style="margin:6px 0">A sounding is a vertical snapshot of the atmosphere. Watch for CAPE (fuel for thunderstorms) and lifted index; the wind profile tells you whether storms will rotate.</p><a class="src" href="obs.html">Open the Obs page →</a></div><div class="card"><h2>🌪️ Severe &amp; SPC Outlooks</h2><p style="margin:6px 0">SPC outlooks rank storm risk by probability: MRGL (marginal) < SLGT (slight) < ENH (enhanced) < MDT (moderate) < HIGH. Hatched areas mean significant (EF2+, 75+ mph, 2"+ hail) events are possible.</p><a class="src" href="severe.html">Open the Severe page →</a></div><div class="card"><h2>🌊 River Gauges</h2><p style="margin:6px 0">AHPS river gauges show stage against official flood categories: action, minor, moderate, major. When a gauge crosses minor-flood stage, low-lying roads near the river flood first.</p><a class="src" href="rivers.html">Open the River Gauges page →</a></div><div class="card"><h2>🔥 Fire Weather</h2><p style="margin:6px 0">SPC Fire Weather Outlooks flag areas where wind + dry air + dry fuels let fires spread dangerously. A Red Flag Warning means no outdoor burning - embers can start wildfires miles away.</p><a class="src" href="fire.html">Open the Fire Weather page →</a></div><div class="card"><h2>🥵 Heat Index vs WBGT</h2><p style="margin:6px 0">Heat index is shade comfort; WBGT adds sun and humidity stress - what coaches and outdoor crews use. Both are on the Heat-Stress card with color-coded risk bands.</p><a class="src" href="forecast.html">Open the Heat Index vs WBGT page →</a></div><div class="card"><h2>🌀 Tropical Spaghetti</h2><p style="margin:6px 0">Each colored line is one hurricane model's idea of a storm's future path. The bunch of lines = uncertainty; where they converge is where the storm is most likely to go. The official forecast is the white line.</p><a class="src" href="tropmodels.html">Open the Tropical Spaghetti page →</a></div><div class="card"><h2>🛰️ Satellite Bands</h2><p style="margin:6px 0">Satellites see beyond visible light. Water vapor (6.9 µm) shows the rivers of moisture steering storms; the infrared window (10.3 µm) shows cloud tops - colder = higher = stronger storms, day or night.</p><a class="src" href="satellite.html">Open the Satellite Bands page →</a></div><div class="card"><h2>🔬 Mesoanalysis</h2><p style="margin:6px 0">This zooms into the storm environment right now: surface winds, instability (CAPE), shear. Forecasters watch the overlap of high CAPE + strong shear - that is where rotating storms become possible.</p><a class="src" href="meso.html">Open the Mesoanalysis page →</a></div><div class="card"><h2>📈 MOS &amp; Charts</h2><p style="margin:6px 0">MOS is a statistical correction of model output for each airport - often better than raw model numbers for temperature and wind. The hourly tables show dew point, wind and precip odds hour by hour.</p><a class="src" href="charts.html">Open the MOS page →</a></div><div class="card"><h2>❄️ Winter Maps</h2><p style="margin:6px 0">Snow maps differ: 6-hourly bars (NBM) show short bursts; storm-total fields (GFS/GEFS) accumulate. Ensemble spread is the honesty meter - wide spread means the snow band's position is still uncertain.</p><a class="src" href="winter.html">Open the Winter Maps page →</a></div><div class="card"><h2>📊 Dashboard</h2><p style="margin:6px 0">One screen, whole county: station temperatures with 24-hour trends, river stages, and what changed since yesterday. Built for the morning glance before you head out.</p><a class="src" href="dashboard.html">Open the Dashboard page →</a></div><div class="card"><h2>🚦 Traffic Cameras</h2><p style="margin:6px 0">TDOT SmartWay highway cameras - road conditions before you drive. Snapshots refresh every minute; during winter events watch for snow-covered shoulders and white road surfaces on I-40, I-81 and I-26.</p><a class="src" href="traffic.html">Open the Traffic Cameras page →</a></div></div>
+
+<h2 style="margin:14px 0 6px">Forecaster mini-lessons</h2>
+<details class="card" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700">🧭 How to compare two models (and know which to trust)</summary><p style="margin:8px 0 2px">Open the Models page in two tabs - GFS in one, NAM in the same product and hour. Where the 500-mb vorticity and surface lows line up, confidence is high. Where they diverge, check the ensemble spread: tight spread + diverging deterministic runs usually means the ensemble mean wins. Rule of thumb: days 1-3 trust the high-res models (HRRR/NAM), days 4-7 trust the global ensembles (GEFS/EPS), day 8+ treat everything as a pattern hint.</p></details><details class="card" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700">🌪️ Reading a severe weather setup in 5 minutes</summary><p style="margin:8px 0 2px">Start on Mesoanalysis: is CAPE above 1500 J/kg? Is the 0-6 km shear vector crossing the warm front at 40 kt+? Then check SPC's outlook for probability and hatching. Finally watch the radar for discrete cells ahead of any line - those are the ones that rotate. If all three agree, that is when the Skywarn group chat lights up.</p></details><details class="card" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700">🌊 Why river flooding lags the rain</summary><p style="margin:8px 0 2px">Rain must first fill the soil, then the hollows, then the tributaries before the main stem crests. That is why the Rivers page matters days after a storm: the Nolichucky can keep rising 12-24 h after the sky clears. Compare the gauge trend (rising/steady/falling) - the trend matters more than the number.</p></details><details class="card" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700">❄️ The 32°F line and why elevation wins in East Tennessee</summary><p style="margin:8px 0 2px">Our valleys routinely sit 5-8°F warmer than the ridges at night. A 34°F valley rain can be a 28°F ridge ice event. When winter maps show blue over the plateau but not the valley, that is not a model error - that is the actual elevation profile of East Tennessee. Always check the temperature column below the snow map.</p></details><details class="card" style="margin:8px 0"><summary style="cursor:pointer;font-weight:700">📡 What the radar actually measures</summary><p style="margin:8px 0 2px">Radar sends microwaves and listens for echoes off raindrops. Reflectivity (dBZ) is echo strength - but it measures DROPS, not flood impact: drizzle with huge drops can out-echo a steady soaker. That is why the site pairs radar with MRMS gauge-calibrated QPE - the radar shape with real rain-gauge truth.</p></details>
+
+<h2 style="margin:14px 0 6px">Official learning resources</h2>
+<div class="kpis"><div class="card"><h2>🎓 JetStream - NOAA&#x27;s weather school</h2><p style="margin:6px 0">Self-paced lessons on how storms, fronts and the atmosphere work. The classic starting point.</p><a href="https://www.noaa.gov/jetstream" target="_blank" rel="noopener" class="src">www.noaa.gov ↗</a></div><div class="card"><h2>🎓 NWS Training Portal - How radar works</h2><p style="margin:6px 0">Official explanations of reflectivity, velocity and dual-pol products.</p><a href="https://training.weather.gov/nws_courses/" target="_blank" rel="noopener" class="src">training.weather.gov ↗</a></div><div class="card"><h2>🎓 SKYWARN storm spotter program</h2><p style="margin:6px 0">Free volunteer training to report severe weather to the NWS - many sessions are online.</p><a href="https://www.weather.gov/skywarn/" target="_blank" rel="noopener" class="src">www.weather.gov ↗</a></div><div class="card"><h2>🎓 NOAA/NWS Severe Weather 101 (NSSL)</h2><p style="margin:6px 0">Plain-language science on tornadoes, hail, lightning and flash floods.</p><a href="https://www.nssl.noaa.gov/education/" target="_blank" rel="noopener" class="src">www.nssl.noaa.gov ↗</a></div><div class="card"><h2>🎓 Weather Safety - NWS</h2><p style="margin:6px 0">Tornado, flood, lightning, heat and winter safety pages with checklists.</p><a href="https://www.weather.gov/safety" target="_blank" rel="noopener" class="src">www.weather.gov ↗</a></div><div class="card"><h2>🎓 CoCoRaHS - be a rain gauge volunteer</h2><p style="margin:6px 0">Community rain-reporting network; your observations feed real hydrology.</p><a href="https://www.cocorahs.org/" target="_blank" rel="noopener" class="src">www.cocorahs.org ↗</a></div><div class="card"><h2>🎓 NOAA SciJinks (for kids)</h2><p style="margin:6px 0">Games and simple explanations of weather for younger learners.</p><a href="https://scijinks.gov/" target="_blank" rel="noopener" class="src">scijinks.gov ↗</a></div><div class="card"><h2>🎓 NWS Knoxville office (our home office)</h2><p style="margin:6px 0">Local forecasts, spotter training schedules and East TN climatology.</p><a href="https://www.weather.gov/mrx/" target="_blank" rel="noopener" class="src">www.weather.gov ↗</a></div></div>
+
+<h2 style="margin:14px 0 6px">Safety essentials</h2>
+<div class="kpis"><div class="card" style="border-left:4px solid #ef5350"><h2>🌪️ Tornado safety</h2><p style="margin:6px 0">In a warning: lowest floor, interior room, away from windows. Mobile homes and vehicles are unsafe - get to a sturdy building.</p></div><div class="card" style="border-left:4px solid #42a5f5"><h2>🌊 Flash flood safety</h2><p style="margin:6px 0">Turn Around Don't Drown® - never drive through a flooded road. Six inches of moving water can knock you down; a foot floats many cars.</p></div><div class="card" style="border-left:4px solid #ffb74d"><h2>⚡ Lightning safety</h2><p style="margin:6px 0">When thunder roars, go indoors! Wait 30 minutes after the last thunder before going back outside.</p></div><div class="card" style="border-left:4px solid #ff8a65"><h2>🥵 Heat safety</h2><p style="margin:6px 0">Water, rest, shade. At WBGT 90°F+, cancel outdoor exertion. Check on elderly neighbors.</p></div><div class="card" style="border-left:4px solid #90caf9"><h2>❄️ Winter storms safety</h2><p style="margin:6px 0">Dress in layers, keep a car blanket and charger. Black ice forms first on bridges and shaded curves.</p></div></div>
+
+<div class="card"><h2>📖 Glossary - words used on this site</h2>
+<table><tr><th>Term</th><th>What it means</th></tr><tr><td><b>CAPE</b></td><td>Instability fuel for storms - higher = stronger updrafts possible. 1000+ J/kg storms; 2500+ severe potential.</td></tr><tr><td><b>Dew point</b></td><td>Moisture measure - 55°F muggy-ish, 65°F+ oppressive, and thunderstorms feed on it.</td></tr><tr><td><b>Vorticity</b></td><td>Spin in the airflow - maxima aloft often kick off storm systems and heavy rain.</td></tr><tr><td><b>dBZ</b></td><td>Radar echo strength - 20 light rain, 40 heavy rain, 55+ likely hail.</td></tr><tr><td><b>WBGT</b></td><td>Wet-Bulb Globe Temperature - heat stress in the sun, used by schools and athletic programs.</td></tr><tr><td><b>Skew-T</b></td><td>The atmospheric vertical profile chart - temperature, moisture and wind from ground to jet stream.</td></tr><tr><td><b>Ensemble</b></td><td>Many model runs with tiny tweaks - the spread between members shows forecast confidence.</td></tr><tr><td><b>SPC MCD</b></td><td>Mesoscale Discussion - SPC's short-fuse technical note on where organized severe weather is about to develop.</td></tr><tr><td><b>Helicity</b></td><td>Wind that turns with height - storms ingest it and rotate. 150+ m²/s² in a storm environment gets forecasters' attention.</td></tr><tr><td><b>Lapse rate</b></td><td>How fast air cools with height - steep rates (8°C/km+) make air rise explosively and fuel storms.</td></tr><tr><td><b>PWAT</b></td><td>Precipitable water - the rain in a column if it all fell at once. 2+ inches = torrential-rain flood potential.</td></tr><tr><td><b>MOS</b></td><td>Model Output Statistics - raw model output statistically corrected for each airport's climate; often beats the raw model.</td></tr><tr><td><b>AI models</b></td><td>Forecasts (FourCastNet, GraphCast, AIFS) learned from decades of data - fast and often skillful, but new and still audited.</td></tr><tr><td><b>Dew point vs RH</b></td><td>Dew point is real moisture (better for comfort & storms); relative humidity changes with temperature alone.</td></tr><tr><td><b>Flood stage</b></td><td>Gauge height where a river starts causing impacts: action → minor → moderate → major.</td></tr><tr><td><b>AFD</b></td><td>Area Forecast Discussion - the local NWS office's plain-language notes on WHY the forecast is what it is.</td></tr></table>
+<span class="src">Deeper definitions: NOAA JetStream glossary and the NWS glossary at weather.gov/glossary.</span></div>
+
+<div class="card"><span class="src">All links go to NOAA / NWS / official programs (open in a new tab).
+This site is a free, independent service for East Tennessee - no accounts, no cost.</span></div>
+<script>
+(function () {
+  var DONE_KEY = 'tnwn.edu.done.v1', QZ_KEY = 'tnwn.edu.quiz.v1';
+  function load(k) { try { return JSON.parse(localStorage.getItem(k) || '{}'); } catch (e) { return {}; } }
+  function save(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  var done = load(DONE_KEY), qz = load(QZ_KEY);
+  var classes = Array.prototype.slice.call(document.querySelectorAll('details.met-class'));
+  var quizzes = Array.prototype.slice.call(document.querySelectorAll('details.met-q'));
+  function paint() {
+    quizzes.forEach(function (q) {
+      var s = q.querySelector('summary'); if (!s) return;
+      if (!s.dataset.base) s.dataset.base = s.textContent;
+      s.textContent = (qz[q.dataset.quiz] ? '✓ ' : '') + s.dataset.base;
+      q.style.opacity = qz[q.dataset.quiz] ? '.78' : '1';
+    });
+    classes.forEach(function (c) {
+      var n = c.dataset.class, s = c.querySelector('summary'); if (!s) return;
+      var cb = s.querySelector('.met-done-cb'); if (cb) cb.checked = !!done[n];
+      var t = s.querySelector('.met-title'); if (!t) return;
+      if (!t.dataset.base) t.dataset.base = t.textContent;
+      t.textContent = (done[n] ? '✅ ' : '') + t.dataset.base;
+      c.style.borderColor = done[n] ? '#2e7d32' : '';
+    });
+    var d = classes.filter(function (c) { return done[c.dataset.class]; }).length;
+    var a = quizzes.filter(function (q) { return qz[q.dataset.quiz]; }).length;
+    var dt = document.getElementById('edu-done'), qt = document.getElementById('edu-quiz-done');
+    var bar = document.getElementById('edu-bar');
+    if (dt) dt.textContent = d + ' / ' + classes.length + ' classes done';
+    if (qt) qt.textContent = a + ' / ' + quizzes.length + ' quiz answers checked';
+    if (bar) bar.style.width = (classes.length + quizzes.length ? Math.round(100 * (d + a) / (classes.length + quizzes.length)) : 0) + '%';
+  }
+  quizzes.forEach(function (q) {
+    q.addEventListener('toggle', function () {
+      if (q.open && !qz[q.dataset.quiz]) { qz[q.dataset.quiz] = true; save(QZ_KEY, qz); paint(); }
+    });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('.met-done-box'), function (box) {
+    box.addEventListener('click', function (e) {
+      e.preventDefault(); e.stopPropagation();
+      var n = box.dataset.n; done[n] = !done[n]; save(DONE_KEY, done); paint();
+    });
+  });
+  var rs = document.getElementById('edu-reset');
+  if (rs) rs.addEventListener('click', function () {
+    try { localStorage.removeItem(DONE_KEY); localStorage.removeItem(QZ_KEY); localStorage.removeItem('tnwn.edu.exam.v1'); } catch (e) {}
+    location.reload();
+  });
+  paint();
+})();
+</script>
+<script>
+(function () {
+  var KEY = 'tnwn.edu.exam.v1', TKEY = 'tnwn.edu.exam.timed.v1';
+  var LIMIT = 15 * 60;
+  var qs = Array.prototype.slice.call(document.querySelectorAll('.exam-q'));
+  function best() { try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { return null; } }
+  function bestTimed() { try { return JSON.parse(localStorage.getItem(TKEY) || 'null'); } catch (e) { return null; } }
+  function paintBest() {
+    var b = best(), t = bestTimed();
+    var el = document.getElementById('exam-best');
+    if (el) el.textContent = b ? ('Practice best: ' + b.score + ' / ' + qs.length + ' (' + b.pct + '%)') : 'No attempts yet - practice anytime, untimed.';
+    var el2 = document.getElementById('exam-best-timed');
+    if (el2) el2.textContent = t ? ('Timed best (15 min): ' + t.score + ' / ' + qs.length + ' (' + t.pct + '%)' + (t.score >= 16 ? ' - passed under the clock' : '')) : '';
+  }
+  function clearMarks() {
+    qs.forEach(function (q) {
+      Array.prototype.forEach.call(q.querySelectorAll('label'), function (l) { l.style.background = ''; l.style.color = ''; });
+    });
+  }
+  var gradeBtn = document.getElementById('exam-grade');
+  var timeLeft = LIMIT, tickIv = null, timedMode = false, forceGrade = false;
+  function fmt(s) { var m = Math.floor(s / 60), r = s % 60; return m + ':' + (r < 10 ? '0' : '') + r; }
+  function paintTimer() {
+    var tel = document.getElementById('exam-timer');
+    if (!tel) return;
+    tel.textContent = fmt(timeLeft);
+    tel.style.color = timeLeft <= 30 ? '#ff5252' : timeLeft <= 120 ? '#ffb74d' : '#8ef2a0';
+  }
+  function stopClock() {
+    if (tickIv) { clearInterval(tickIv); tickIv = null; }
+    var sb = document.getElementById('exam-timed-start');
+    if (sb) { sb.disabled = false; sb.style.opacity = ''; }
+  }
+  if (gradeBtn) gradeBtn.addEventListener('click', function () {
+    if (timedMode) { stopClock(); }
+    clearMarks();
+    var score = 0, un = 0;
+    qs.forEach(function (q) {
+      var inputs = q.querySelectorAll('input');
+      var pick = q.querySelector('input:checked');
+      var labels = q.querySelectorAll('label');
+      var ci = parseInt(q.dataset.correct, 10);
+      if (!pick) { un++; return; }
+      var idx = Array.prototype.indexOf.call(inputs, pick);
+      if (idx === ci) { score++; }
+      labels[ci].style.background = '#2e7d32'; labels[ci].style.color = '#fff';
+      if (idx !== ci) { labels[idx].style.background = '#b71c1c'; labels[idx].style.color = '#fff'; }
+    });
+    var res = document.getElementById('exam-result');
+    if (un > 0 && !forceGrade) { res.textContent = 'Answer all ' + qs.length + ' questions first - ' + un + ' left.'; res.style.color = '#ffb74d'; return; }
+    forceGrade = false;
+    var pct = Math.round(100 * score / qs.length), pass = score >= 16;
+    var unNote = (un > 0 && timedMode) ? ' (' + un + ' unanswered when time ran out)' : '';
+    res.textContent = pass
+      ? ('🎉 PASSED: ' + score + ' / ' + qs.length + ' (' + pct + '%)' + unNote + ' - Weather School graduate! Your certificate is below.')
+      : (score + ' / ' + qs.length + ' (' + pct + '%)' + unNote + ' - not quite: 16 to pass. Review the green-marked answers and retake.');
+    res.style.color = pass ? '#8ef2a0' : '#ffb74d';
+    var b = timedMode ? bestTimed() : best();
+    if (!b || score > b.score) { try { localStorage.setItem(timedMode ? TKEY : KEY, JSON.stringify({ score: score, pct: pct, date: new Date().toISOString().slice(0, 10) })); } catch (e) {} }
+    paintBest();
+    var cert = document.getElementById('edu-cert');
+    if (pass) {
+      cert.style.display = 'block';
+      document.getElementById('cert-score').textContent = score + ' / ' + qs.length + ' (' + pct + '%)';
+      document.getElementById('cert-timed').textContent = timedMode ? ' · ⏱️ passed in timed mode (15-minute limit)' : '';
+      document.getElementById('cert-date').textContent = new Date().toLocaleDateString();
+      cert.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else { cert.style.display = 'none'; }
+  });
+  var retakeBtn = document.getElementById('exam-retake');
+  if (retakeBtn) retakeBtn.addEventListener('click', function () {
+    Array.prototype.forEach.call(document.querySelectorAll('.exam-q input'), function (i) { i.checked = false; });
+    clearMarks();
+    stopClock(); timedMode = false;
+    document.getElementById('timer-wrap').style.display = 'none';
+    timeLeft = LIMIT; paintTimer();
+    document.getElementById('exam-result').textContent = '';
+    document.getElementById('edu-cert').style.display = 'none';
+  });
+  var timedBtn = document.getElementById('exam-timed-start');
+  if (timedBtn) timedBtn.addEventListener('click', function () {
+    Array.prototype.forEach.call(document.querySelectorAll('.exam-q input'), function (i) { i.checked = false; });
+    clearMarks();
+    document.getElementById('exam-result').textContent = '';
+    document.getElementById('edu-cert').style.display = 'none';
+    document.getElementById('timer-wrap').style.display = 'flex';
+    timedMode = true; timeLeft = LIMIT;
+    timedBtn.disabled = true; timedBtn.style.opacity = '.55';
+    paintTimer();
+    if (tickIv) clearInterval(tickIv);
+    tickIv = setInterval(function () {
+      timeLeft--;
+      if (timeLeft <= 0) { timeLeft = 0; paintTimer(); autoGrade(); return; }
+      paintTimer();
+    }, 1000);
+  });
+  function autoGrade() {
+    stopClock();
+    forceGrade = true;   /* expiry grades whatever was answered */
+    document.getElementById('exam-grade').click();
+    var res = document.getElementById('exam-result');
+    if (res) res.textContent = '⏰ TIME UP - auto-graded with whatever was answered. ' + res.textContent;
+    timedMode = false;   /* one-shot: later manual grades count as practice */
+  }
+  var printBtn = document.getElementById('cert-print');
+  if (printBtn) printBtn.addEventListener('click', function () { window.print(); });
+  /* Gate: exam unlocks only when every class is checked done AND every quiz
+     answer worked through. Re-checked every second so unlocking feels instant. */
+  function paintLock() {
+    var done = {}, qz = {};
+    try { done = JSON.parse(localStorage.getItem('tnwn.edu.done.v1') || '{}'); } catch (e) {}
+    try { qz = JSON.parse(localStorage.getItem('tnwn.edu.quiz.v1') || '{}'); } catch (e) {}
+    var cls = Array.prototype.slice.call(document.querySelectorAll('details.met-class'));
+    var qzs = Array.prototype.slice.call(document.querySelectorAll('details.met-q'));
+    var dc = 0, qc = 0;
+    cls.forEach(function (c) { if (done[c.dataset.class]) dc++; });
+    qzs.forEach(function (q) { if (qz[q.dataset.quiz]) qc++; });
+    var unlocked = cls.length > 0 && dc === cls.length && qc === qzs.length;
+    var lock = document.getElementById('exam-lock'), body = document.getElementById('exam-body');
+    if (lock) {
+      lock.style.display = unlocked ? 'none' : 'block';
+      if (!unlocked) {
+        var lc = document.getElementById('lock-classes'), lq = document.getElementById('lock-quizzes');
+        if (lc) lc.textContent = '✅ Classes checked off: ' + dc + ' / ' + cls.length;
+        if (lq) lq.textContent = '🧠 Quiz answers worked: ' + qc + ' / ' + qzs.length;
+      }
+    }
+    if (body) body.style.display = unlocked ? 'block' : 'none';
+  }
+  paintLock();
+  setInterval(paintLock, 1000);
+  var shareBtn = document.getElementById('cert-share');
+  if (shareBtn) shareBtn.addEventListener('click', function () {
+    var b = best();
+    var scoreTxt = b ? (b.score + ' / ' + qs.length + ' (' + b.pct + '%)') : '';
+    var pub = (window.TNWN_PUBLIC_URL || '').replace(/\/+$/, '');
+    var local = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+    var target = (local && pub) ? pub + '/education.html' : location.origin + location.pathname;
+    var msg = '🎓 I just graduated from Tennessee Weather Network Weather School - 17 classes and a score of ' + scoreTxt + ' on the graduation exam! Take the free course here: ' + target;
+    function openSharer() {
+      window.open('https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent(target) + '&quote=' + encodeURIComponent(msg), '_blank', 'noopener,width=620,height=540');
+    }
+    openSharer(); /* open right away - never block on clipboard permission */
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(msg).catch(function () {});
+    }
+  });
+  paintBest();
+})();
+</script>
+<script>
+(function () {
+  var side = document.getElementById('edx-side');
+  if (!side) return;
+  var rows = Array.prototype.slice.call(side.querySelectorAll('.edx-row[data-cls]'));
+  var cards = rows.map(function (r) { return document.getElementById('class-' + r.dataset.cls); });
+  var DONE_KEY = 'tnwn.edu.done.v1';
+  function load(k) { try { return JSON.parse(localStorage.getItem(k) || '{}'); } catch (e) { return {}; } }
+  function paintDone() {
+    var done = load(DONE_KEY), n = 0;
+    rows.forEach(function (r) {
+      var d = !!done[r.dataset.cls];
+      r.classList.toggle('done', d);
+      if (d) n++;
+    });
+    var cnt = document.getElementById('edx-count'), bar = document.getElementById('edx-bar');
+    if (cnt) cnt.textContent = n + ' / ' + rows.length + ' done';
+    if (bar) bar.style.width = Math.round(100 * n / Math.max(1, rows.length)) + '%';
+  }
+  rows.forEach(function (r, i) {
+    r.addEventListener('click', function () { if (cards[i] && !cards[i].open) cards[i].open = true; });
+  });
+  var ticking = false;
+  window.addEventListener('scroll', function () {
+    if (ticking) return; ticking = true;
+    requestAnimationFrame(function () {
+      var act = -1;
+      cards.forEach(function (c, i) {
+        if (c && c.getBoundingClientRect().top <= 170) act = i;
+      });
+      rows.forEach(function (r, i) { r.classList.toggle('active', i === act); });
+      ticking = false;
+    });
+  }, { passive: true });
+  setInterval(paintDone, 1500);   /* cheap sync with the progress tracker */
+  paintDone();
+})();
+</script>
+
+</div>
+<footer>
+  <div id="upd" style="color:#7d8794">checking data age…</div>
+  <div id="memStrip"></div>
+  Data: National Weather Service · NOAA · RainViewer · SPC — all free, no keys.<br/>
+  Page generated Oct 03 2026 16:53 UTC · auto-updated every few minutes by the Tennessee Weather Network weather center ·
+  <a href="https://www.facebook.com/tennesseeweathernetwork" target="_blank">Facebook page</a> ·
+  <a id="fbShareFt" href="#" target="_blank" rel="noopener">📘 Post this page to Facebook</a> ·
+  <a href="fb_page.html" target="_blank">📱 Facebook post page (stand-alone)</a>
+</footer>
+<script>
+/* Facebook share: use the canonical public URL when served from it,
+   otherwise share the page's public home (localhost shares are useless) */
+(function () {
+  var pub = "https://rpleasant12.github.io/http-localhost-8765-/";
+  window.TNWN_PUBLIC_URL = pub; /* reusable share target (certificate, etc.) */
+  var here = location.origin + location.pathname;
+  var target = (location.hostname === "localhost" || location.hostname === "127.0.0.1") && pub ? pub : here;
+  var u = "https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(target);
+  ["fbShare", "fbShareFt"].forEach(function (id) {
+    var a = document.getElementById(id); if (a) a.href = u;
+  });
+})();
+/* PWA: register the service worker (shell precache + offline fallback for
+   pages and data.json; tiles/gifs/CDN pass through untouched). Relative
+   scope so it covers every page under the GitHub Pages subpath. */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("sw.js").catch(function (_e) {
+      /* SW is an enhancement - offline support silently absent on failure */
+    });
+  });
+}
+</script>
+</body></html>
