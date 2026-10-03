@@ -4864,6 +4864,12 @@ def _page(title, active, body, extra_head=""):
 <meta name="theme-color" content="#0e1117"/>
 <link rel="apple-touch-icon" href="icon-192.png"/>
 {MAPBOX_JS}{extra_head}
+<!-- member.js in the HEAD: every page's inline member scripts (auth card,
+     strip, teasers) run before the footer, so loading it here is the only
+     way window.TWN exists when they run (was loaded in the footer and all
+     consumers silently bailed on if(!window.TWN) - member UI dead in every
+     real browser, found by the 2026-10-02 browser auth-lifecycle test) -->
+{member_boot}
 <style>{_CSS}</style>
 </head><body>
 {ANALYTICS_HTML}<nav><div class="wrap">
@@ -4882,8 +4888,11 @@ def _page(title, active, body, extra_head=""):
 <script>
 const SITE_DATA_URL = "data.json";
 /* footer member strip: logged-in members see their status + premium link;
-   everyone else sees a quiet upgrade nudge. Dormant when TWN_WORKER empty. */
-(function () {{
+   everyone else sees a quiet upgrade nudge. Dormant when TWN_WORKER empty.
+   member.js loads in <head> but #memStrip is in the footer BELOW this
+   script, so paint on DOMContentLoaded (pre-fix this IIFE ran here, before
+   both TWN and the strip div existed, and silently did nothing). */
+document.addEventListener("DOMContentLoaded", function () {{
   if (!window.TWN || !window.TWN.member || !window.TWN_WORKER) return;
   const el = document.getElementById("memStrip");
   if (!el) return;
@@ -4901,7 +4910,7 @@ const SITE_DATA_URL = "data.json";
       el.innerHTML = "<span class='src'>⭐ <a href='pricing.html'>Go ad-free & unlock advanced AI model maps - $4.99/mo</a></span><br/>";
     }}
   }}).catch(function () {{}});
-}})();
+}});
 /* GitHub Pages caches data.json up to 10 min (max-age=600); the timestamp
    query makes the browser fetch a fresh copy from the Pages CDN instead of
    reusing a stale cached one. Public data publishes ~every 10 min, so the
@@ -5059,7 +5068,7 @@ setInterval(() => {{
 </div>
 <footer>
   <div id="upd" style="color:#7d8794">checking data age…</div>
-  {member_boot}<div id="memStrip"></div>
+  <div id="memStrip"></div>
   Data: National Weather Service · NOAA · RainViewer · SPC — all free, no keys.<br/>
   Page generated {html.escape(_BUILD_STAMP)} · auto-updated every few minutes by the {html.escape(config.PAGE_NAME)} weather center ·
   <a href="{config.PAGE_URL}" target="_blank">Facebook page</a> ·
