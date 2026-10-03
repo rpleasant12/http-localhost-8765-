@@ -32,6 +32,7 @@ except Exception as _wexc:                               # noqa: BLE001
 # longer, so the budget is generous - but it is FINITE, and breaching it
 # now produces a thread-stack dump in the log instead of a silent hang.
 CYCLE_BUDGET_S = 45 * 60
+PREMIUM_REFRESH_INTERVAL = 1800   # premium library: local refresh + R2 delta
 
 # CREATE_NO_WINDOW: console tools spawned by a console-less parent allocate a
 # VISIBLE console box on the user's screen (2026-09-21 complaint). Suppress it.
@@ -869,6 +870,7 @@ def main():
     last_publish = 0.0
     last_sms = 0.0
     last_fbpost = 0.0
+    last_premium = 0.0
 
     while True:
         started = time.time()
@@ -1065,6 +1067,21 @@ def main():
                 except Exception as fexc:   # noqa: BLE001 - never break the cycle
                     log(f"FB auto-post error: {fexc}")
                 last_fbpost = time.time()
+
+            # ------------------------------------------------
+            # PREMIUM LIBRARY (members-only AI maps + CFSv2 GIFs;
+            # every 30 min: local refresh is hash-cheap, R2 gets
+            # only changed files, backs off 1 h while R2 is disabled)
+            # ------------------------------------------------
+            if time.time() - last_premium >= PREMIUM_REFRESH_INTERVAL:
+                try:
+                    from data.premium_library import refresh as premium_refresh
+                    res = premium_refresh()
+                    if res:
+                        log(f"Premium library: {res}")
+                except Exception as pexc:   # noqa: BLE001 - never break the cycle
+                    log(f"Premium library error: {pexc}")
+                last_premium = time.time()
 
         except Exception as exc:
             log(f"UPDATE ERROR: {exc}")
