@@ -565,12 +565,14 @@ async function route(req, env, ctx) {
     const siteUrl = (env.SITE_URL || "").replace(/\/?$/, "/");
     // the four centers plus every storm_<id> archive detail page
     const isStormPage = name.startsWith("storm_") && name.length > 6;
+    console.log(`[p] req path=${path} name=${name} storm=${isStormPage}`);
     if (!PAGES_GATED.includes(name) && !isStormPage) {
       return htmlResp(pageNotFoundHtml(siteUrl));
     }
     const u = await currentUser(env, req);
     const full = u ? await store_.getUser(u.email) : null;
     const active = !!full && ((full.premium_until || 0) > nowSec() || full.admin);
+    console.log(`[p] ${name} u=${!!u} row=${!!full} active=${active} admin=${!!(full && full.admin)}`);
     if (!active) return htmlResp(premLockedHtml(siteUrl, isStormPage ? "storm archive" : name));
     let row = null;
     try {
