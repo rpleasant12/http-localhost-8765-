@@ -24,6 +24,16 @@ def _get(url, timeout=10):
     return resp.json()
 
 
+def _warn(where, exc):
+    """Log a swallowed NWS failure to stdout (the updater log captures it).
+
+    These used to vanish silently (2026-10-04: an updater process born during
+    a total-TCP outage kept failing every NWS call for hours with zero log
+    evidence, leaving the live page at --F while radar/NOAA paths recovered).
+    """
+    print(f"nws {where} failed: {type(exc).__name__}: {exc}", flush=True)
+
+
 def get_forecast(lat, lon):
     """12-period day/night forecast (covers ~5 days); [] if unavailable.
 
@@ -32,7 +42,8 @@ def get_forecast(lat, lon):
     try:
         points = _get(f"{NWS_API}/points/{lat:.4f},{lon:.4f}")
         return _get(points["properties"]["forecast"])["properties"]["periods"]
-    except (requests.RequestException, KeyError):
+    except (requests.RequestException, KeyError) as exc:
+        _warn("forecast", exc)
         return []
 
 
@@ -41,7 +52,8 @@ def get_hourly(lat, lon):
     try:
         points = _get(f"{NWS_API}/points/{lat:.4f},{lon:.4f}")
         return _get(points["properties"]["forecastHourly"])["properties"]["periods"]
-    except (requests.RequestException, KeyError):
+    except (requests.RequestException, KeyError) as exc:
+        _warn("hourly", exc)
         return []
 
 
@@ -57,13 +69,15 @@ def get_current_conditions(lat, lon):
         stations = _get(f"{NWS_API}/points/{lat:.4f},{lon:.4f}/stations")
         candidates = [f["properties"]["stationIdentifier"]
                       for f in stations.get("features", [])][:5]
-    except (requests.RequestException, KeyError, IndexError):
+    except (requests.RequestException, KeyError, IndexError) as exc:
+        _warn(f"stations lookup ({lat:.4f},{lon:.4f})", exc)
         return None
     first = None
     for sid in candidates:
         try:
             obs = _get(f"{NWS_API}/stations/{sid}/observations/latest")["properties"]
-        except (requests.RequestException, KeyError, IndexError):
+        except (requests.RequestException, KeyError, IndexError) as exc:
+            _warn(f"obs {sid}", exc)
             continue
         if first is None:
             first = obs
@@ -77,7 +91,8 @@ def get_active_alerts(lat, lon):
     url = f"{NWS_API}/alerts/active?point={lat:.4f},{lon:.4f}"
     try:
         data = _get(url)
-    except requests.RequestException:
+    except requests.RequestException as exc:
+        _warn("alerts", exc)
         return []
     alerts = []
     for feature in data.get("features", []):

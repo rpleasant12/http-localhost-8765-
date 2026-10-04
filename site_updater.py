@@ -637,6 +637,75 @@ def log(msg):
         f.write(line + "\n")
 
 
+# ------------------------------------------------------------
+# STALE-CURRENT-CONDITIONS SELF-RESTART GUARD
+# 2026-10-04: an updater process born during a total-TCP outage stayed
+# wedged for hours - its NWS obs/forecast calls failed silently (exceptions
+# swallowed in data/nws.py) while radar/NOAA paths in the same process
+# recovered, so every build shipped --F + an empty forecast while publishes
+# looked "fresh". If the just-generated payload has empty current
+# conditions STALE_RESTART_AFTER cycles in a row WHILE api.weather.gov is
+# reachable from THIS process, the process is provably wedged: exit so the
+# scheduled task relaunches a healthy one. Probe failing = genuine
+# upstream/network outage; a restart would change nothing.
+# ------------------------------------------------------------
+STALE_RESTART_AFTER = 4          # consecutive empty-current cycles (~8 min)
+_STALE_CURRENT_N = 0
+
+
+def _nws_reachable():
+    """True if api.weather.gov answers from inside THIS process right now."""
+    try:
+        import requests
+        import website as _website
+        r = requests.get(
+            f"https://api.weather.gov/points/"
+            f"{_website.config.LATITUDE:.4f},{_website.config.LONGITUDE:.4f}",
+            headers={"User-Agent": "tnwn-updater-watchdog/1.0 (local)"},
+            timeout=10)
+        return r.status_code == 200
+    except Exception:                              # noqa: BLE001
+        return False
+
+
+def check_current_stale():
+    """Call after every successful generate_site(); see block comment above."""
+    global _STALE_CURRENT_N
+    try:
+        import website as _website
+        with open(os.path.join(_website.SITE_DIR, "data.json"),
+                  encoding="utf-8") as f:
+            cur = (json.load(f).get("current") or {})
+        fresh = cur.get("tempF") is not None
+    except Exception as exc:                       # noqa: BLE001 - never break the cycle
+        log(f"stale-current check skipped (unreadable data.json: {exc})")
+        return
+    if fresh:
+        if _STALE_CURRENT_N:
+            log(f"current conditions fresh again after {_STALE_CURRENT_N} "
+                f"stale cycle(s).")
+        _STALE_CURRENT_N = 0
+        return
+    _STALE_CURRENT_N += 1
+    if _STALE_CURRENT_N < STALE_RESTART_AFTER:
+        log(f"WARNING: current conditions empty {_STALE_CURRENT_N}/"
+            f"{STALE_RESTART_AFTER} consecutive cycles.")
+        return
+    if not _nws_reachable():
+        log(f"WARNING: current conditions empty {_STALE_CURRENT_N} cycles but "
+            f"api.weather.gov unreachable from this process - upstream/network "
+            f"outage, NOT restarting.")
+        return
+    log(f"SELF-RESTART: current conditions empty {_STALE_CURRENT_N} consecutive "
+        f"cycles while api.weather.gov IS reachable - updater process wedged; "
+        f"exiting for scheduled-task relaunch.")
+    try:
+        sys.stdout.flush()
+    except Exception:                              # noqa: BLE001
+        pass
+    os._exit(70)   # intentional hard exit: renderer threads must not block it
+
+
 def _live_updater_pids():
     """All live site_updater.py pids, scanned from the process table.
 
@@ -901,6 +970,7 @@ def main():
 
             log("Weather site regenerated.")
             _beat()   # mid-cycle liveness proof (watchdog grace clock)
+            check_current_stale()   # wedged-process guard (see its block comment)
 
             # Resumed after a STOP: the docs/ copy of PAUSED.json would keep
             # every page claiming the site is frozen forever. A fresh build
