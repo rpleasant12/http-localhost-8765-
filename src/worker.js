@@ -10,8 +10,11 @@
  *
  * Billing flow (PayPal subscriptions, 2026-10-03): checkout creates a
  * subscription and redirects to PayPal's approval page; /paypal/return
- * verifies the returning subscriber matches the logged-in member; the
- * /api/paypal/webhook credits PAYMENT.SALE.COMPLETED (first charge + every
+ * verifies the returning subscriber matches the logged-in member and also
+ * credits the first charge on the spot when the redirect names the
+ * subscription and its transaction history already shows it (sandbox never
+ * fires the initial PAYMENT.SALE.COMPLETED - its first charge sits PENDING);
+ * the /api/paypal/webhook credits PAYMENT.SALE.COMPLETED (first charge + every
  * renewal) and revokes premium on cancellation/suspension.
  *
  * Secrets (NEVER in git; `wrangler secret put <NAME>` in production):
@@ -329,7 +332,11 @@ async function extendPremium(env, store_, email, sessionId, cents, customerId, s
   // extend twice - payments.session_id is UNIQUE, so check BEFORE extending.
   if (await store_.hasPayment(sessionId)) return;
   const base = Math.max(nowSec(), u.premium_until || 0);
-  await store_.setPremium(email, base + (days || CONFIG.monthMs / 1000), customerId);
+  // days is DAYS (31/186/372 from planDays); premium_until is EPOCH SECONDS
+  // (found 2026-10-04 via the return-credit simulation: `base + days` gave a
+  // monthly subscriber +31 SECONDS - this path had never run against real
+  // D1 because sandbox's first charge never fires PAYMENT.SALE.COMPLETED).
+  await store_.setPremium(email, base + (days ? days * 86400 : CONFIG.monthMs / 1000), customerId);
   await store_.addPayment(email, sessionId, cents, status);
 }
 
@@ -617,7 +624,56 @@ async function route(req, env, ctx) {
       console.log("[billing] paypal return FAIL auth=" + !!u + " token=" + !!token);
       return Response.redirect(bad, 302);
     }
-    console.log("[billing] paypal return ok token=" + token + " " + u.email);
+    console.log("[billing] paypal return ok params=" + [...url.searchParams.keys()].join(",")
+      + " token=" + token + " " + u.email);
+    /* Return-time crediting (2026-10-04): the webhook is authoritative but
+       sandbox never fires the initial PAYMENT.SALE.COMPLETED (first charge
+       sits PENDING there), so a real payment can leave the member unlocked
+       for good. When the redirect names the subscription (subscription_id;
+       sid= alias for manual tests), inspect it directly and credit the first
+       charge on the spot. Attribution and idempotency mirror the webhook
+       credit branch exactly: email from custom_id ("email|plan", stamped at
+       checkout - PayPal reports the buyer's address after approval), credit
+       keyed on the REAL sale id from the subscription's transaction history
+       (pp_sale_<id>, same key the webhook uses) so a later webhook for the
+       same charge no-ops via extendPremium's hasPayment backstop instead of
+       double-extending. Revoked subscriptions (CANCELLED/EXPIRED/SUSPENDED)
+       never credit here - their revoke webhook already ran and must stay
+       final. Without a subscription id the redirect keeps the plain soft
+       gate: paid=1 banner + "activating" until the webhook credits. */
+    const sid = url.searchParams.get("subscription_id") || url.searchParams.get("sid") || "";
+    if (sid) {
+      try {
+        const sub = await ppApi(env, "GET", "/v1/billing/subscriptions/" + encodeURIComponent(sid));
+        const s = sub.data || {};
+        const revoked = s.status === "CANCELLED" || s.status === "EXPIRED" || s.status === "SUSPENDED";
+        const email = (typeof s.custom_id === "string" && s.custom_id.includes("|"))
+          ? s.custom_id.split("|")[0].trim()
+          : ((s.subscriber && s.subscriber.email_address) || null);
+        const lp = s.billing_info && s.billing_info.last_payment;
+        if (!revoked && email && lp && lp.amount) {
+          const iso = (ms) => new Date(ms).toISOString().replace(/\.\d+Z$/, "Z");
+          const win = "/transactions?start_time=" + encodeURIComponent(iso(Date.parse(s.create_time || new Date().toISOString()) - 864e5))
+            + "&end_time=" + encodeURIComponent(iso(Date.now() + 864e5));
+          const tx = await ppApi(env, "GET", "/v1/billing/subscriptions/" + encodeURIComponent(sid) + win);
+          const txs = (tx.data && tx.data.transactions) || [];
+          const hit = txs.find(t => t.status === "COMPLETED") || txs[0];
+          if (hit && hit.id) {
+            await extendPremium(env, store_, email, "pp_sale_" + hit.id,
+              Math.round(parseFloat(lp.amount.value || "0") * 100),
+              s.subscriber && s.subscriber.payer_id, "paypal", planDays(env, s.plan_id));
+            console.log("[billing] return credit sub=" + sid + " sale=" + hit.id + " " + email);
+          } else {
+            console.log("[billing] return no tx yet sub=" + sid + " " + email);
+          }
+        } else {
+          console.log("[billing] return skip sub=" + sid + " status=" + s.status
+            + " email=" + (email || "none") + " lastPayment=" + !!(lp && lp.amount));
+        }
+      } catch (e) {
+        console.log("[billing] return inspect failed sub=" + sid + " " + e.message);
+      }
+    }
     return Response.redirect(ok, 302);
   }
 
