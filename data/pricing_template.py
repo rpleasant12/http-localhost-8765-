@@ -147,8 +147,8 @@ footer{text-align:center;color:var(--dim);font-size:12.5px;padding:20px 8px 30px
 
 <nav>
   <div class="wrap">
-    <a class="brand" href="index.html">🌧️ <span>Tennessee Weather Network</span></a>
-    <a class="pg" href="index.html">Home</a>
+    <a class="brand" href="weather.html">🌧️ <span>Tennessee Weather Network</span></a>
+    <a class="pg" href="weather.html">Home</a>
     <a class="pg" href="radar.html">Radar</a>
     <a class="pg" href="forecast.html">Forecast</a>
     <a class="pg" href="models.html">Models</a>
@@ -165,7 +165,7 @@ footer{text-align:center;color:var(--dim);font-size:12.5px;padding:20px 8px 30px
 <div id="navDrawer" hidden>
   <div class="dHead">Tennessee Weather Network <button id="navClose">×</button></div>
   <div class="dGroup"><b>Live & Forecast</b>
-    <a class="pg" href="index.html">Home</a><a class="pg" href="radar.html">Radar</a><a class="pg" href="forecast.html">Forecast</a>
+    <a class="pg" href="weather.html">Home</a><a class="pg" href="radar.html">Radar</a><a class="pg" href="forecast.html">Forecast</a>
   </div>
   <div class="dGroup"><b>Models</b>
     <a class="pg" href="models.html">Models</a><a class="pg" href="hrrr.html">HRRR · RRFS</a><a class="pg" href="cfsv2.html">CFSv2 · Long Range</a>

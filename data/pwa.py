@@ -25,7 +25,7 @@ SITE_DIR = os.path.join("static", "site")
 # excluded - they are transient (retired when a storm dissipates), and one
 # dead URL in addAll fails the whole SW install.
 STABLE_PAGES = [
-    "index.html", "radar.html", "satellite.html", "forecast.html",
+    "weather.html", "index.html", "radar.html", "satellite.html", "forecast.html",
     "severe.html", "tropical.html", "tropmodels.html", "winter.html",
     "fire.html", "traffic.html", "models.html",
     "rivers.html", "obs.html", "national.html", "climate.html",
@@ -371,7 +371,7 @@ _SW = """/* Tennessee Weather Network service worker.
    gifs and CDN assets pass through untouched - stale radar is never
    served while a connection exists. */
 const VER = "%s";
-const SHELL = ["./index.html", "./offline.html", "./icon-192.png",
+const SHELL = ["./weather.html", "./index.html", "./offline.html", "./icon-192.png",
                "./icon-512.png", "./manifest.webmanifest"];
 const PAGES = %s;
 self.addEventListener("install", (e) => {
@@ -404,8 +404,9 @@ self.addEventListener("fetch", (e) => {
       isData ? new Response(JSON.stringify({ offline: true }),
         { headers: { "Content-Type": "application/json" } })
       : caches.match("./" + new URL(e.request.url).pathname.split("/").pop())
-          .then((hit) => hit || caches.match("./index.html")
-            .then((dash) => dash || caches.match("./offline.html"))))
+          .then((hit) => hit || caches.match("./weather.html")
+            .then((w) => w || caches.match("./index.html")
+              .then((dash) => dash || caches.match("./offline.html")))))
   );
 });
 """

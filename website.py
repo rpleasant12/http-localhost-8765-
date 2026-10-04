@@ -3,7 +3,7 @@
 Builds a multi-page static website (static/site/) from the same live,
 keyless feeds as the app - the FULL option set:
 
-  index.html      current conditions, alerts, SPC risks, AI storm tracker
+  weather.html    current conditions, alerts, SPC risks, AI storm tracker
   radar.html      interactive map: RainViewer real-time, Future radar (HRRR
                   0-18 h + NAM 18-48 h), MRMS (10 products), NWS mosaic
   satellite.html  ALL GOES-19 ABI bands (17): water vapor high/mid/low,
@@ -4774,7 +4774,7 @@ def _page(title, active, body, extra_head=""):
     # and the mobile drawer can never drift apart (single source of truth)
     groups = (
         ("Live & Forecast", (
-            ("index.html", "Home"), ("radar.html", "Radar"),
+            ("weather.html", "Weather"), ("radar.html", "Radar"),
             ("satellite.html", "Satellite"), ("forecast.html", "Forecast"),
             ("dashboard.html", "Dashboard"), ("national.html", "National"))),
         ("Models", (
@@ -4878,7 +4878,7 @@ def _page(title, active, body, extra_head=""):
 <style>{_CSS}</style>
 </head><body>
 {ANALYTICS_HTML}<nav><div class="wrap">
-  <a class="brand" href="index.html">🌧️ <span>{html.escape(config.PAGE_NAME)}</span></a>
+  <a class="brand" href="weather.html">🌧️ <span>{html.escape(config.PAGE_NAME)}</span></a>
   {nav}
   <div class="navctl">
     <select id="baseSel" title="Basemap" style="max-width:110px"></select>
@@ -5730,7 +5730,7 @@ cityRender();
   </div>
 </div>
 """
-    return _page("Live", "index.html", body, extra_head=CITY_JS + trop_js)
+    return _page("Live", "weather.html", body, extra_head=CITY_JS + trop_js)
 
 
 def page_radar(d):
@@ -14456,7 +14456,11 @@ def generate_site():
         except Exception:
             pass
         pages = {
-            "index.html": page_index(d),
+            # 2026-10-03: the ROOT of the site is now the PRICING page (owner:
+            # "pricing needs to be the first thing users see"). The weather
+            # homepage moved to weather.html; index.html mirrors pricing.html.
+            "weather.html": page_index(d),
+            "index.html": page_pricing(d),
             "radar.html": page_radar(d),
             "satellite.html": page_satellite(d),
             "models.html": page_models(d),
