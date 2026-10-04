@@ -573,13 +573,20 @@ async function route(req, env, ctx) {
       subscriber: { email_address: u.email },
       application_context: {
         brand_name: "Tennessee Weather Network",
-        user_action: "SUBSCRIBE",
+        user_action: "CONTINUE",
         shipping_preference: "NO_SHIPPING",
         return_url: url.origin + "/paypal/return",
         cancel_url: `${site}/pricing.html?canceled=1`,
       },
     });
     if (r.error) return json({ error: r.error.message }, r.status || 503);
+    if (r.status >= 400) {
+      // surface PayPal's real message instead of a generic 502 (found live:
+      // user_action SUBSCRIBE is invalid for the Subscriptions API)
+      const msg = (r.data && (r.data.message || r.data.name)) || "PayPal rejected the checkout.";
+      const dbg = r.data && r.data.debug_id ? " (PayPal debug " + r.data.debug_id + ")" : "";
+      return json({ error: msg + dbg }, r.status);
+    }
     const approve = (r.data.links || []).find(l => l.rel === "approve");
     if (!approve) return json({ error: "PayPal checkout unavailable." }, 502);
     console.log("[billing] checkout plan=" + plan + " sub=" + r.data.id);
@@ -593,25 +600,24 @@ async function route(req, env, ctx) {
     return json({ url: "https://www.paypal.com/myaccount/autopay/" });
   }
   /* PayPal bounces the approver back here with ?token=<subscription id> (and
-     ba_token). Verify the subscription belongs to the logged-in member, then
-     hand them to member.html?paid=1 - the webhook credits the payment. */
+     for approve links minted with user_action=CONTINUE, a BA- billing
+     agreement token - which is NOT a subscription id and 404s when fetched,
+     producing a false paid=0 on a real approval, 2026-10-04). The webhook is
+     the authoritative credit path, so this step is a soft gate only: a
+     logged-in member returning from PayPal = ok (banner shows "activating"
+     until the webhook credits), anon = bad. Email attribution happens in the
+     webhook via custom_id (set at checkout), not the API-reported subscriber. */
   if (req.method === "GET" && path === "/paypal/return") {
     const site = (env.SITE_URL || url.origin).replace(/\/$/, "");
     const ok = site + "/member.html?paid=1";
     const bad = site + "/member.html?paid=0";
     const u = await currentUser(env, req);
-    const subId = url.searchParams.get("token") || "";
-    if (!u || !subId) return Response.redirect(bad, 302);
-    const sub = await ppApi(env, "GET", "/v1/billing/subscriptions/" + subId);
-    const s = sub.data || {};
-    const email = s.subscriber && s.subscriber.email_address;
-    const status = s.status;
-    const match = !!email && email.toLowerCase() === u.email.toLowerCase();
-    if (!match || (status !== "ACTIVE" && status !== "APPROVED")) {
-      console.log("[billing] paypal return MISMATCH sub=" + subId + " status=" + status);
+    const token = url.searchParams.get("token") || url.searchParams.get("ba_token") || "";
+    if (!u || !token) {
+      console.log("[billing] paypal return FAIL auth=" + !!u + " token=" + !!token);
       return Response.redirect(bad, 302);
     }
-    console.log("[billing] paypal return ok sub=" + subId + " status=" + status + " " + u.email);
+    console.log("[billing] paypal return ok token=" + token + " " + u.email);
     return Response.redirect(ok, 302);
   }
 
@@ -640,20 +646,35 @@ async function route(req, env, ctx) {
       if (subId && saleId) {
         const sub = await ppApi(env, "GET", "/v1/billing/subscriptions/" + subId);
         const s = sub.data || {};
-        const email = s.subscriber && s.subscriber.email_address;
+        // Attribution: custom_id ("email|plan", stamped at checkout) is the
+        // reliable key - PayPal reports the subscriber as the buyer's login
+        // email after approval, which can differ from the member (found in
+        // sandbox: member-prefilled subscriptions approve as payer-owned).
+        let email = (typeof s.custom_id === "string" && s.custom_id.includes("|"))
+          ? s.custom_id.split("|")[0].trim()
+          : ((s.subscriber && s.subscriber.email_address) || null);
         const cents = Math.round(parseFloat((s.billing_info && s.billing_info.last_payment
           && s.billing_info.last_payment.amount && s.billing_info.last_payment.amount.value) || "0") * 100);
+        if (!email && d.payer_info && d.payer_info.email_address) {
+          email = d.payer_info.email_address;   // last resort: sale payer
+        }
         if (email) {
           await extendPremium(env, store_, email, "pp_sale_" + saleId, cents,
             s.subscriber && s.subscriber.payer_id, "paypal", planDays(env, s.plan_id));
           console.log("[billing] webhook credit sale=" + saleId + " " + email);
+        } else {
+          console.log("[billing] webhook sale=" + saleId + " NO EMAIL custom_id=" + s.custom_id);
         }
       }
     } else if (t === "BILLING.SUBSCRIPTION.CANCELLED" || t === "BILLING.SUBSCRIPTION.EXPIRED"
             || t === "BILLING.SUBSCRIPTION.SUSPENDED") {
-      // subscriber object can be thin - custom_id (email|plan) is the fallback
-      const email = (d.subscriber && d.subscriber.email_address)
-        || (typeof d.custom_id === "string" ? d.custom_id.split("|")[0] : null);
+      // Attribution order matters (found in sandbox 2026-10-04): after buyer
+      // approval PayPal reports subscriber.email as the BUYER's address, so
+      // custom_id ("email|plan", stamped at checkout) must win here too,
+      // exactly as in the credit branch.
+      const email = (typeof d.custom_id === "string" && d.custom_id.includes("|"))
+        ? d.custom_id.split("|")[0].trim()
+        : ((d.subscriber && d.subscriber.email_address) || null);
       if (email) await store_.setPremium(email, nowSec());
     }
     return json({ received: true });
