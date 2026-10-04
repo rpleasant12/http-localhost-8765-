@@ -13,7 +13,10 @@ sockets stall without ever erroring. Two distinct hang flavors, two layers:
    seconds never trips it, and the transfer grows without bound. Fixed
    with a total wall-clock deadline per request. When it trips:
    session.close() runs first (harmless), then a short grace later an
-   async SystemExit is injected into the main thread to wake the wedged
+   async SystemExit is injected into the CALLING thread (2026-10-04 16:30:
+   the rescue originally targeted only the main thread, so three worker
+   fetches parked in connect/body-read rode out the whole 45-min cycle
+   and the watchdog had to hard-exit the process) to wake the wedged
    C-level recv. The wrapper CATCHES that injected exit and converts it
    into an ordinary requests ConnectionError - so callers just see a
    failed fetch (skipped, cycle continues), not a process death. A race
@@ -102,7 +105,6 @@ _ENV_D = "TNWX_NET_DEADLINE"
 _GRACE_S = 2.0                # close() attempt -> async-injection delay
 
 _applied = False
-_main_tid = None
 
 
 def _num(env, fallback):
@@ -138,7 +140,7 @@ def _async_clear(tid):
 
 
 def install():
-    global _applied, _main_tid
+    global _applied
     if _applied or os.environ.get("TNWX_NO_NET_SHIM"):
         return False
     import requests
@@ -146,12 +148,12 @@ def install():
     import requests.exceptions  # noqa: F401 - used in the wrapper's except
 
     original = requests.sessions.Session.request
-    _main_tid = threading.get_ident()   # installer runs on the main thread
 
     def request(self, method, url, **kwargs):
         kwargs["timeout"] = _timeout_of(kwargs)
         deadline = _deadline_of()
-        trip = {"fired": False, "injected": False}
+        tid = threading.get_ident()     # the thread that does the recv
+        trip = {"fired": False, "injected": False, "done": False}
 
         def _on_deadline():
             trip["fired"] = True
@@ -163,13 +165,12 @@ def install():
                 pass
 
             def _inject():
-                if trip["injected"]:
+                if trip["injected"] or trip["done"]:
                     return
                 trip["injected"] = True
-                if threading.main_thread().is_alive():
-                    print(f"net deadline: {method} {url} unblocking main "
-                          f"thread via injected exit", flush=True)
-                    _async_exit(_main_tid)
+                print(f"net deadline: {method} {url} unblocking thread "
+                      f"0x{tid:x} via injected exit", flush=True)
+                _async_exit(tid)
 
             t2 = threading.Timer(_GRACE_S, _inject)
             t2.daemon = True
@@ -197,6 +198,7 @@ def install():
             raise
         finally:
             timer.cancel()
+            trip["done"] = True
             t2 = trip.get("t2")
             if t2 is not None:
                 t2.cancel()
@@ -208,7 +210,7 @@ def install():
                 # RACE GUARD: the call completed after the injector checked
                 # but before delivery - drop any still-pending async exit.
                 try:
-                    _async_clear(_main_tid)
+                    _async_clear(tid)
                 except Exception:                            # noqa: BLE001
                     pass
 
