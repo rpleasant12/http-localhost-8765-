@@ -4967,6 +4967,18 @@ async function siteRefresh() {{
     SITE_DATA = await (await fetch(dataUrl(), {{cache: "no-store"}})).json();
     if (typeof onDataRefresh === "function") onDataRefresh(SITE_DATA);
     updTick();
+    /* winter/product maps: the WPC/CPC GIFs render once at page load and
+       nothing re-requested them, so a long-open tab served its own cached
+       copy forever while fresh files sat on the CDN (found 2026-10-04: the
+       winter map looked frozen all afternoon). Radar pages refresh their
+       own maps through onDataRefresh; the winter center's imgs have no such
+       hook, so re-request them here with a cache-buster on every tick.
+       loading="lazy" keeps the cost down - off-screen imgs don't re-fetch. */
+    try {{
+      document.querySelectorAll("img[src*='/winter/']").forEach(function (im) {{
+        im.src = im.getAttribute("src").split("?")[0] + "?t=" + Date.now();
+      }});
+    }} catch (_e) {{}}
     try {{ syncAutoPref(); }} catch (_e) {{}}   /* version now known: apply/wipe stale auto pref */
     /* auto-heal: if the served copy is still 30+ min old on two consecutive
        polls (6 min apart), force a cache-busted reload once - recovers from
