@@ -1,16 +1,23 @@
 /**
  * Tennessee Weather Network - membership worker.
  *
- * Accounts + Stripe + members-only content delivery. Zero npm deps so
- * `wrangler deploy` works with no build step. Local development runs the
- * exact same code with:
+ * Accounts + PayPal-subscription billing + members-only content delivery.
+ * Zero npm deps so `wrangler deploy` works with no build step. Local
+ * development runs the exact same code with:
  *   - BUCKET  -> rclone `serve http` stand-in for the R2 premium bucket
  *   - no DB   -> users/payments stored as JSON objects in the same bucket
- *   - no Stripe key -> checkout/portal return a clear 503, webhook
- *     signature check is skipped on localhost only
+ *   - no PayPal keys -> checkout/portal return a clear 503
+ *
+ * Billing flow (PayPal subscriptions, 2026-10-03): checkout creates a
+ * subscription and redirects to PayPal's approval page; /paypal/return
+ * verifies the returning subscriber matches the logged-in member; the
+ * /api/paypal/webhook credits PAYMENT.SALE.COMPLETED (first charge + every
+ * renewal) and revokes premium on cancellation/suspension.
  *
  * Secrets (NEVER in git; `wrangler secret put <NAME>` in production):
- *   JWT_SECRET, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_MONTHLY,
+ *   JWT_SECRET, PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET,
+ *   PAYPAL_ENV ("live" or unset = sandbox), PAYPAL_PLAN_MONTHLY,
+ *   PAYPAL_PLAN_6MO, PAYPAL_PLAN_ANNUAL, PAYPAL_WEBHOOK_ID,
  *   ADMIN_EMAIL, SITE_URL, EXTRA_ORIGINS, R2_ADMIN_TOKEN
  */
 
@@ -22,20 +29,52 @@ const CONFIG = {
   monthMs: 31 * 24 * 3600 * 1000,
 };
 
-/* Billing plans (2026-10-03): three Stripe prices, one env var each
-   (STRIPE_PRICE_MONTHLY / STRIPE_PRICE_6MO / STRIPE_PRICE_ANNUAL). Durations
-   are flat 31-day months to match CONFIG.monthMs: monthly=31, 6mo=186,
-   annual=372 days. The webhook maps an invoice's price id back to days via
-   the same env vars, so renewals credit the right duration with no state. */
+/* Billing plans (2026-10-03): three PayPal plans, one env var each
+   (PAYPAL_PLAN_MONTHLY / PAYPAL_PLAN_6MO / PAYPAL_PLAN_ANNUAL). Durations are
+   flat 31-day months to match CONFIG.monthMs: monthly=31, 6mo=186, annual=372
+   days. planDays() maps a plan id back to its duration so each successful
+   billing cycle (webhook PAYMENT.SALE.COMPLETED) credits the right length. */
 const PLANS = {
   monthly: { days: 31 },
   "6mo": { days: 186 },
   annual: { days: 372 },
 };
-function priceDays(env, priceId) {
-  if (priceId && priceId === env.STRIPE_PRICE_6MO) return PLANS["6mo"].days;
-  if (priceId && priceId === env.STRIPE_PRICE_ANNUAL) return PLANS.annual.days;
+function planDays(env, planId) {
+  if (planId && planId === env.PAYPAL_PLAN_6MO) return PLANS["6mo"].days;
+  if (planId && planId === env.PAYPAL_PLAN_ANNUAL) return PLANS.annual.days;
   return PLANS.monthly.days;
+}
+function ppPlanId(env, plan) {
+  return plan === "6mo" ? env.PAYPAL_PLAN_6MO
+    : plan === "annual" ? env.PAYPAL_PLAN_ANNUAL : env.PAYPAL_PLAN_MONTHLY;
+}
+function ppBase(env) {
+  return env.PAYPAL_ENV === "live" ? "https://api-m.paypal.com"
+    : "https://api-m.sandbox.paypal.com";
+}
+async function ppToken(env) {
+  if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) return null;
+  const r = await fetch(ppBase(env) + "/v1/oauth2/token", {
+    method: "POST",
+    headers: {
+      authorization: "Basic " + btoa(env.PAYPAL_CLIENT_ID + ":" + env.PAYPAL_CLIENT_SECRET),
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: "grant_type=client_credentials",
+  });
+  const d = await r.json().catch(() => ({}));
+  return d.access_token || null;
+}
+async function ppApi(env, method, path, body) {
+  const token = await ppToken(env);
+  if (!token) return { error: { message: "PayPal is not configured yet (client id/secret missing)." }, status: 503 };
+  const r = await fetch(ppBase(env) + path, {
+    method,
+    headers: { authorization: "Bearer " + token, "content-type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await r.json().catch(() => ({}));
+  return { status: r.status, data };
 }
 
 /* ---------------- tiny helpers ---------------- */
@@ -184,6 +223,13 @@ class D1Store {
     await this.db.prepare("INSERT OR IGNORE INTO payments (email, session_id, amount_cents, status, ts) VALUES (?, ?, ?, ?, ?)")
       .bind(email, sessionId, cents, status, nowSec()).run();
   }
+  async hasPayment(sessionId) {
+    await this._init();
+    if (!sessionId) return false;
+    const r = await this.db.prepare("SELECT 1 AS ok FROM payments WHERE session_id = ?")
+      .bind(sessionId).first();
+    return !!r;
+  }
   async emailByCustomer(customerId) {
     await this._init();
     if (!customerId) return null;
@@ -251,6 +297,11 @@ class BucketStore {
     ps.unshift({ email, session_id: sessionId, amount_cents: cents, status, ts: nowSec() });
     await this._write("payments.json", ps.slice(0, 500));
   }
+  async hasPayment(sessionId) {
+    if (!sessionId) return false;
+    const ps = await this._read("payments.json", []);
+    return ps.some(p => p.session_id === sessionId);
+  }
   async emailByCustomer(customerId) {
     if (!customerId) return null;
     const us = await this._users();
@@ -269,40 +320,14 @@ class BucketStore {
 
 function store(env) { return env.DB ? new D1Store(env.DB) : new BucketStore(env.BUCKET); }
 
-/* ---------------- Stripe ---------------- */
-
-async function stripe(env, path, params) {
-  const key = env.STRIPE_SECRET_KEY;
-  if (!key) return { error: { message: "Stripe is not configured yet (STRIPE_SECRET_KEY missing)." }, status: 503 };
-  const r = await fetch(`https://api.stripe.com/v1/${path}`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${key}`, "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams(params).toString(),
-  });
-  const data = await r.json();
-  return { status: r.status, data };
-}
-
-async function verifyStripeSignature(env, req, body) {
-  const secret = env.STRIPE_WEBHOOK_SECRET;
-  if (!secret) {
-    // dev convenience only: unsigned webhooks accepted from localhost
-    const u = new URL(req.url);
-    if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(u.hostname)) return true;
-    return false;
-  }
-  const sig = req.headers.get("stripe-signature") || "";
-  const ts = (sig.match(/t=(\d+)/) || [])[1];
-  const v1 = (sig.match(/v1=([0-9a-f]+)/) || [])[1];
-  if (!ts || !v1) return false;
-  if (Math.abs(nowSec() - +ts) > 600) return false;
-  const expected = await hmacSign(secret, `${ts}.${body}`);
-  return timingSafeEq(expected, v1);
-}
+/* ---------------- billing provider: PayPal (helpers above) ---------------- */
 
 async function extendPremium(env, store_, email, sessionId, cents, customerId, status, days) {
   const u = await store_.getUser(email);
   if (!u) return;                       // pre-registration checkout: skipped
+  // Idempotency backstop: a redelivered webhook (same payment id) must not
+  // extend twice - payments.session_id is UNIQUE, so check BEFORE extending.
+  if (await store_.hasPayment(sessionId)) return;
   const base = Math.max(nowSec(), u.premium_until || 0);
   await store_.setPremium(email, base + (days || CONFIG.monthMs / 1000), customerId);
   await store_.addPayment(email, sessionId, cents, status);
@@ -492,7 +517,7 @@ async function route(req, env, ctx) {
 
   /* ----- public ----- */
   if (req.method === "GET" && path === "/api/config") {
-    return json({ site: env.SITE_URL || "", stripeReady: !!env.STRIPE_SECRET_KEY, price: CONFIG.price, worker: url.origin });
+    return json({ site: env.SITE_URL || "", billingReady: !!(env.PAYPAL_CLIENT_ID && env.PAYPAL_CLIENT_SECRET && env.PAYPAL_PLAN_MONTHLY), price: CONFIG.price, worker: url.origin });
   }
   if (req.method === "GET" && path === "/api/me") {
     const u = await currentUser(env, req);
@@ -533,80 +558,102 @@ async function route(req, env, ctx) {
     return json({ ok: true }, 200, { "set-cookie": cookieHeader(CONFIG.cookieName, "", 0) });
   }
 
-  /* ----- billing ----- */
+  /* ----- billing (PayPal subscriptions) ----- */
   if (path === "/api/billing/checkout" && req.method === "POST") {
     const u = await currentUser(env, req);
     if (!u) return json({ error: "Log in first." }, 401);
     const site = (env.SITE_URL || url.origin).replace(/\/$/, "");
     const body = await req.json().catch(() => ({}));
     const plan = PLANS[body.plan] ? body.plan : "monthly";
-    const priceId = plan === "6mo" ? env.STRIPE_PRICE_6MO
-      : plan === "annual" ? env.STRIPE_PRICE_ANNUAL : env.STRIPE_PRICE_MONTHLY;
-    let modeParams;
-    if (priceId) {
-      modeParams = { mode: "subscription", line_items: JSON.stringify([{ price: priceId, quantity: 1 }]) };
-    } else if (plan === "monthly") {
-      // pre-Stripe-config fallback: one-off $4.99 payment, no subscription
-      modeParams = { mode: "payment", line_items: JSON.stringify([{ price_data: {
-            currency: "usd", unit_amount: 499, quantity: 1,
-            product_data: { name: "TNWN Premium - 1 month" } } }]) };
-    } else {
-      return json({ error: "That plan isn't available yet." }, 400);
-    }
-    const r = await stripe(env, "checkout/sessions", {
-      customer_email: u.email,
-      client_reference_id: u.email,
-      metadata: JSON.stringify({ email: u.email, plan }),
-      success_url: `${site}/member.html?paid=1`,
-      cancel_url: `${site}/pricing.html?canceled=1`,
-      ...modeParams,
+    const planId = ppPlanId(env, plan);
+    if (!planId) return json({ error: "That plan isn't available yet." }, 400);
+    const r = await ppApi(env, "POST", "/v1/billing/subscriptions", {
+      plan_id: planId,
+      custom_id: u.email + "|" + plan,
+      subscriber: { email_address: u.email },
+      application_context: {
+        brand_name: "Tennessee Weather Network",
+        user_action: "SUBSCRIBE",
+        shipping_preference: "NO_SHIPPING",
+        return_url: url.origin + "/paypal/return",
+        cancel_url: `${site}/pricing.html?canceled=1`,
+      },
     });
     if (r.error) return json({ error: r.error.message }, r.status || 503);
-    return json({ url: r.data.url });
+    const approve = (r.data.links || []).find(l => l.rel === "approve");
+    if (!approve) return json({ error: "PayPal checkout unavailable." }, 502);
+    console.log("[billing] checkout plan=" + plan + " sub=" + r.data.id);
+    return json({ url: approve.href });
   }
   if (path === "/api/billing/portal" && req.method === "POST") {
     const u = await currentUser(env, req);
     if (!u) return json({ error: "Log in first." }, 401);
-    const full = await store_.getUser(u.email);
-    if (!full || !full.stripe_customer)
-      return json({ error: "No Stripe customer yet - subscribe first." }, 400);
+    // PayPal has no in-app billing portal: members manage or cancel their
+    // subscription inside their own PayPal account (Automatic payments).
+    return json({ url: "https://www.paypal.com/myaccount/autopay/" });
+  }
+  /* PayPal bounces the approver back here with ?token=<subscription id> (and
+     ba_token). Verify the subscription belongs to the logged-in member, then
+     hand them to member.html?paid=1 - the webhook credits the payment. */
+  if (req.method === "GET" && path === "/paypal/return") {
     const site = (env.SITE_URL || url.origin).replace(/\/$/, "");
-    const r = await stripe(env, "billing_portal/sessions", { customer: full.stripe_customer, return_url: `${site}/member.html` });
-    if (r.error) return json({ error: r.error.message }, r.status || 503);
-    return json({ url: r.data.url });
+    const ok = site + "/member.html?paid=1";
+    const bad = site + "/member.html?paid=0";
+    const u = await currentUser(env, req);
+    const subId = url.searchParams.get("token") || "";
+    if (!u || !subId) return Response.redirect(bad, 302);
+    const sub = await ppApi(env, "GET", "/v1/billing/subscriptions/" + subId);
+    const s = sub.data || {};
+    const email = s.subscriber && s.subscriber.email_address;
+    const status = s.status;
+    const match = !!email && email.toLowerCase() === u.email.toLowerCase();
+    if (!match || (status !== "ACTIVE" && status !== "APPROVED")) {
+      console.log("[billing] paypal return MISMATCH sub=" + subId + " status=" + status);
+      return Response.redirect(bad, 302);
+    }
+    console.log("[billing] paypal return ok sub=" + subId + " status=" + status + " " + u.email);
+    return Response.redirect(ok, 302);
   }
 
-  /* ----- Stripe webhook ----- */
-  if (path === "/api/stripe/webhook" && req.method === "POST") {
-    const body = await req.text();
-    if (!await verifyStripeSignature(env, req, body)) return json({ error: "bad signature" }, 400);
-    let evt;
-    try { evt = JSON.parse(body); } catch (_e) { return json({ error: "bad json" }, 400); }
-    const t = evt.type, d = evt.data && evt.data.object;
-    if (t === "checkout.session.completed" && d) {
-      if (d.mode === "subscription") {
-        // Subscription first month is credited by invoice.paid, which Stripe
-        // fires right after this. Crediting here TOO would double-extend
-        // (both events arrive for one payment - found wiring 3-plan billing).
-        console.log("[billing] subscription checkout completed; invoice.paid will credit");
-      } else {
-        // legacy one-off payment mode: credit a single month here
-        const email = (d.metadata && d.metadata.email) || d.client_reference_id || d.customer_email;
-        if (email) await extendPremium(env, store_, email, d.id, d.amount_total || 499, d.customer, t);
+  /* ----- PayPal webhook -----
+     PAYMENT.SALE.COMPLETED fires for the first charge AND every renewal; each
+     sale id is unique, so extendPremium's payment-keyed idempotency keeps
+     redeliveries from double-extending. Cancellation/suspension revokes. */
+  if (path === "/api/paypal/webhook" && req.method === "POST") {
+    const evt = await req.json().catch(() => null);
+    if (!evt) return json({ error: "bad json" }, 400);
+    const v = await ppApi(env, "POST", "/v1/notifications/verify-webhook-signature", {
+      auth_algo: req.headers.get("paypal-auth-algo") || "",
+      cert_url: req.headers.get("paypal-cert-url") || "",
+      transmission_id: req.headers.get("paypal-transmission-id") || "",
+      transmission_sig: req.headers.get("paypal-transmission-sig") || "",
+      transmission_time: req.headers.get("paypal-transmission-time") || "",
+      webhook_id: env.PAYPAL_WEBHOOK_ID || "",
+      webhook_event: evt,
+    });
+    const verified = !v.error && v.data && v.data.verification_status === "SUCCESS";
+    if (!verified) return json({ error: "bad signature" }, 400);
+    const t = evt.event_type, d = evt.resource || {};
+    if (t === "PAYMENT.SALE.COMPLETED") {
+      const subId = d.billing_agreement_id || "";
+      const saleId = d.id || "";
+      if (subId && saleId) {
+        const sub = await ppApi(env, "GET", "/v1/billing/subscriptions/" + subId);
+        const s = sub.data || {};
+        const email = s.subscriber && s.subscriber.email_address;
+        const cents = Math.round(parseFloat((s.billing_info && s.billing_info.last_payment
+          && s.billing_info.last_payment.amount && s.billing_info.last_payment.amount.value) || "0") * 100);
+        if (email) {
+          await extendPremium(env, store_, email, "pp_sale_" + saleId, cents,
+            s.subscriber && s.subscriber.payer_id, "paypal", planDays(env, s.plan_id));
+          console.log("[billing] webhook credit sale=" + saleId + " " + email);
+        }
       }
-    } else if (t === "invoice.paid" && d) {
-      // fires for the first month AND every renewal; the price id says which
-      // plan duration to credit
-      const priceId = d.lines && d.lines.data && d.lines.data[0]
-        && d.lines.data[0].price && d.lines.data[0].price.id;
-      const customerId = typeof d.customer === "string" ? d.customer : (d.customer && d.customer.id) || null;
-      // subscription invoices carry customer_email only sometimes - fall back
-      // to the users row via the saved stripe_customer id
-      const email = d.customer_email || (d.metadata && d.metadata.email)
-        || (customerId ? await store_.emailByCustomer(customerId) : null);
-      if (email) await extendPremium(env, store_, email, d.id, d.amount_paid || 499, customerId, t, priceDays(env, priceId));
-    } else if (t === "customer.subscription.deleted" && d) {
-      const email = (d.metadata && d.metadata.email) || d.customer_email;
+    } else if (t === "BILLING.SUBSCRIPTION.CANCELLED" || t === "BILLING.SUBSCRIPTION.EXPIRED"
+            || t === "BILLING.SUBSCRIPTION.SUSPENDED") {
+      // subscriber object can be thin - custom_id (email|plan) is the fallback
+      const email = (d.subscriber && d.subscriber.email_address)
+        || (typeof d.custom_id === "string" ? d.custom_id.split("|")[0] : null);
       if (email) await store_.setPremium(email, nowSec());
     }
     return json({ received: true });
