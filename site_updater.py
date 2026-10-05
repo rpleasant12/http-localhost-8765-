@@ -535,6 +535,13 @@ def publish_heartbeat():
                 log(f"log rotation: {_ract}")
         except Exception:                          # noqa: BLE001
             pass
+        # freshness monitor rides the tick too (own 5-min throttle inside):
+        # a cold 25-45 min build must not delay freshness checking
+        try:
+            import freshness_watch
+            freshness_watch.check_once()
+        except Exception as _fwexc:                # noqa: BLE001 - never kill the tick
+            log(f"freshness tick error: {_fwexc}")
         try:
             if publish_finished():
                 log("GitHub Pages published successfully (heartbeat).")
@@ -1133,6 +1140,16 @@ def main():
             # NOAA upstream feed watchdog (own 5-min throttle inside;
             # shares website's 12-min probe cache with the models page).
             check_upstream_feeds()
+
+            # Public-site + worker freshness monitor (own 5-min throttle
+            # inside): local/public data.json ages, gh-pages lag, worker
+            # liveness, D1 pages table, CF mirror. WARN logs, FAIL escalates
+            # via SMS (data.sms_alerts) with network-outage suppression.
+            try:
+                import freshness_watch
+                freshness_watch.check_once()
+            except Exception as _fwexc:            # noqa: BLE001 - never break the cycle
+                log(f"freshness check error: {_fwexc}")
 
             # ------------------------------------------------
             # SMS WEATHER ALERTS (texts new NWS warnings/alerts)
