@@ -4780,11 +4780,12 @@ _FEED_STRIP_PAGES = ("severe.html", "storms.html", "tropical.html",
                      "winter.html", "education.html", "fieldguide.html")
 
 _FEED_STRIP_HTML = """
-<div class="wrap"><div id="feedStrip" style="margin:10px 0 0;font-size:11.5px;color:#9fb0c3;line-height:1.9">checking NOAA feed cycles…</div></div>
+<div class="wrap"><div id="feedStrip" style="margin:10px 0 0;font-size:11.5px;color:#9fb0c3;line-height:1.9">checking live weather + NOAA feeds…</div></div>
 <script>
-/* feed-health strip (gated centers): the models-page upstream badge in
-   miniature. Same source - data.json's "upstream" block, stamped by the
-   updater's _upstream_status() probe each build - and the same states:
+/* feed-health strip (gated centers): a current-conditions line (temp /
+   sky / wind / obs time) plus the models-page upstream badge in
+   miniature. Same source - data.json's "upstream" and "current" blocks,
+   stamped by the updater each build - and the same states:
    green = publishing on schedule, orange = lagging (older than the
    feed's normal max age), red = stalled (> 2.5x that), with problem
    feeds leading the line. Zero extra downloads: the page shell already
@@ -4796,6 +4797,19 @@ _FEED_STRIP_HTML = """
   function feedStripFrom(d) {
     const box = document.getElementById("feedStrip");
     if (!box) return;
+    /* current-conditions line from the same payload (d.current, stamped
+       by the updater's obs pull). Hidden when the observation is missing
+       - the page footer already reports data age, so a dead feed never
+       shows stale weather here. */
+    const cur = (d && d.current) || {};
+    let wx = "";
+    if (cur.tempF != null) {
+      const bits = ["🌡️ <b style='color:#e8eef5'>" + cur.tempF + "°F</b>"];
+      if (cur.text) bits.push(String(cur.text));
+      if (cur.wind) bits.push("💨 " + cur.wind);
+      if (cur.time) bits.push("obs " + cur.time);
+      wx = '<div style="margin-bottom:2px">' + bits.join(" · ") + "</div>";
+    }
     const up = (d && d.upstream) || {};
     const rows = [];
     for (const m of Object.keys(up).sort()) {
@@ -4811,7 +4825,8 @@ _FEED_STRIP_HTML = """
                  cyc: u.cycle.slice(4,6) + "/" + u.cycle.slice(6,8) + " " + u.cycle.slice(8,10) + "Z"});
     }
     if (!rows.length) {
-      box.textContent = "NOAA feed status unavailable this build - the probe round failed or was skipped.";
+      box.innerHTML = wx +
+        '<div>NOAA feed status unavailable this build - the probe round failed or was skipped.</div>';
       return;
     }
     rows.sort((a, b) => (b.st - a.st) || (b.age - a.age));
@@ -4819,7 +4834,7 @@ _FEED_STRIP_HTML = """
     const head = bad
       ? "⚠️ " + bad + " feed" + (bad > 1 ? "s" : "") + " behind NOAA schedule - "
       : "✅ All " + rows.length + " NOAA feeds on schedule - ";
-    box.innerHTML = head + rows.map(r =>
+    box.innerHTML = wx + head + rows.map(r =>
       '<span title="' + r.m + ": newest published cycle " + r.cyc + ", " +
         r.age.toFixed(1) + ' h old (normal ≤ ' + r.hb + ' h)" ' +
       'style="margin-right:9px;white-space:nowrap">' +
