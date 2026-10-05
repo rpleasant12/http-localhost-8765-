@@ -2586,7 +2586,7 @@ Object.keys(window.STORM_FRAMES).forEach(sid => sAnim.show(sid, 0));
 </script>
 {_prem_gate("storm history")}
 """
-    return _page("Storms", "storms.html", body)
+    return _page("Storms", "storms.html", body, feed_strip=True)
 
 
 # ------------------------------------------------- single-radar NEXRAD
@@ -4769,7 +4769,92 @@ window.onDataRefresh = function (d) {{ refresh(d); }};   /* soft auto-refresh: t
 """
 
 
-def _page(title, active, body, extra_head=""):
+# 2026-10-04: slim "feed health" strip for the gated premium centers
+# (severe / storms / tropical / winter / education / fieldguide). It shows
+# every NOAA model's newest published cycle and its age, using the SAME
+# data.json "upstream" block that powers the models-page status line - so
+# a map that looks stale reads as "NOAA is behind", not "the site broke",
+# right where members consume the data. Opt-in per page (feed_strip=True
+# on _page) so the PUBLIC locked shells never render it.
+_FEED_STRIP_PAGES = ("severe.html", "storms.html", "tropical.html",
+                     "winter.html", "education.html", "fieldguide.html")
+
+_FEED_STRIP_HTML = """
+<div class="wrap"><div id="feedStrip" style="margin:10px 0 0;font-size:11.5px;color:#9fb0c3;line-height:1.9">checking NOAA feed cycles…</div></div>
+<script>
+/* feed-health strip (gated centers): the models-page upstream badge in
+   miniature. Same source - data.json's "upstream" block, stamped by the
+   updater's _upstream_status() probe each build - and the same states:
+   green = publishing on schedule, orange = lagging (older than the
+   feed's normal max age), red = stalled (> 2.5x that), with problem
+   feeds leading the line. Zero extra downloads: the page shell already
+   re-fetches data.json every 3 min into SITE_DATA, and this strip just
+   re-renders from it every 30 s so the ages tick. One direct fallback
+   fetch covers the edge where the shell's first fetch fails. */
+(function () {
+  function shellData() { try { return SITE_DATA; } catch (_e) { return null; } }
+  function feedStripFrom(d) {
+    const box = document.getElementById("feedStrip");
+    if (!box) return;
+    const up = (d && d.upstream) || {};
+    const rows = [];
+    for (const m of Object.keys(up).sort()) {
+      const u = up[m];
+      if (!u || !u.cycle || String(u.cycle).length < 10) continue;
+      const age = (Date.now() - Date.parse(u.cycle.slice(0,4) + "-" + u.cycle.slice(4,6) + "-" +
+                   u.cycle.slice(6,8) + "T" + u.cycle.slice(8,10) + ":00:00Z")) / 36e5;
+      const maxA = u.maxAge || 2, hb = u.hoursBetween || 6;
+      const st = age > maxA * 2.5 ? 2 : (age > maxA ? 1 : 0);
+      const col = ["#2e7d32", "#ef6c00", "#c62828"][st];
+      const lbl = st === 2 ? "stalled" : "lagging";
+      rows.push({m: m, st: st, col: col, age: age, hb: hb, lbl: lbl,
+                 cyc: u.cycle.slice(4,6) + "/" + u.cycle.slice(6,8) + " " + u.cycle.slice(8,10) + "Z"});
+    }
+    if (!rows.length) {
+      box.textContent = "NOAA feed status unavailable this build - the probe round failed or was skipped.";
+      return;
+    }
+    rows.sort((a, b) => (b.st - a.st) || (b.age - a.age));
+    const bad = rows.filter(r => r.st > 0).length;
+    const head = bad
+      ? "⚠️ " + bad + " feed" + (bad > 1 ? "s" : "") + " behind NOAA schedule - "
+      : "✅ All " + rows.length + " NOAA feeds on schedule - ";
+    box.innerHTML = head + rows.map(r =>
+      '<span title="' + r.m + ": newest published cycle " + r.cyc + ", " +
+        r.age.toFixed(1) + ' h old (normal ≤ ' + r.hb + ' h)" ' +
+      'style="margin-right:9px;white-space:nowrap">' +
+      '<span style="color:' + r.col + '">●</span> ' + r.m + " " + r.cyc +
+      (r.st ? ' <span style="color:' + r.col + '">(' + r.lbl + ")</span>" : "") +
+      "</span>").join("");
+  }
+  let lastData = null;
+  function tick() {
+    const d = shellData() || lastData;
+    if (d) { lastData = d; feedStripFrom(d); }
+  }
+  setInterval(tick, 30000);        /* ages tick; fresh cycles ride in on SITE_DATA */
+  let polls = 0;
+  const boot = setInterval(function () {
+    if (shellData()) { clearInterval(boot); tick(); return; }
+    if (++polls > 40) {            /* shell fetch still empty after ~20 s */
+      clearInterval(boot);
+      try {
+        fetch("data.json?t=" + Date.now(), {cache: "no-store"})
+          .then(function (r) { return r.json(); })
+          .then(function (d) { lastData = d; tick(); })
+          .catch(function () {});
+      } catch (_e) { /* offline tick - the 30 s loop keeps trying */ }
+    }
+  }, 500);
+})();
+</script>
+"""
+
+
+def _page(title, active, body, extra_head="", feed_strip=False):
+    # gated premium centers get the feed-health strip (see _FEED_STRIP_PAGES)
+    if feed_strip and active in _FEED_STRIP_PAGES:
+        body = _FEED_STRIP_HTML + body
     # nav groups: flattened in order = the desktop bar, so the desktop nav
     # and the mobile drawer can never drift apart (single source of truth)
     groups = (
@@ -8981,7 +9066,7 @@ const GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best";
 </script>
 {_prem_gate("NHC tropical")}
 """
-    return _page("NHC", "tropical.html", body)
+    return _page("NHC", "tropical.html", body, feed_strip=True)
 
 
 def page_tropmodels(d):
@@ -11286,7 +11371,7 @@ details.met-class, #edu-exam { scroll-margin-top:130px; }
 <script>{exam_js}</script>
 <script>{edx_js}</script>
 """
-    return _page("Education", "education.html", body)
+    return _page("Education", "education.html", body, feed_strip=True)
 
 
 def page_severe(d):
@@ -11718,7 +11803,7 @@ boot();
 </script>
 {_prem_gate("severe storms")}
 """
-    return _page("Severe", "severe.html", body)
+    return _page("Severe", "severe.html", body, feed_strip=True)
 
 
 def page_fieldguide(d):
@@ -12114,7 +12199,8 @@ def page_fieldguide(d):
 
 {FG_QUIZ_JS}
 """
-    return _page("Storm Chaser's Field Guide", "fieldguide.html", body)
+    return _page("Storm Chaser's Field Guide", "fieldguide.html", body,
+                 feed_strip=True)
 
 
 def page_winter(d):
@@ -12687,7 +12773,7 @@ if (SEASON && SEASON.ok) {{
 </script>
 {_prem_gate("winter weather")}
 """
-    return _page("Winter", "winter.html", body)
+    return _page("Winter", "winter.html", body, feed_strip=True)
 
 
 def page_dashboard(d):
