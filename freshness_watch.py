@@ -11,9 +11,13 @@ others only log, which nobody reads at 3 AM):
   2. gh-pages       public data.json age               (the page visitors actually load)
   3. gh-pages lag   local minus public dataEpochMs     (publish pipeline stuck)
   4. worker         GET /api/config answers 200        (members worker alive)
-  5. D1 pages       MAX(updated) in the pages table    (premium upload pipeline)
-  6. D1 gap         D1 older than local build - 12 h   (build moved on, upload didn't)
-  7. CF mirror      .freebuff/cfpages.last stamp age   (2 h throttle -> 12 h = failing)
+  5. D1 pages       sha of every premium page vs local (upload pipeline; AGE is
+                    informational - pages pull live data client-side, so page
+                    HTML only changes when site CODE changes)
+  6. CF mirror      .freebuff/cfpages.last stamp age   (2 h throttle -> 12 h = failing)
+
+D1 self-heal: when the sha check FAILs, re-run publish_site.upload_premium_pages(force=True)
+(most 30 min) - the same recovery philosophy as check_public_freshness's recovery publish.
 
 Escalation: WARN logs + files only. FAIL texts once per 6 h per failing
 check via data.sms_alerts (Gmail SMTP -> carrier gateways - same free path
@@ -27,6 +31,7 @@ Runs two ways:
   - standalone:  python freshness_watch.py [--force] [--json]
     exit 0 = no FAIL, 2 = at least one FAIL (wire into Task Scheduler).
 """
+import hashlib
 import json
 import os
 import subprocess
@@ -46,6 +51,8 @@ WORKER_URL = "https://tnwn-members.nbasportstalk53.workers.dev/api/config"
 WRANGLER = os.path.join(os.path.expanduser("~"), "AppData", "Roaming", "npm",
                         "wrangler.cmd")
 LOCAL_DATA = os.path.join("static", "site", "data.json")
+D1_SRC_DIR = os.path.join("static", "premium_pages")   # module const: tests patch it
+D1_HEAL_EVERY = 1800           # D1 self-heal re-upload at most every 30 min
 CFPAGES_STAMP = os.path.join(".freebuff", "cfpages.last")
 STATE_PATH = os.path.join(".freebuff", "freshness_alerts.json")
 STATUS_PATH = os.path.join(".freebuff", "freshness_status.json")
@@ -62,8 +69,6 @@ THRESHOLDS = {
     "gh_pages_age": {"warn": 30, "fail": 60},
     "gh_pages_lag": {"warn": 30, "fail": 60},
     "worker":       {"warn": 5,  "fail": 15},   # minutes since last good probe
-    "d1_pages_age": {"warn": 6 * 60, "fail": 12 * 60},
-    "d1_build_gap": {"warn": 6 * 60, "fail": 12 * 60},
     "cf_mirror":    {"warn": 6 * 60, "fail": 12 * 60},
 }
 # Worker/D1 probe failures are sticky: if a probe fails we keep counting age
@@ -186,25 +191,41 @@ def _wrangler_json(sql, timeout=120):
     return best
 
 
-def check_d1_pages(local_epoch):
+def check_d1_pages(local_epoch=None):
+    """Every premium page in D1 must byte-match the local build (sha column,
+    written by publish_site.upload_premium_pages). Page HTML only changes
+    when site CODE changes (pages pull live data client-side), so upload AGE
+    is not a staleness signal - sha drift is: it means the D1 upload pipeline
+    broke after that page was built. check_once() self-heals this by
+    re-running the upload (force=True, 30-min cooldown)."""
     try:
-        rows = _wrangler_json(
-            "SELECT COUNT(*) AS n, MAX(updated) AS u FROM pages")
-        n, updated = rows[0].get("n", 0), rows[0].get("u", 0)
-        if not updated:
-            return "FAIL", f"D1 pages table empty ({n} rows)", None
-        age = _age_min(float(updated))
-        lvl = _lvl("d1_pages_age", age)
-        detail = f"D1 pages: {n} rows, newest upload {age / 60:.1f} h old"
-        # Cross-check vs the local build: D1 can look "young enough" while the
-        # build has moved on - the gap is what actually strands premium pages.
-        if local_epoch:
-            gap = (local_epoch - float(updated)) / 60.0
-            glvl = _lvl("d1_build_gap", gap)
-            if glvl == "FAIL" or (glvl == "WARN" and lvl == "OK"):
-                lvl = glvl
-                detail += f"; build is {gap / 60:.1f} h ahead of D1"
-        return lvl, detail, float(updated)
+        rows = _wrangler_json("SELECT name, sha, updated FROM pages")
+        d1 = {r.get("name"): (r.get("sha") or "", int(r.get("updated") or 0))
+              for r in rows}
+        if not d1:
+            return "FAIL", "D1 pages table empty", None
+        newest = max(u for _, u in d1.values())
+        detail = (f"D1 pages: {len(d1)} rows, newest upload "
+                  f"{_age_min(newest) / 60:.1f} h old")
+        if not os.path.isdir(D1_SRC_DIR):
+            return "WARN", detail + " - no local build to compare yet", None
+        drift = []
+        for fn in sorted(f for f in os.listdir(D1_SRC_DIR)
+                         if f.endswith(".html")):
+            path = os.path.join(D1_SRC_DIR, fn)
+            try:
+                if time.time() - os.path.getmtime(path) < 600:
+                    continue   # just built - its publish may still be in flight
+                with open(path, "rb") as f:
+                    local_sha = hashlib.sha256(f.read()).hexdigest()
+            except OSError:
+                continue
+            if d1.get(fn[:-5], ("", 0))[0] != local_sha:
+                drift.append(fn)
+        if drift:
+            return "FAIL", (detail + f"; {len(drift)} differ from local build: "
+                            + ", ".join(drift[:3]))[:160], None
+        return "OK", detail + ", all shas current", float(newest)
     except Exception as exc:  # noqa: BLE001 - wrangler hiccup = sticky WARN
         return "WARN", f"D1 probe failed: {exc}"[:160], _last_ok.get("d1_pages_age")
 
@@ -297,6 +318,24 @@ def check_once(force=False):
     for name, res in results.items():
         if res.get("epoch"):
             _last_ok[name] = res["epoch"]
+
+    # D1 self-heal: drifted premium pages -> re-run the upload directly
+    # (force=True bypasses the sha state file - the 2026-10-03 incident had
+    # state claiming success while D1 actually served the wrong content).
+    # 30-min cooldown caps churn; re-probe so alerts reflect post-heal state.
+    if (results["d1_pages_age"]["level"] == "FAIL"
+            and not _network_outage(results)
+            and time.time() - state.get("_d1Heal", 0) >= D1_HEAL_EVERY):
+        state["_d1Heal"] = time.time()
+        try:
+            import publish_site
+            _ok = publish_site.upload_premium_pages(force=True)
+            print(f"freshness: D1 self-heal re-upload "
+                  f"{'completed' if _ok else 'FAILED/skipped'}", flush=True)
+        except Exception as exc:  # noqa: BLE001 - never break the cycle
+            print(f"freshness: D1 self-heal error: {exc}", flush=True)
+        lvl, det, dep = check_d1_pages()
+        results["d1_pages_age"] = {"level": lvl, "detail": det, "epoch": dep}
 
     order = {"OK": 0, "WARN": 1, "FAIL": 2}
     overall = max((v["level"] for v in results.values()), key=lambda l: order[l])

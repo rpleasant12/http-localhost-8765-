@@ -312,9 +312,12 @@ PAGES_FILES = ("severe.html", "storms.html", "tropical.html", "winter.html",
 # plus every docs/storm_<id>.html detail page (globbed at upload time)
 
 
-def upload_premium_pages():
+def upload_premium_pages(force=False):
     """Push changed docs/<page>.html into the worker's D1 `pages` table.
-    Returns True when the table is known current (uploaded or unchanged)."""
+    Returns True when the table is known current (uploaded or unchanged).
+    force=True skips the sha state file and re-uploads everything - used by
+    freshness_watch's self-heal when D1 drift is detected (state can claim
+    success while D1 actually serves stale content)."""
     if not os.path.isdir("docs"):
         return False
     if not os.path.isfile(CFPAGES_WRANGLER):
@@ -350,7 +353,7 @@ def upload_premium_pages():
         with open(path, "rb") as f:
             raw = f.read()
         digest = hashlib.sha256(raw).hexdigest()
-        if state.get(fname) == digest:
+        if state.get(fname) == digest and not force:
             continue
         b64 = base64.b64encode(gzip.compress(raw, 9)).decode("ascii")
         safe = fname.replace(".html", "")
