@@ -6863,50 +6863,9 @@ setInterval(async () => {
   try {
     const nd = await (await fetch("data.json?t=" + Date.now(), {cache: "no-store"})).json();
     mprogFrom(nd);
-    upFrom(nd);
     fhFrom(nd);
   } catch (_e) { /* offline tick - keep the last known state */ }
 }, 300000);
-
-/* ---------------- NOAA upstream feed status ----------------
-   Newest cycle each provider feed has published, labeled against its
-   normal publish rhythm so a stalled feed (RRFS sat 4+ h at 21Z on
-   2026-09-25 while HRRR rolled on) reads as "NOAA is behind", not a
-   broken site. UPSTREAM is stamped into data.json each build. */
-function upFrom(up) {
-  const box = document.getElementById("upstreamLine");
-  if (!box) return;
-  up = up || window.UPSTREAM || {};
-  const rows = [];
-  for (const m of Object.keys(up).sort()) {
-    const u = up[m];
-    if (!u || !u.cycle) continue;
-    const age = (Date.now() - Date.parse(u.cycle.slice(0,4) + "-" + u.cycle.slice(4,6) + "-" +
-                 u.cycle.slice(6,8) + "T" + u.cycle.slice(8,10) + ":00:00Z")) / 36e5;
-    const maxA = u.maxAge || 2, hb = u.hoursBetween || 6;
-    const st = age > maxA * 2.5 ? 2 : (age > maxA ? 1 : 0);
-    const lbl = st === 2 ? "stalled" : (st === 1 ? "lagging" : "current");
-    const col = ["#2e7d32", "#ef6c00", "#c62828"][st];
-    rows.push({m, lbl, col, age, hb,
-               cyc: u.cycle.slice(4,6) + "/" + u.cycle.slice(6,8) + " " + u.cycle.slice(8,10) + "Z"});
-  }
-  rows.sort((a, b) => ((b.lbl === "stalled") - (a.lbl === "stalled")) || (b.age - a.age));
-  if (!rows.length) {
-    box.textContent = "NOAA upstream status unavailable this build - the probe round failed or was skipped.";
-    return;
-  }
-  const bad = rows.filter(r => r.lbl !== "current").length;
-  const head = bad
-    ? "⚠️ " + bad + " upstream feed" + (bad > 1 ? "s" : "") + " behind schedule - "
-    : "✅ All " + rows.length + " upstream feeds publishing on schedule - ";
-  box.innerHTML = head + rows.map(r =>
-    '<span title="' + r.m + ": newest published cycle " + r.cyc + ", " +
-      r.age.toFixed(1) + ' h old (normal ≤ ' + r.hb + ' h)" style="margin-right:10px;white-space:nowrap">' +
-      '<span style="color:' + r.col + '">●</span> ' + r.m +
-      " " + r.cyc +
-      (r.lbl === "current" ? "" : " \u00b7 " + r.lbl + " (" + Math.round(r.age) + " h)"));
-}
-upFrom(null);
 
 /* ---------------- upstream feed latency badge ----------------
    How slow are the model feeds RIGHT NOW. Two live mirrors written by
@@ -7894,7 +7853,6 @@ if (GF_FRAMES && Object.keys(GF_FRAMES).length) gfFill();
   </div>
   <div class="src" id="mprogTxt">Counting rendered maps…</div>
   <div id="mprogModels" style="margin-top:10px"></div>
-  <div id="upstreamLine" class="src" style="margin-top:10px;border-top:1px solid #e5e7eb;padding-top:8px">checking NOAA upstream feeds…</div>
   <div id="feedHealthLine" class="src" style="margin-top:6px">checking upstream latency…</div>
   <div class="src" style="margin-top:4px">Per-model completeness + freshness - worst first, so a stalled NOAA feed or a starving model shows at the top. <span style="color:#2e7d32">●</span> current · <span style="color:#ef6c00">●</span> catching up (NOAA published a newer cycle) / renders pending · <span style="color:#c62828">●</span> waiting on NOAA. Refills every 5 minutes.</div>
 </div>
