@@ -2018,7 +2018,7 @@ document.getElementById("rProd").onchange = rShow;
 rFill();
 </script>
 """
-    return _page("HRRR · RRFS", "hrrr.html", body)
+    return _page("HRRR · RRFS", "hrrr.html", body, feed_strip=True)
 
 
 def _spc_hrrr_safe():
@@ -4770,14 +4770,17 @@ window.onDataRefresh = function (d) {{ refresh(d); }};   /* soft auto-refresh: t
 
 
 # 2026-10-04: slim "feed health" strip for the gated premium centers
-# (severe / storms / tropical / winter / education / fieldguide). It shows
-# every NOAA model's newest published cycle and its age, using the SAME
-# data.json "upstream" block that powers the models-page status line - so
-# a map that looks stale reads as "NOAA is behind", not "the site broke",
-# right where members consume the data. Opt-in per page (feed_strip=True
-# on _page) so the PUBLIC locked shells never render it.
+# (severe / storms / tropical / winter / education / fieldguide) and, since
+# 2026-10-05, the public model pages (models / hrrr / gefs) so free users
+# get the same freshness visibility. It shows every NOAA model's newest
+# published cycle and its age, using the SAME data.json "upstream" block
+# that powers the models-page status line - so a map that looks stale
+# reads as "NOAA is behind", not "the site broke", right where members
+# consume the data. Opt-in per page (feed_strip=True on _page) so the
+# PUBLIC locked shells never render it.
 _FEED_STRIP_PAGES = ("severe.html", "storms.html", "tropical.html",
-                     "winter.html", "education.html", "fieldguide.html")
+                     "winter.html", "education.html", "fieldguide.html",
+                     "models.html", "hrrr.html", "gefs.html")
 
 _FEED_STRIP_HTML = """
 <div class="wrap"><div id="feedStrip" style="margin:10px 0 0;font-size:11.5px;color:#9fb0c3;line-height:1.9">checking live weather + NOAA feeds…</div></div>
@@ -8161,7 +8164,7 @@ const MS = {json.dumps(d.get("mpasShield") or {})};
 {_PIVOT_JS}
 </script>
 """
-    return _page("Models", "models.html", body)
+    return _page("Models", "models.html", body, feed_strip=True)
 
 
 def _minmax(vals):
@@ -8179,7 +8182,8 @@ def page_gefs(d):
     if not gf_items:
         return _page("GEFS Ensemble", "gefs.html", """
 <header class="hero"><h1>🌐 GEFS Ensemble</h1>
-<div class="sub">NOAA's 31-member Global Ensemble Forecast System - unavailable this cycle, the next refresh retries automatically.</div></header>""")
+<div class="sub">NOAA's 31-member Global Ensemble Forecast System - unavailable this cycle, the next refresh retries automatically.</div></header>""",
+                     feed_strip=True)
 
     # frames keyed per product: [{fh, url, label, towns?}]
     gf_data = json.dumps({it["key"]: it["frames"] for it in gf_items})
@@ -8652,7 +8656,7 @@ if (HL_FRAMES.length) {{
   @media (max-width: 900px) {{ .gfGrid {{ grid-template-columns:1fr; }} #gfSprGrid {{ grid-template-columns:1fr; }} }}
 </style>
 """
-    return _page("GEFS Ensemble", "gefs.html", body)
+    return _page("GEFS Ensemble", "gefs.html", body, feed_strip=True)
 
 
 def page_tropical(d):
