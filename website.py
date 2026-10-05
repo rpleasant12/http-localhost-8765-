@@ -536,7 +536,11 @@ def _monitor_status():
         checks = st.get("checks") or {}
         out = {"overall": st.get("overall") or "unknown",
                "checkedEpochS": int(st.get("checkedEpochS") or 0),
-               "levels": {k: (v or {}).get("level") for k, v in checks.items()}}
+               "levels": {k: (v or {}).get("level") for k, v in checks.items()},
+               # ops.html's live view needs the human detail + freshness
+               # anchors too - feed strip only reads levels, additive is safe
+               "details": {k: (v or {}).get("detail") or "" for k, v in checks.items()},
+               "epochs": {k: (v or {}).get("epoch") for k, v in checks.items()}}
         if out["checkedEpochS"] and time.time() - out["checkedEpochS"] > 15 * 60:
             out["overall"] = "stale"
         return out

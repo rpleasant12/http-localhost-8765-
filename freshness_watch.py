@@ -26,9 +26,15 @@ fail at once while the LOCAL build is fresh, the fault is almost certainly
 the machine's own network - log it, but no SMS (never text a false alarm;
 observed 2026-10-05 when a mid-flight build raced a recycle).
 
+Also rebuilds the tiny ops dashboard (docs/ops.html) after every check:
+snapshot baked in at write time (the no-JS fallback) plus a live JS poller
+that re-fetches data.json every 60 s, so an open tab updates itself between
+publishes. Shipped to gh-pages by the normal publish cycle. Even when the
+updater is down, freshness_guard's standalone check_once keeps baking it.
+
 Runs two ways:
   - inside the site updater's cycle (check_once(), own 5-min throttle), and
-  - standalone:  python freshness_watch.py [--force] [--json]
+  - standalone:  python freshness_watch.py [--force] [--json] [--ops]
     exit 0 = no FAIL, 2 = at least one FAIL (wire into Task Scheduler).
 """
 import hashlib
@@ -289,6 +295,242 @@ def _notify(results, overall, state):
                 st.pop("alertSince", None)
 
 
+# ------------------------------------------------------------ ops dashboard
+
+OPS_PAGE = os.path.join("docs", "ops.html")
+
+# Live-update script for the ops page (plain string: real braces, no f-string
+# escaping). Re-renders from window.MONITOR - the baked snapshot on load,
+# then a fresh data.json fetch every 60 s - so an open tab tracks the site's
+# continuous republishing instead of freezing at the last bake.
+_OPS_JS = """
+(function () {
+  var BADGE = { OK: ['ok', 'OK'], WARN: ['warn', 'WARN'], FAIL: ['fail', 'FAIL'] };
+  function el(id) { return document.getElementById(id); }
+  function chip(lv) {
+    var b = BADGE[lv] || ['warn', String(lv || '?').toUpperCase()];
+    return '<span class="chip ' + b[0] + '">' + b[1] + '</span>';
+  }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function age(sec) {
+    if (!sec || sec < 0) return '-';
+    var m = sec / 60;
+    return m < 120 ? Math.round(m) + ' min' : (m / 60).toFixed(1) + ' h';
+  }
+  function epSec(ep) { return ep ? (ep > 1e12 ? ep / 1000 : ep) : 0; }
+  function fmt() {
+    var m = (window.MONITOR || {}).monitor || {};
+    var s = (window.MONITOR || {}).lastUpdate || m.stats || {};
+    var now = Date.now() / 1000;
+    var lv = m.levels || {}, det = m.details || {}, ep = m.epochs || {};
+    var chk = m.checkedEpochS || 0;
+    var stale = chk && (now - chk) > 900;
+    el('ovChip').innerHTML = chip(m.overall) +
+      (stale ? ' <span class="chip fail">STALE</span>' : '');
+    el('when').textContent = chk ? age(now - chk) + ' ago' : 'no snapshot';
+    var rows = [
+      ['local build', lv.local_build, det.local_build, ep.local_build],
+      ['public site', lv.gh_pages_age, det.gh_pages_age, ep.gh_pages_age],
+      ['publish lag', lv.gh_pages_lag, det.gh_pages_lag, 0],
+      ['members worker', lv.worker, det.worker, ep.worker],
+      ['D1 pages', lv.d1_pages_age, det.d1_pages_age, ep.d1_pages_age],
+      ['CF mirror', lv.cf_mirror, det.cf_mirror, ep.cf_mirror]
+    ];
+    var h = '';
+    for (var i = 0; i < rows.length; i++) {
+      var e = epSec(rows[i][3]);
+      h += '<tr><td>' + esc(rows[i][0]) + '</td><td>' + chip(rows[i][1]) + '</td><td>' +
+           esc(rows[i][2] || '-') + '</td><td class="num">' +
+           (e ? age(now - e) : '-') + '</td></tr>';
+    }
+    el('rows').innerHTML = h;
+    var lb = epSec(ep.local_build), pb = epSec(ep.gh_pages_age);
+    el('cLocal').textContent = lb ? age(now - lb) : '-';
+    el('cLocalSub').textContent = det.local_build || '';
+    el('cPublic').textContent = pb ? age(now - pb) : '-';
+    el('cPublicSub').textContent = det.gh_pages_age || '';
+    var lagdet = det.gh_pages_lag || '';
+    el('cLag').textContent = lagdet ?
+      lagdet.replace('public site ', '').replace(' behind local build', '') : '-';
+    el('cLagSub').textContent = lagdet;
+    el('cCycle').textContent = s.lastDurationS != null ? s.lastDurationS + ' s' : '-';
+    el('cCycleSub').textContent = 'finished ' +
+      (s.finishedEpochS ? age(now - s.finishedEpochS) + ' ago' : '?') +
+      (s.ok === false ? ' - FAILED' : '');
+    el('cAvg').textContent = s.avgDurationS != null ? s.avgDurationS + ' s' : '-';
+    el('cAvgSub').textContent = (s.cycles || 0) + ' cycles in window';
+  }
+  function poll(first) {
+    var x = new XMLHttpRequest();
+    x.open('GET', 'data.json?_=' + Date.now(), true);
+    x.onload = function () {
+      if (x.status !== 200) return;
+      try { window.MONITOR = JSON.parse(x.responseText); } catch (e) { return; }
+      fmt();
+      if (!first) el('stamp').textContent = 'live - refreshed ' +
+        new Date().toLocaleTimeString() + ' - re-fetches data.json every 60 s';
+    };
+    x.send();
+  }
+  fmt();
+  poll(true);
+  setInterval(function () { poll(false); }, 60000);
+})();
+"""
+
+
+def _age_str(seconds):
+    if not seconds or seconds < 0:
+        return "-"
+    m = seconds / 60.0
+    return f"{m:.0f} min" if m < 120 else f"{m / 60:.1f} h"
+
+
+def render_ops_dashboard(snap=None):
+    """Tiny ops dashboard: docs/ops.html rebuilt from the freshness snapshot
+    + update_stats.json after every check (and via --ops). The snapshot is
+    baked in at write time (no-JS/first-paint fallback) while inline JS
+    re-fetches data.json every 60 s and re-renders in place - the page tracks
+    the site's continuous republishing, not just the last bake. The normal
+    publish cycle ships it to gh-pages. Best-effort: a dashboard glitch must
+    never break check_once()."""
+    try:
+        import html as _h
+        if snap is None:
+            snap = _load(STATUS_PATH, {})
+        stats = _load(os.path.join(".freebuff", "update_stats.json"), {})
+        checks = snap.get("checks") or {}
+        now = time.time()
+
+        def chip(level):
+            cls = {"OK": "ok", "WARN": "warn", "FAIL": "fail"}.get(level, "warn")
+            return f'<span class="chip {cls}">{_h.escape(str(level))}</span>'
+
+        def card(cid, label, value, sub=""):
+            s = (f'<div class="sub" id="c{cid}Sub">{_h.escape(str(sub))}</div>'
+                 if sub else "")
+            return (f'<div class="card"><div class="label">{_h.escape(label)}</div>'
+                    f'<div class="value" id="c{cid}">{_h.escape(str(value))}</div>'
+                    f'{s}</div>')
+
+        local = checks.get("local_build") or {}
+        pub = checks.get("gh_pages_age") or {}
+        lag = checks.get("gh_pages_lag") or {}
+        le, pe = local.get("epoch"), pub.get("epoch")
+        lag_min = max((le - pe) / 60.0, 0) if (le and pe) else None
+        lag_txt = (f"{lag_min:.0f} min" if lag_min is not None
+                   else str(lag.get("detail", "-")).replace("public site ", "").strip())
+
+        cards = "".join([
+            card("Local", "local build",
+                 _age_str(now - le) if le else local.get("detail", "-"),
+                 str(local.get("detail", ""))),
+            card("Public", "public site",
+                 _age_str(now - pe) if pe else pub.get("detail", "-"),
+                 str(pub.get("detail", ""))),
+            card("Lag", "publish lag", lag_txt, str(lag.get("detail", ""))),
+            card("Cycle", "last cycle",
+                 f"{stats.get('lastDurationS', '-')} s"
+                 + ("" if stats.get("ok", True) else " (FAILED)"),
+                 (f"finished {_age_str(now - stats.get('finishedEpochS', 0))} ago"
+                  if stats.get("finishedEpochS") else "no stats yet")),
+            card("Avg", "updater avg", f"{stats.get('avgDurationS', '-')} s",
+                 f"{stats.get('cycles', 0)} cycles in window"),
+        ])
+
+        disp = [("local build", "local_build"), ("public site", "gh_pages_age"),
+                ("publish lag", "gh_pages_lag"), ("members worker", "worker"),
+                ("D1 pages", "d1_pages_age"), ("CF mirror", "cf_mirror")]
+        rows = []
+        for label, name in disp:
+            c = checks.get(name)
+            if not c:
+                rows.append(f'<tr><td>{label}</td><td>{chip("-")}</td>'
+                            f'<td colspan="2">no data</td></tr>')
+                continue
+            ep = c.get("epoch")
+            ep_s = (ep / 1000.0) if (ep and ep > 1e12) else ep
+            age = _age_str(now - ep_s) if ep_s else "-"
+            rows.append(f'<tr><td>{label}</td><td>{chip(c.get("level", "?"))}</td>'
+                        f'<td>{_h.escape(str(c.get("detail", "")))}</td>'
+                        f'<td class="num">{age}</td></tr>')
+        rows_html = "".join(rows)
+
+        overall = snap.get("overall") or "?"
+        checked = snap.get("checkedEpochS")
+        stale = bool(checked) and (now - checked) > 900
+        head_chip = chip(overall) + (' <span class="chip warn">STALE</span>'
+                                     if stale else "")
+        when = (f'{_age_str(now - checked)} ago ({_h.escape(snap.get("checked", ""))})'
+                if checked else "no snapshot yet")
+        # Baked MONITOR blob: what the live JS renders on load (and what
+        # no-JS visitors effectively see). Prefer data.json's enriched
+        # monitor block when the snapshot carries one (--ops after a build);
+        # check_once's fresh status_doc derives it from the raw results.
+        mon = snap.get("monitor")
+        if not isinstance(mon, dict) or not mon.get("levels"):
+            mon = {"overall": overall, "checkedEpochS": int(checked or 0),
+                   "levels": {k: (v or {}).get("level") for k, v in checks.items()},
+                   "details": {k: (v or {}).get("detail") or "" for k, v in checks.items()},
+                   "epochs": {k: (v or {}).get("epoch") for k, v in checks.items()}}
+        mon["stats"] = {k: stats.get(k) for k in
+                        ("lastDurationS", "ok", "avgDurationS", "cycles", "finishedEpochS")}
+        ops_blob = json.dumps({"monitor": mon}, separators=(",", ":")).replace(
+            "</", "<\\/")
+        baked_stamp = time.strftime("%Y-%m-%d %H:%M")
+        doc = f"""<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta http-equiv="refresh" content="60"/>
+<meta name="robots" content="noindex"/>
+<title>TNWN Ops</title>
+<style>
+body{{margin:0;background:#0e1117;color:#d7dde6;font:14px/1.45 -apple-system,'Segoe UI',Roboto,sans-serif;padding:18px}}
+h1{{font-size:19px;margin:0 0 2px}}
+h2{{font-size:13px;color:#8b96a5;margin:18px 0 6px;text-transform:uppercase;letter-spacing:.06em}}
+.stamp{{color:#66707e;font-size:12px;margin:0 0 14px}}
+.chip{{display:inline-block;padding:1px 9px;border-radius:10px;font-size:12px;font-weight:600}}
+.ok{{background:#123c22;color:#4ade80}}
+.warn{{background:#3f3208;color:#fbbf24}}
+.fail{{background:#451717;color:#f87171}}
+.cards{{display:flex;flex-wrap:wrap;gap:8px}}
+.card{{background:#161b22;border:1px solid #232a33;border-radius:8px;padding:8px 12px;min-width:130px}}
+.label{{color:#8b96a5;font-size:11px;text-transform:uppercase;letter-spacing:.05em}}
+.value{{font-size:17px;font-weight:600;margin-top:2px}}
+.sub{{color:#66707e;font-size:11px;margin-top:2px;max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+table{{border-collapse:collapse;width:100%;max-width:780px}}
+td,th{{text-align:left;padding:4px 10px 4px 0;border-bottom:1px solid #1c232c;vertical-align:top}}
+th{{color:#8b96a5;font-size:11px;text-transform:uppercase;letter-spacing:.05em}}
+.num{{text-align:right;white-space:nowrap;color:#aab4c0}}
+</style></head><body>
+<h1>TNWN ops <span id="ovChip">{head_chip}</span></h1>
+<p class="stamp" id="stamp">checked <span id="when">{when}</span> &middot; live view - re-fetches data.json every 60 s</p>
+<div class="cards">{cards}</div>
+<h2>freshness checks</h2>
+<table><thead><tr><th>check</th><th>level</th><th>detail</th><th class="num">anchor age</th></tr></thead>
+<tbody id="rows">{rows_html}</tbody>
+</table>
+<p class="stamp" id="src">freshness_watch.py &rarr; docs/ops.html &middot; baked {baked_stamp} &middot; js re-renders from data.json (monitor + lastUpdate) every 60 s</p>
+<script>window.MONITOR = {ops_blob};</script>
+<script>{_OPS_JS}</script>
+</body></html>
+"""
+        os.makedirs("docs", exist_ok=True)
+        tmp = OPS_PAGE + ".tmp"
+        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+            f.write(doc)
+        os.replace(tmp, OPS_PAGE)
+        return True
+    except Exception as exc:  # noqa: BLE001 - dashboard must never break checks
+        print(f"freshness: ops dashboard write failed: {exc}", flush=True)
+        return False
+
+
 # ------------------------------------------------------------------- entry
 
 def check_once(force=False):
@@ -355,8 +597,10 @@ def check_once(force=False):
     _notify(results, overall, state)
     state["_overall"], state["_lastRun"] = overall, time.time()
     _save(STATE_PATH, state)
-    _save(STATUS_PATH, {"checkedEpochS": time.time(), "checked": stamp,
-                        "overall": overall, "checks": results})
+    status_doc = {"checkedEpochS": time.time(), "checked": stamp,
+                  "overall": overall, "checks": results}
+    _save(STATUS_PATH, status_doc)
+    render_ops_dashboard(status_doc)
     return overall, results
 
 
@@ -364,6 +608,11 @@ def main(argv=None):
     argv = argv or sys.argv[1:]
     force = "--force" in argv
     as_json = "--json" in argv
+    if "--ops" in argv:
+        ok = render_ops_dashboard()
+        print(("ops dashboard written: " + OPS_PAGE) if ok
+              else "ops dashboard write FAILED (see log)")
+        return 0 if ok else 1
     overall, results = check_once(force=force)
     if as_json:
         print(json.dumps(results, indent=1))
