@@ -526,6 +526,15 @@ def publish_heartbeat():
     import github_deploy
     while True:
         time.sleep(30)
+        # log housekeeping rides the 30 s tick: own-fd rotation (cheap
+        # fstat unless over threshold) + sweep of unowned logs
+        try:
+            import rotate_logs
+            for _ract in (rotate_logs.rotate_own_logs(LOGFILE)
+                          + rotate_logs.rotate_dir(".freebuff")):
+                log(f"log rotation: {_ract}")
+        except Exception:                          # noqa: BLE001
+            pass
         try:
             if publish_finished():
                 log("GitHub Pages published successfully (heartbeat).")
@@ -913,6 +922,20 @@ def main():
         return
 
     os.makedirs(".freebuff", exist_ok=True)
+
+    # Log housekeeping (2026-10-04): startup_task.py hands this process
+    # inherited (non-appending) stdout/stderr handles on unbounded files,
+    # and the preview server's grew the same way - 98 MB of backlog by the
+    # time the disk hit 94%. rotate_own_logs swaps OUR fds to fresh
+    # O_APPEND handles and truncates past 10 MB (no restart needed, no NUL
+    # gap); rotate_dir caps every other .freebuff log (see rotate_logs.py).
+    try:
+        import rotate_logs
+        for _act in (rotate_logs.rotate_own_logs(LOGFILE)
+                     + rotate_logs.rotate_dir(".freebuff")):
+            log(f"log rotation: {_act}")
+    except Exception as _rex:                     # noqa: BLE001 - housekeeping
+        log(f"log rotation error: {_rex}")        # must never block startup
 
     with open(PIDFILE, "w", encoding="utf-8") as f:
         f.write(str(os.getpid()))

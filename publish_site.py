@@ -763,6 +763,15 @@ if __name__ == "__main__":
     ap.add_argument("--cleanup", action="store_true",
                     help="force a full git housekeeping repack, then exit")
     args = ap.parse_args()
+    # Log housekeeping on every publish spawn (this child runs every few
+    # minutes, so rotation checks stay live even between updater restarts;
+    # see rotate_logs.py - 2026-10-04, disk was 94% with 98 MB of logs).
+    try:
+        import rotate_logs
+        for _act in rotate_logs.rotate_dir(".freebuff"):
+            print(f"log rotation: {_act}")
+    except Exception:                              # noqa: BLE001
+        pass
     if args.cleanup:
         housekeeping(full=True)
         sys.exit(0)
