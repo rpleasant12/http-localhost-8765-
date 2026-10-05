@@ -306,6 +306,7 @@ OPS_PAGE = os.path.join("docs", "ops.html")
 _OPS_JS = """
 (function () {
   var BADGE = { OK: ['ok', 'OK'], WARN: ['warn', 'WARN'], FAIL: ['fail', 'FAIL'] };
+  var BAKED = window.MONITOR;   // polled data.json replaces MONITOR; keep base
   function el(id) { return document.getElementById(id); }
   function chip(lv) {
     var b = BADGE[lv] || ['warn', String(lv || '?').toUpperCase()];
@@ -323,13 +324,19 @@ _OPS_JS = """
   }
   function epSec(ep) { return ep ? (ep > 1e12 ? ep / 1000 : ep) : 0; }
   function fmt() {
-    var m = (window.MONITOR || {}).monitor || {};
-    var s = (window.MONITOR || {}).lastUpdate || m.stats || {};
+    // Polled data.json overlays the baked snapshot per key: an old-shape or
+    // partial monitor block (details/epochs arrive with the next build after
+    // deploy) falls back to the baked copy instead of blanking the page.
+    var src = window.MONITOR || BAKED || {};
+    var pm = src.monitor || {}, bm = (BAKED || {}).monitor || {};
+    var s = src.lastUpdate || pm.stats || bm.stats || {};
     var now = Date.now() / 1000;
-    var lv = m.levels || {}, det = m.details || {}, ep = m.epochs || {};
-    var chk = m.checkedEpochS || 0;
+    var lv = pm.levels || bm.levels || {},
+        det = pm.details || bm.details || {},
+        ep = pm.epochs || bm.epochs || {};
+    var chk = pm.checkedEpochS || bm.checkedEpochS || 0;
     var stale = chk && (now - chk) > 900;
-    el('ovChip').innerHTML = chip(m.overall) +
+    el('ovChip').innerHTML = chip(pm.overall || bm.overall) +
       (stale ? ' <span class="chip fail">STALE</span>' : '');
     el('when').textContent = chk ? age(now - chk) + ' ago' : 'no snapshot';
     var rows = [
