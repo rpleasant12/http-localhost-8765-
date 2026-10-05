@@ -19,7 +19,12 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  # cancel-in-progress:false (2026-10-05): pushes land every 2-10 min while
+  # a 700 MB Pages deploy takes 5-10 min - cancelling in-flight runs let a
+  # burst of pushes starve ALL deployments (every run 15:20-16:40 ET today
+  # was 'cancelled'; the public CDN froze ~70 min stale). Queued runs
+  # serialize instead; each still deploys its ref, so the newest always lands.
+  cancel-in-progress: false
 
 jobs:
   mirror:
