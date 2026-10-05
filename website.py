@@ -12245,6 +12245,10 @@ def page_winter(d):
     <span><i style="background:#ffb3c8"></i>ice 0.1-0.25&quot;</span>
     <span><i style="background:#ff3c64"></i>ice 0.25&quot;+</span>
   </div>
+  <div id="wntStamp" style="margin:10px 0 2px;font-size:13.5px;font-weight:700;
+       padding:7px 10px;border-radius:8px;background:#14231a;color:#7bd88f">
+    HRRR model run {wnt.get("cycle") or "-"} &middot; checking age&hellip;
+  </div>
   <div class="ctl" style="margin-top:12px">
     <label><input type="checkbox" id="ly_fc" checked/> HRRR forecast map</label>
     <select id="fcKind" title="Winter hazard">
@@ -12376,9 +12380,11 @@ def page_winter(d):
 <script>
 const WNT = null; /* winter ships once (data.json); page boot fetches it */
 let map, wLayer = null;
+let WDATA = null;   /* current winter bundle; re-bound by onDataRefresh */
 async function boot() {{
   DATA = await (await fetch(dataUrl(), {{cache: "no-store"}})).json();
-  const W = (DATA.winter || WNT);
+  WDATA = (DATA.winter || WNT);
+  const W = WDATA;
   document.title = DATA.pageName + " - Winter";
   {_mapbox_token_js()}
   map = L.map("map", {{ zoomSnap: 0.5, maxZoom: 21 }}).setView([DATA.lat, DATA.lon], 5);
@@ -12386,12 +12392,12 @@ async function boot() {{
   L.circleMarker([DATA.lat, DATA.lon], {{ radius: 6, color: "#fff", weight: 2, fillColor: "#4da3ff", fillOpacity: 1 }}).addTo(map).bindTooltip(DATA.place);
   const fcKind = document.getElementById("fcKind"), fcHour = document.getElementById("fcHour");
   function fillHours() {{
-    const frames = ((W.frames || {{}})[fcKind.value]) || [];
+    const frames = ((WDATA.frames || {{}})[fcKind.value]) || [];
     fcHour.innerHTML = frames.map(f => `<option value="${{f.id}}">${{f.label}}</option>`).join("");
   }}
   function show() {{
     if (wLayer) {{ map.removeLayer(wLayer); wLayer = null; }}
-    const frames = ((W.frames || {{}})[fcKind.value]) || [];
+    const frames = ((WDATA.frames || {{}})[fcKind.value]) || [];
     const f = frames.find(x => x.id === fcHour.value);
     if (!f || !f.pngUrl || !f.bounds) return;
     wLayer = L.imageOverlay(f.pngUrl, [[f.bounds[0], f.bounds[1]], [f.bounds[2], f.bounds[3]]],
@@ -12403,8 +12409,47 @@ async function boot() {{
   fcHour.onchange = show;
   document.getElementById("ly_fc").onchange = show;
   show();
+  /* ---- model-run stamp: answers "is this current?" at a glance (2026-10-04).
+     Live age vs the HRRR init, color-state at the updater's own thresholds
+     (<=2.5 h fresh, <=4 h holding for NOAA, >4 h upstream gap), and a
+     re-bind of the frame selectors when siteRefresh delivers a newer cycle. */
+  function fmtH(h) {{
+    const m = Math.round(h * 60);
+    if (m <= 0) return "just now";
+    return m < 60 ? m + " min ago"
+      : Math.floor(m / 60) + " h " + (m % 60 ? (m % 60) + " min " : "") + "ago";
+  }}
+  function esc_(s) {{
+    return String(s == null ? "" : s).replace(/[&<>]/g,
+      c => ({{"&":"&amp;","<":"&lt;",">":"&gt;"}})[c]);
+  }}
+  function wntStamp() {{
+    const el = document.getElementById("wntStamp");
+    if (!el) return;
+    if (!WDATA || !WDATA.cycleEpochS) {{ el.textContent = "HRRR model run: unavailable this cycle"; return; }}
+    const h = (Date.now() / 1000 - WDATA.cycleEpochS) / 3600;
+    const run = "HRRR model run " + (WDATA.cycle || "");
+    if (h <= 2.5) {{
+      el.innerHTML = "\\u2705 " + esc_(run) + " &middot; " + fmtH(h);
+      el.style.background = "#14231a"; el.style.color = "#7bd88f";
+    }} else if (h <= 4) {{
+      el.innerHTML = "\\u23f3 " + esc_(run) + " &middot; " + fmtH(h) + " &middot; holding for NOAA\u2019s next upload";
+      el.style.background = "#2a2314"; el.style.color = "#e8c56b";
+    }} else {{
+      el.innerHTML = "\\u26a0\\ufe0f " + esc_(run) + " &middot; " + fmtH(h) + " &middot; NOAA upstream gap - not a site fault";
+      el.style.background = "#2a1414"; el.style.color = "#e8837b";
+    }}
+  }}
+  window.onDataRefresh = function (d) {{
+    const nw = d && d.winter;
+    if (!nw || !nw.cycleEpochS) return;
+    if (WDATA && WDATA.cycleEpochS === nw.cycleEpochS) {{ wntStamp(); return; }}
+    WDATA = nw; fillHours(); show(); wntStamp();
+  }};
+  wntStamp();
+  setInterval(wntStamp, 30000);
   // ---- multi-model snowfall overlays (GFS / GEFS / GEFS-Spread / NBM) ----
-  const MS = W.modelSnow || {{}};
+  const MS = (WDATA.modelSnow || {{}});
   const msModel = document.getElementById("msModel");
   const msHour = document.getElementById("msHour");
   const msCycle = document.getElementById("msCycle");

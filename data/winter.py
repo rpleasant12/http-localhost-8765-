@@ -517,6 +517,9 @@ def winter_bundle():
         bundle = {
             "ok": bool(frames["snow"] or frames["ice"]),
             "cycle": (full(cycle) if cycle else None),
+            # epoch of the HRRR init so the page can show a live "how old is
+            # this model run" stamp (2026-10-04 winter-forecast freshness ask)
+            "cycleEpochS": (int(cycle.timestamp()) if cycle else None),
             "frames": frames,
             "alerts": winter_alerts(),
             "wpc": _mirror_wpc(),
