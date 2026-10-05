@@ -519,6 +519,31 @@ def _road_risk_safe(hourly):
                 "worstColor": "#43a047", "coldest": None}
 
 
+def _monitor_status():
+    """Compact self-monitoring snapshot for data.json's "monitor" key -
+    the feed strip's "monitors healthy · checked N min ago" line.
+
+    Sourced from .freebuff/freshness_status.json, rewritten every 5 min
+    by freshness_watch.check_once() inside the updater. The watch is
+    itself monitored: a snapshot older than 15 min reads as "stale" (red)
+    so a dead updater/watch shows on the strip instead of a green dot
+    from this morning. Missing file -> None (line hidden; fresh installs
+    before the first watch cycle)."""
+    path = os.path.join(".freebuff", "freshness_status.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            st = json.load(f)
+        checks = st.get("checks") or {}
+        out = {"overall": st.get("overall") or "unknown",
+               "checkedEpochS": int(st.get("checkedEpochS") or 0),
+               "levels": {k: (v or {}).get("level") for k, v in checks.items()}}
+        if out["checkedEpochS"] and time.time() - out["checkedEpochS"] > 15 * 60:
+            out["overall"] = "stale"
+        return out
+    except (OSError, ValueError):
+        return None
+
+
 def collect_data():
     """Everything the site needs, from disk caches + a few fast NWS calls."""
     from data.nws import get_active_alerts, get_current_conditions, get_forecast, get_hourly
@@ -1063,6 +1088,9 @@ def collect_data():
         # how long the last updater cycle took (mirrored by site_updater.py
         # after every completed cycle) - pages show "last update took ..."
         "lastUpdate": last_update,
+        # self-monitoring snapshot (freshness_watch): powers the feed
+        # strip's "monitors healthy · checked N min ago" line
+        "monitor": _monitor_status(),
         # fingerprint of the site code that produced this payload: pages use
         # it to detect "the site was updated since my settings were saved"
         # and discard stale persisted preferences (auto-refresh off flag).
@@ -4783,7 +4811,7 @@ _FEED_STRIP_PAGES = ("severe.html", "storms.html", "tropical.html",
                      "models.html", "hrrr.html", "gefs.html")
 
 _FEED_STRIP_HTML = """
-<div class="wrap"><div id="feedStrip" style="margin:10px 0 0;font-size:11.5px;color:#9fb0c3;line-height:1.9">checking live weather + NOAA feeds…</div></div>
+<div class="wrap"><div id="feedStrip" style="margin:10px 0 0;font-size:11.5px;color:#9fb0c3;line-height:1.9">checking live weather + NOAA feeds…</div><div id="feedMon" style="display:none;font-size:11px;color:#9fb0c3;line-height:1.7"></div></div>
 <script>
 /* feed-health strip (gated centers): a current-conditions line (temp /
    sky / wind / obs time) plus the models-page upstream badge in
@@ -4845,10 +4873,31 @@ _FEED_STRIP_HTML = """
       (r.st ? ' <span style="color:' + r.col + '">(' + r.lbl + ")</span>" : "") +
       "</span>").join("");
   }
+  /* monitor line: data.json's "monitor" block, stamped each build from
+     freshness_watch's 5-min snapshot. Green = all checks OK; red lists
+     failing checks; "checked N min ago" ticks live between data.json
+     refreshes so a quietly dead watch is visible from your phone. */
+  function monFrom(d) {
+    const el = document.getElementById("feedMon");
+    if (!el) return;
+    const m = (d && d.monitor) || null;
+    if (!m || !m.overall) { el.style.display = "none"; return; }
+    const col = ({OK: "#2e7d32", WARN: "#ef6c00"})[m.overall] || "#c62828";
+    const bad = Object.keys(m.levels || {}).filter(k => (m.levels[k] || "OK") !== "OK");
+    let txt = '<span style="color:' + col + '">\u25cf</span> monitors ' +
+      (m.overall === "OK" ? '<span style="color:#2e7d32">healthy</span>'
+                          : m.overall + (bad.length ? ": " + bad.join(", ") : ""));
+    if (m.checkedEpochS) {
+      const mins = Math.max(0, Math.round((Date.now() - m.checkedEpochS * 1000) / 60000));
+      txt += " \u00b7 checked " + (mins < 1 ? "<1" : mins) + " min ago";
+    }
+    el.innerHTML = txt;
+    el.style.display = "";
+  }
   let lastData = null;
   function tick() {
     const d = shellData() || lastData;
-    if (d) { lastData = d; feedStripFrom(d); }
+    if (d) { lastData = d; feedStripFrom(d); monFrom(d); }
   }
   setInterval(tick, 30000);        /* ages tick; fresh cycles ride in on SITE_DATA */
   let polls = 0;
