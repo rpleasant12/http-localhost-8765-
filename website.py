@@ -2554,14 +2554,14 @@ def page_storms(d):
     if not cards:
         cards = ('<div class="card"><span class="src">No archived advisories '
                  'yet - storms appear here automatically as NHC issues them.</span></div>')
-    _ss = d.get("seasonSummary")
+    _ss = (d.get("seasonSummary") or "").replace("static/", "", 1) \
+        if isinstance(d.get("seasonSummary"), str) else ""
     ss_html = ""
     if _ss:
-        ss_png = _ss.replace("static/", "", 1)
         ss_html = (
             f'<div class="card"><h2>\U0001f5d3\ufe0f Season in review</h2>'
             f'<a href="{_ss}" target="_blank" rel="noopener">'
-            f'<img src="{ss_png}" loading="lazy" alt="Season summary" '
+            f'<img src="{_ss}" loading="lazy" alt="Season summary" '
             'style="max-width:720px;width:100%;border-radius:10px;'
             'border:1px solid #333c46"/></a>'
             f'<div style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap">'
@@ -5741,8 +5741,8 @@ def _archive_bundle(sid, name, cls):
             "tnThreat": meta.get("tnThreat"),
             "lat": meta.get("lat"), "lon": meta.get("lon"),
             "class": meta.get("classification"),
-            "cone": cone_disp,
-            "summary": ("static/archive/" + sid + f"/{st}_summary.png"
+            "cone": cone_disp.replace("static/", "", 1),
+            "summary": ("archive/" + sid + f"/{st}_summary.png"
                         if "summary.png" in parts else None),
         })
     if not advisories:

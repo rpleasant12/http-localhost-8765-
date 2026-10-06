@@ -187,7 +187,8 @@ def package():
         shutil.copy2(og_src, os.path.join(staging, "og.png"))
 
     # per-storm share landing pages (one-click Facebook sharer targets);
-    # the storm PNGs themselves arrive via data.json references
+    # PNG siblings ship via the explicit copy further down (the storm
+    # history center links them and data.json no longer carries refs)
     share_dir = os.path.join("static", "share")
     if os.path.isdir(share_dir):
         os.makedirs(os.path.join(staging, "share"), exist_ok=True)
@@ -195,10 +196,31 @@ def package():
             if fn.endswith(".html"):
                 shutil.copy2(os.path.join(share_dir, fn),
                              os.path.join(staging, "share", fn))
+            elif fn.endswith(".png"):
+                dst = os.path.join(staging, "share", fn)
+                src = os.path.join(share_dir, fn)
+                try:
+                    if os.path.exists(dst):
+                        os.remove(dst)
+                    try:
+                        os.link(src, dst)   # hardlink: 0 extra bytes
+                    except OSError:
+                        shutil.copy2(src, dst)
+                except OSError:
+                    continue
 
     # per-advisory share landing pages inside the storm archive tree
     # (static/archive/<sid>/<stamp>.html) - not referenced by data.json,
     # so they need an explicit bulk copy like the share/ dir above
+    # 2026-10-06: the cone/summary PNGs now ship too. They USED to arrive
+    # via data.json refs, but the 2026-09-29 payload-dedup popped
+    # stormArchive/seasonSummary out of the public data.json, so every
+    # storm-history image 404'd on the live site while every local build
+    # looked fine. Copy the whole tree: the advisory HTML siblings are
+    # deduped by storm_detail.advisory_share_pages, the PNGs change only
+    # when a new advisory lands, and hardlinks keep docs/ byte-identical
+    # to static/ (the wire pruner never touches either dir - they are not
+    # in WIRE_KEEP_SECONDS). ~42 MB today, hard-linked (0 extra disk).
     arch_dir = os.path.join("static", "archive")
     if os.path.isdir(arch_dir):
         for root, _dirs, files in os.walk(arch_dir):
@@ -209,6 +231,20 @@ def package():
                     os.makedirs(dst_dir, exist_ok=True)
                     shutil.copy2(os.path.join(root, fn),
                                  os.path.join(dst_dir, fn))
+                else:
+                    dst_dir = os.path.join(staging, rel)
+                    os.makedirs(dst_dir, exist_ok=True)
+                    dst = os.path.join(dst_dir, fn)
+                    src = os.path.join(root, fn)
+                    try:
+                        if os.path.exists(dst):
+                            os.remove(dst)
+                        try:
+                            os.link(src, dst)   # hardlink: 0 extra bytes
+                        except OSError:
+                            shutil.copy2(src, dst)
+                    except OSError:
+                        continue
 
     # copy every referenced graphic into docs/<dir>/
     n = 0
