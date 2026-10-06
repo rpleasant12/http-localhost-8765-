@@ -188,7 +188,11 @@ def _list_aids():
     """All aid files in aid_public: [(basin, stormnum, year, filename), ...]."""
     r = _get(DIR_URL)
     out = []
-    for m in re.finditer(r'href="(a(?:l|ep|cp)\d{6}\.dat\.gz)"', r.text):
+    # ATCF a-deck files are named 'a' + basin code + num + year: Atlantic is
+    # 'aal092026.dat.gz' (DOUBLE a), East Pacific 'aep182026.dat.gz'. The old
+    # pattern (?:l|ep|cp) could never match the doubled-a Atlantic names, so
+    # every Gulf/Atlantic storm showed zero model guidance all season.
+    for m in re.finditer(r'href="(a(?:al|ep|cp)\d{6}\.dat\.gz)"', r.text):
         fn = m.group(1)
         basin = fn[1:3]
         num = fn[3:5]
