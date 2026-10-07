@@ -13,6 +13,7 @@ Run by site_updater after each successful repackage; best-effort always.
 """
 import argparse
 import base64
+import datetime as dt
 import gzip
 import hashlib
 import json
@@ -247,6 +248,61 @@ def _gh_token():
     return ""
 
 
+# A real deploy finishes in ~15 min (~700 MB artifact + Pages build). A run
+# older than this that still holds the pages concurrency group is a zombie.
+REAP_MINUTES = 45
+
+
+def _run_age_min(iso):
+    """GitHub created_at ('2026-10-07T11:26:31Z') -> minutes old. Unparseable
+    timestamps return 0.0 = 'not stuck' so a format change can never cause
+    false reaps."""
+    try:
+        t = dt.datetime.strptime(iso.replace("Z", "+0000"), "%Y-%m-%dT%H:%M:%S%z")
+        return (time.time() - t.timestamp()) / 60
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
+def _reap_stuck_deploys(headers):
+    """Cancel deploy runs stuck holding the pages concurrency group.
+
+    Freeze class seen 3x (2026-10-05/06/07): a run's mirror job succeeds but
+    its deploy job sits 'waiting' on the github-pages environment gate
+    forever. The group is held, so every newer dispatch queues behind it and
+    is superseded - gh-pages keeps updating while the public site starves
+    (public data froze 4 h+ each morning). Any non-completed run older than
+    REAP_MINUTES is cancelled; the dispatch that follows redeploys cleanly.
+    Never raises - the dispatch path must keep working.
+    """
+    try:
+        req = urllib.request.Request(
+            f"{REPO_API}/actions/runs?per_page=30", headers=headers)
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            runs = (json.loads(resp.read().decode("utf-8", "replace"))
+                    or {}).get("workflow_runs", [])
+        for w in runs:
+            if w.get("status") == "completed":
+                continue
+            age = _run_age_min(w.get("created_at", ""))
+            if age < REAP_MINUTES:
+                continue
+            rid = w.get("id")
+            creq = urllib.request.Request(
+                f"{REPO_API}/actions/runs/{rid}/cancel", data=b"",
+                headers=headers, method="POST")
+            try:
+                with urllib.request.urlopen(creq, timeout=30) as resp:
+                    print(f"publish: REAPED stuck deploy run {rid} "
+                          f"(#{w.get('run_number')}, {w.get('status')}, "
+                          f"{int(age)} min old, HTTP {resp.status})",
+                          flush=True)
+            except Exception as exc:  # noqa: BLE001 - try the next one
+                print(f"publish: reap of run {rid} failed: {exc}", flush=True)
+    except Exception as exc:  # noqa: BLE001 - best effort only
+        print(f"publish: stuck-deploy sweep skipped: {exc}", flush=True)
+
+
 def dispatch_mirror():
     """Nudge the Pages-mirror workflow to run NOW (best-effort).
 
@@ -260,6 +316,10 @@ def dispatch_mirror():
     'will follow on schedule' while Pages starved until pushes cancelled
     each other's deployments. Now failures are logged with the reason, and
     a 'disabled workflow' 422 is healed by re-enabling + retrying once.
+
+    Self-healing (2026-10-07): every dispatch first reaps deploy runs stuck
+    >45 min on the pages environment gate (see _reap_stuck_deploys) - the
+    same freeze had to be cleared by hand three mornings in a row.
     """
     token = _gh_token()
     if not token:
@@ -269,6 +329,7 @@ def dispatch_mirror():
                "Accept": "application/vnd.github+json",
                "User-Agent": "tnwn-updater",
                "Content-Type": "application/json"}
+    _reap_stuck_deploys(headers)
     for attempt in (1, 2):
         req = urllib.request.Request(
             f"{REPO_API}/actions/workflows/deploy-site.yml/dispatches",
