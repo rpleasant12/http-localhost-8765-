@@ -843,20 +843,45 @@ def start_live_renderers():
         from data.satellite_bands import (
             get_band_frames,
             BANDS,
+            FRAME_DIR,
             _render_band_frame,
+            _load_registry,
             _merge_descriptors,
             _prune_registry,
             _save_registry,
         )
 
         rendered = 0
+        cached = 0
 
         for key in BANDS:
             try:
                 frames = get_band_frames(key)
 
                 if frames:
+                    reg = _load_registry()
+
                     for frame in frames[-3:]:
+                        fid = frame["id"]
+                        entry = reg.get(fid) or {}
+                        png = os.path.join(FRAME_DIR, fid + ".png")
+
+                        # Restart warm cache (2026-10-07): a frame already
+                        # rendered by a previous process - registry says
+                        # "done" AND the PNG is still on disk - is NOT
+                        # re-downloaded/re-decoded. Without this check every
+                        # restart re-fetched the newest 3 scans x 17 bands
+                        # (51 GOES NetCDFs, ~2-4 GB) before the first site
+                        # build, stretching the first cycle to 30+ min and
+                        # feeding the restart doom loop. Genuinely new scans
+                        # still render; the disk check follows the same
+                        # disk-is-truth rule as the HRRR renderer, so a PNG
+                        # the budget sweeper removed is re-rendered too.
+                        if (entry.get("status") == "done"
+                                and os.path.isfile(png)):
+                            cached += 1
+                            continue
+
                         try:
                             _render_band_frame(key, frame)
                             rendered += 1
@@ -872,7 +897,8 @@ def start_live_renderers():
                     f"{key}: {str(exc)[:160]}"
                 )
 
-        log(f"GOES satellite renderer initialized: {rendered} frames processed.")
+        log(f"GOES satellite renderer initialized: {rendered} rendered, "
+            f"{cached} already on disk (cache hits).")
 
     except Exception as exc:
         log(f"Satellite renderer startup error: {exc}")

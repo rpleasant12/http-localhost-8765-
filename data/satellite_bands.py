@@ -1263,6 +1263,11 @@ def _ensure_threads(
                         frames
                     )
 
+                    # Truth is the DISK, not the registry: the budget
+                    # sweeper can delete PNGs the registry still calls
+                    # "done" (same 2026-09-18 lesson as the HRRR renderer).
+                    # Re-render anything whose PNG is missing so a sweep or
+                    # a restart never leaves the band page with dead links.
                     pending = [
                         fr
                         for fr in frames
@@ -1272,6 +1277,12 @@ def _ensure_threads(
                         ).get(
                             "status"
                         ) != "done"
+                        or not os.path.isfile(
+                            os.path.join(
+                                FRAME_DIR,
+                                fr["id"] + ".png",
+                            )
+                        )
                     ]
 
                     for fr in pending:
