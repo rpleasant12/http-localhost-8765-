@@ -32,6 +32,14 @@ except Exception as _wexc:                               # noqa: BLE001
 # longer, so the budget is generous - but it is FINITE, and breaching it
 # now produces a thread-stack dump in the log instead of a silent hang.
 CYCLE_BUDGET_S = 45 * 60
+# 2026-10-07 doom-loop: the FIRST cycle after any restart re-renders every
+# cached product (frame caches start empty), and with slow NOAA feeds it
+# runs 45+ min - the 45-min budget killed it before its first collect,
+# respawning another doomed cold cycle. All morning the site served
+# 30-55-min-old data (watchdog exits 07:22 + 08:09, kill ~13:13, cycle at
+# 13:18 due to die ~14:04). The first cycle after a restart gets double
+# budget; warm cycles (2-5 min generates) keep the tight 45.
+FIRST_CYCLE_BUDGET_S = 2 * CYCLE_BUDGET_S
 PREMIUM_REFRESH_INTERVAL = 1800   # premium library: local refresh + R2 delta
 
 # CREATE_NO_WINDOW: console tools spawned by a console-less parent allocate a
@@ -970,14 +978,22 @@ def main():
     last_sms = 0.0
     last_fbpost = 0.0
     last_premium = 0.0
+    _hangdog_done = False   # False until the first cycle arms (and consumes) the extended budget
 
     while True:
         started = time.time()
 
         # Hang budget for this cycle: breach = full thread-stack dump in
         # the log, then os._exit(3) -> external watchdog restarts clean.
+        # First cycle after a process start gets the double budget (see
+        # FIRST_CYCLE_BUDGET_S) - killing it mid-render just feeds the
+        # restart loop; warm cycles are back under the tight budget.
         if _hangdog is not None:
-            _hangdog.budget(CYCLE_BUDGET_S)
+            _budget_s = FIRST_CYCLE_BUDGET_S if not _hangdog_done else CYCLE_BUDGET_S
+            if _hangdog.budget(_budget_s) and _budget_s != CYCLE_BUDGET_S:
+                log(f"first cycle after start: extended hang budget "
+                    f"{_budget_s // 60} min - cold rebuild in progress")
+            _hangdog_done = True
         _beat()   # cycle boundary - external watchdog sees the loop turn over
 
         try:
