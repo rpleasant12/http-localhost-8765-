@@ -94,10 +94,11 @@ def _mph(kmh):
     return None if kmh is None else kmh * 0.621371
 
 
-# Skew-T rotation: render a few new (site, hour) combos per collect cycle so
-# the 8-site matrix fills in over time; combos are disk-cached by the sounding
-# module, so this only ever pays the expensive RAP decode once per combo.
-_SND_BUDGET = 3
+# Skew-T rotation: prune/rotate the (site, hour) matrix each collect cycle.
+# Combos are disk-cached by the sounding module, so this only ever pays the
+# expensive RAP decode once per combo. Rendering itself moved to the
+# background sounding renderer (_snd_start_background) so the build never
+# blocks on NOAA's feed.
 _SND_ORDER_FILE = os.path.join("static", "sounding", "render_order.json")
 
 
@@ -548,6 +549,72 @@ def _monitor_status():
         return None
 
 
+# ---------------- Skew-T sounding background renderer ----------------
+# RAP soundings (8 sites x 4 forecast hours, MetPy Skew-T) used to render
+# inline inside collect_data: with a healthy NOAA feed each takes ~5 s, but
+# when the feed degrades (2026-10-08: drip-hangs + slow range fetches) each
+# cold combo costs 1-2 min, so up to 24 uncached combos stalled the whole
+# site build for 30-45 min - data.json went stale and every map on the site
+# froze while the heartbeat kept republishing old assets. Now the build only
+# ships disk-cached PNGs and this daemon renders missing combos on its own
+# clock (same pattern as the radar/satellite renderers).
+_SND_BG_LOCK = threading.Lock()
+_SND_BG_STARTED = False
+
+
+def _snd_sites():
+    return [
+        (config.DEFAULT_LOCATION_NAME, config.LATITUDE, config.LONGITUDE),
+        ("Knoxville TN", 35.9606, -83.9207),
+        ("Tri-Cities TN", 36.3134, -82.3573),
+        ("Chattanooga TN", 35.0456, -85.3097),
+        ("Nashville TN", 36.1628, -86.7816),
+        ("Crossville TN", 35.9479, -85.0269),
+        ("Oak Ridge TN", 35.9903, -84.2853),
+        ("Atlanta GA", 33.6407, -84.4277),
+    ]
+
+
+def _snd_fresh(la, lo, fh):
+    """True if the current-cycle sounding PNG for (site, hour) is on disk."""
+    try:
+        from data.sounding import _cycle, _sounding_cache_path
+        p = _sounding_cache_path(*_cycle(fh), la, lo)
+        return os.path.exists(p) and os.path.getsize(p) > 10_000
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _snd_start_background():
+    """Start (once per process) the daemon that fills missing soundings."""
+    global _SND_BG_STARTED
+    with _SND_BG_LOCK:
+        if _SND_BG_STARTED:
+            return
+        _SND_BG_STARTED = True
+
+    def _worker():
+        while True:
+            try:
+                from data.sounding import build_sounding
+                for name, la, lo in _snd_sites():
+                    for fh in (0, 6, 12, 18):
+                        if _snd_fresh(la, lo, fh):
+                            continue
+                        try:
+                            build_sounding(la, lo, fh=fh, place=name)
+                        except Exception:  # noqa: BLE001
+                            pass
+                        # pace it: a few combos per minute, never a hammer
+                        time.sleep(20)
+            except Exception:  # noqa: BLE001
+                pass
+            time.sleep(60)
+
+    threading.Thread(target=_worker, daemon=True,
+                     name="sounding-renderer").start()
+
+
 def collect_data():
     """Everything the site needs, from disk caches + a few fast NWS calls."""
     from data.nws import get_active_alerts, get_current_conditions, get_forecast, get_hourly
@@ -796,43 +863,34 @@ def collect_data():
         pass
 
     # ---------------- Skew-T soundings (RAP 13 km + MetPy, multi-location) ----------------
-    # 8 sites x 4 hours, pre-baked to PNG. A rotating pointer renders a few new
-    # (site, hour) combos per cycle so the whole matrix fills in over time;
-    # every combo is cached on disk by data.sounding, so this stays cheap.
-    _SND_SITES = [
-        (config.DEFAULT_LOCATION_NAME, lat, lon),
-        ("Knoxville TN", 35.9606, -83.9207),
-        ("Tri-Cities TN", 36.3134, -82.3573),
-        ("Chattanooga TN", 35.0456, -85.3097),
-        ("Nashville TN", 36.1628, -86.7816),
-        ("Crossville TN", 35.9479, -85.0269),
-        ("Oak Ridge TN", 35.9903, -84.2853),
-        ("Atlanta GA", 33.6407, -84.4277),
-    ]
+    # 8 sites x 4 hours, pre-baked to PNG by the background sounding renderer
+    # (_snd_start_background). The build itself only reads disk-cached PNGs -
+    # it must never block on NOAA's feed (2026-10-08 freeze).
+    _SND_SITES = _snd_sites()
     _SND_FHS = (0, 6, 12, 18)
     sounding = {"hours": {}, "locations": {name: {"lat": la, "lon": lo}
                                            for name, la, lo in _SND_SITES}}
     try:
         from data.sounding import build_sounding, _cycle, _sounding_cache_path
+        _snd_start_background()
         for name, la, lo in _SND_SITES:
-            done = 0
             for fh in _SND_FHS:
                 try:
                     cached = _sounding_cache_path(*_cycle(fh), la, lo)
                     fresh = os.path.exists(cached) and os.path.getsize(cached) > 10_000
                 except Exception:  # noqa: BLE001
                     fresh = False
-                if fresh or done < _SND_BUDGET:
-                    try:
-                        s = build_sounding(la, lo, fh=fh, place=name)
-                        if s.get("png"):
-                            done += 0 if fresh else 1
-                            p = s["png"].replace("\\", "/")
-                            url = "../" + p.split("static/", 1)[1]
-                            sounding["hours"].setdefault(name, {})[str(fh)] = {
-                                "url": url, "meta": s.get("meta", {})}
-                    except Exception:  # noqa: BLE001
-                        continue
+                if not fresh:
+                    continue  # background renderer will fill it
+                try:
+                    s = build_sounding(la, lo, fh=fh, place=name)  # cache hit
+                    if s.get("png"):
+                        p = s["png"].replace("\\", "/")
+                        url = "../" + p.split("static/", 1)[1]
+                        sounding["hours"].setdefault(name, {})[str(fh)] = {
+                            "url": url, "meta": s.get("meta", {})}
+                except Exception:  # noqa: BLE001
+                    continue
         _snd_rotate()
     except Exception:  # noqa: BLE001
         pass
