@@ -779,6 +779,23 @@ def publish(check_only=False):
                 # specified' killed every publish for an hour). Skip the
                 # vanished file - the next cycle's commit carries it.
                 try:
+                    # Never ship a torn data.json (2026-10-07): the updater's
+                    # docs mirror rewrote data.json non-atomically, a copy
+                    # landing in the truncate window shipped a 0-byte file,
+                    # and the public site froze (pages fetch data.json every
+                    # 3 min; empty = no update) until the next publish.
+                    # Validate BEFORE removing the worktree's previous copy:
+                    # a torn source leaves the last good data.json in place
+                    # (stale but parseable) instead of a 404, and the next
+                    # cycle ships a fresh one.
+                    if f == "data.json":
+                        try:
+                            with open(src, encoding="utf-8") as _dj:
+                                json.load(_dj)
+                        except (OSError, ValueError) as _djx:
+                            print(f"publish: REFUSED torn data.json ({_djx}) "
+                                  f"- keeping last good copy in the worktree")
+                            continue
                     if os.path.isfile(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)   # COPY: docs/ stays intact for serving

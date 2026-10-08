@@ -1111,14 +1111,26 @@ def main():
                     if _f.endswith(".html"):
                         _copy = set()
                         _text = open(_src, encoding="utf-8").read()
-                        with open(_dst, "w", encoding="utf-8") as _out:
+                        # Atomic write (2026-10-07): open(...,'w') truncates
+                        # BEFORE streaming, so publish_site's concurrent
+                        # docs->worktree copy could catch a 0-byte data.json
+                        # / half-written page and SHIP it - a 0-byte public
+                        # data.json froze every page's data refresh until
+                        # the next publish (user-visible "maps not
+                        # updating"). tmp + os.replace makes the file
+                        # complete at every instant.
+                        _tmp = _dst + ".tmp"
+                        with open(_tmp, "w", encoding="utf-8") as _out:
                             _out.write(_gd_rewrite(_text, _copy))
+                        os.replace(_tmp, _dst)
                     else:
                         _copy = set()
                         with open(_src, encoding="utf-8") as _in:
                             _payload = json.load(_in)
-                        with open(_dst, "w", encoding="utf-8") as _out:
+                        _tmp = _dst + ".tmp"
+                        with open(_tmp, "w", encoding="utf-8") as _out:
                             json.dump(_gd_walk(_payload, _copy), _out)
+                        os.replace(_tmp, _dst)
                     # rewrite() only RECORDS asset refs - copy the referenced
                     # graphics the packager would have hardlinked
                     for _rel in _copy:
