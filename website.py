@@ -14828,6 +14828,36 @@ _WINTER_PRODUCTS = (("GFS", "snow"), ("GEFS", "snow"),
 _WINTER_CAP = 12         # lane slots per pass out of the 48-slot budget
 _WINTER_LN_LAST = [0.0]  # lane runs at most once per _ROT_GATE window
 
+# Cycle catch-up lane: after each NOAA cycle rollover the staleness rotation
+# (deliberately cycle-agnostic - it refreshes tiles when they AGE) needs most
+# of a day to walk every product family onto the new run, so flagship tiles
+# sat 12-24 h behind the model's AVAILABLE cycle (2026-10-08 audit: SREF
+# snow/cicep 24 h, EPS-Weekly everything 24 h, NAM pwat/sfc_gust 24 h, GFS
+# refc/pwat and NBM temp 18 h behind while the data sat ready on NOAA's
+# servers). This lane queues the MOST-BEHIND families for the model's CURRENT
+# cycle, worst lag first, round-robin across models so no single model hogs
+# it; only families that have rendered BEFORE qualify - a never-rendered
+# family is the staleness queue's job (missing tile, not a lagging one).
+# Budget is squeezed by the severe/winter lanes and leaves a staleness floor
+# (_MIN_STALENESS_SLOTS) so the walls keep their multi-model breadth no
+# matter how far behind everything is (the 2026-09-23 starvation lesson).
+# Models whose upstream feed itself is stale (AIWP outage 2026-10-08: bucket
+# 44 h behind) show lag 0 versus their own live cycle and are never queued -
+# the lane chases lag-to-available-data, which it can actually fix.
+_CATCHUP_LAG_H = 6.0     # family qualifies when its newest tile is this far
+                         # behind the model's live cycle
+_CATCHUP_CAP = 10        # lane slots per pass out of the 48-slot budget
+_CATCHUP_LN_LAST = [0.0] # lane runs at most once per _ROT_GATE window
+_MIN_STALENESS_SLOTS = 8 # staleness rotation always keeps at least this many
+                         # slots per pass, whatever the lanes demand
+
+
+def _dt_from_stamp(stamp):
+    """Cycle stamp int like 2026100812 -> aware UTC datetime."""
+    import datetime as _dtm
+    return _dtm.datetime.strptime(str(stamp), "%Y%m%d%H").replace(
+        tzinfo=_dtm.timezone.utc)
+
 
 def _all_model_combos():
     """Every (model, fh, product, region) the models page can offer.
@@ -15079,6 +15109,74 @@ def _seed_model_maps():
                 winter_batch = []
             # ---- end winter lane -----------------------------------------
 
+            # ---- cycle catch-up lane ------------------------------------
+            # Most-behind product families for each model's CURRENT cycle,
+            # worst lag first. "Lag" = hours between the family's newest tile
+            # CYCLE STAMP (any cycle) and the model's live find_cycle()
+            # result. Only families that have rendered before qualify (lag is
+            # finite); a never-rendered family is missing, not lagging, and
+            # stays the staleness queue's job.
+            catchup_batch = []
+            try:
+                if _t.time() - _CATCHUP_LN_LAST[0] >= _ROT_GATE:
+                    from data.model_maps import PRODUCTS_BY_MODEL as _pbm2, MAP_MODELS as _mm
+                    # newest cycle stamp per (model_prod, region) family from
+                    # the filenames the pass-wide scan already walked
+                    _fam_cyc = {}
+                    for fn in _map_files:
+                        _m2 = _mre.match(fn)
+                        if not _m2:
+                            continue
+                        _key2 = (_m2.group(1), _m2.group(4))
+                        _cs = int(_m2.group(3))
+                        if _cs > _fam_cyc.get(_key2, 0):
+                            _fam_cyc[_key2] = _cs
+                    catchup_want = []
+                    for _m in sorted({k[0].split("_", 1)[0] for k in newest_by_key}):
+                        _cyc2 = _cyc(_m)
+                        if _cyc2 is None:
+                            continue
+                        for _prod in (_pbm2.get(_m) or []):
+                            best = 0.0
+                            for _rg in ("etn", "us"):
+                                _cs = _fam_cyc.get((f"{_m}_{_prod}", _rg), 0)
+                                if not _cs:
+                                    continue
+                                _dc = _dt_from_stamp(_cs)
+                                _h = (_cyc2 - _dc).total_seconds() / 3600.0
+                                if _h > best:
+                                    best = _h
+                            if best >= _CATCHUP_LAG_H:
+                                catchup_want.append((best, _m, _prod))
+                    catchup_want.sort(key=lambda c: (-c[0], c[1]))   # worst lag first
+                    # round-robin across models so one laggard cannot hog the cap
+                    _by_m = {}
+                    for _lag_h, _m, _prod in catchup_want:
+                        _by_m.setdefault(_m, []).append((_lag_h, _m, _prod))
+                    while len(catchup_batch) < _CATCHUP_CAP and any(_by_m.values()):
+                        for _m in sorted(_by_m):
+                            if _by_m.get(_m) and len(catchup_batch) < _CATCHUP_CAP:
+                                _lag_h, _, _prod = _by_m[_m].pop(0)
+                                # one representative hour per queued family:
+                                # the catalog's early frame for that product
+                                _info = _mm.get(_m) or {}
+                                _max_h = int(_info.get("max_hour") or 24)
+                                _step = int(_info.get("hour_step") or 3)
+                                _hours = _loop_hours(_max_h, _step)
+                                _pmh = _info.get("product_max_hour") or {}
+                                _cap = int(_pmh.get(_prod, _max_h))
+                                if _cap < _max_h:
+                                    _hours = [h for h in _hours if h <= _cap] or _hours[:1]
+                                for _rg in ("etn", "us"):
+                                    catchup_batch.append((_m, _hours[0], _prod, _rg))
+                    _CATCHUP_LN_LAST[0] = _t.time()
+                    if catchup_batch:
+                        _cs2 = set(catchup_batch)
+                        rot = [c for c in rot if c not in _cs2]
+            except Exception:                      # noqa: BLE001 - lane is optional
+                catchup_batch = []
+            # ---- end catch-up lane ---------------------------------------
+
             def _age(combo):
                 # STALENESS semantics: age of the combo's newest frame from
                 # ANY cycle. Keying on the current cycle (the old code) re-
@@ -15132,14 +15230,19 @@ def _seed_model_maps():
                         if _front.get(_m) and len(batch) < _ROT_BATCH:
                             batch.append(_front[_m].pop(0))
 
-            # the severe fast lane renders FIRST, inside the pass budget:
-            # whatever it takes leaves fewer staleness slots this pass
-            lane_n = len(severe_batch) + len(winter_batch)
-            batch = batch[:max(0, _ROT_BATCH - lane_n)]
+            # lanes render FIRST, inside the pass budget - but the staleness
+            # rotation always keeps at least _MIN_STALENESS_SLOTS of its own
+            # (2026-09-23 starvation lesson, now enforced instead of assumed):
+            # whatever the lanes take leaves fewer staleness slots this pass
+            lane_n = len(severe_batch) + len(winter_batch) + len(catchup_batch)
+            batch = batch[:max(_MIN_STALENESS_SLOTS,
+                               _ROT_BATCH - lane_n)]
             if winter_batch:
                 batch = winter_batch + batch
             if severe_batch:
                 batch = severe_batch + batch
+            if catchup_batch:
+                batch = catchup_batch + batch
 
             ok = fail = 0
             skipped = set()
@@ -15177,7 +15280,8 @@ def _seed_model_maps():
                   + (f" ({', '.join(sorted(failed_models))})" if failed_models else "")
                   + (f" | no live cycle: {', '.join(sorted(skipped))}" if skipped else "")
                   + (f" | severe-lane {len(severe_batch)}" if severe_batch else "")
-                  + (f" | winter-lane {len(winter_batch)}" if winter_batch else ""),
+                  + (f" | winter-lane {len(winter_batch)}" if winter_batch else "")
+                  + (f" | catchup-lane {len(catchup_batch)}" if catchup_batch else ""),
                   flush=True)
             # per-pass telemetry for the models-page feed-health badge
             _record_rotation_pass(_t.time() - _t0, ok, fail,
