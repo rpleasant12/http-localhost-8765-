@@ -14814,6 +14814,20 @@ _CAM_SEVERE_FHS = (1, 6)  # near-term frame + core severe window
 _CAM_SEVERE_CAP = 16     # lane slots per pass out of the 48-slot budget
 _SEVERE_LN_LAST = [0.0]  # lane runs at most once per _ROT_GATE window
 
+# Winter-snow fast lane: the winter-forecast page's model-snow explorer
+# (GFS snowfall, GEFS ensemble mean + spread, NBM 6-h accumulation) reads
+# the newest cycle's frames straight off disk. The staleness rotation is
+# deliberately cycle-agnostic, so when NOAA publishes late (GEFS 00Z
+# landing ~9 h after its slot, 2026-10-08) the new snow cycle sat behind
+# hundreds of older-but-fresh-enough tiles for hours. This lane fills the
+# CURRENT cycle's missing snow frames first, capped per pass like the
+# severe lane so the walls keep their multi-model coverage; it drains in
+# a pass or two after NOAA uploads and then yields its slots back.
+_WINTER_PRODUCTS = (("GFS", "snow"), ("GEFS", "snow"),
+                    ("GEFS-Spread", "sp_snow"), ("NBM", "nbm_snow06"))
+_WINTER_CAP = 12         # lane slots per pass out of the 48-slot budget
+_WINTER_LN_LAST = [0.0]  # lane runs at most once per _ROT_GATE window
+
 
 def _all_model_combos():
     """Every (model, fh, product, region) the models page can offer.
@@ -15027,6 +15041,44 @@ def _seed_model_maps():
                 severe_batch = []
             # ---- end fast lane ------------------------------------------
 
+            # ---- winter-snow fast lane -----------------------------------
+            # Missing frames of the winter page's snow products for the
+            # model's CURRENT cycle, earliest hours first (the winter
+            # stepper reads front-to-back). Frame hours are discovered from
+            # what the product has EVER rendered, so the lane adapts to
+            # each model's frame cadence without per-model fh tables.
+            winter_batch = []
+            try:
+                if _t.time() - _WINTER_LN_LAST[0] >= _ROT_GATE:
+                    for _wm, _wp in _WINTER_PRODUCTS:
+                        cyc = _cyc(_wm)
+                        if cyc is None:
+                            continue
+                        cycs = f"{cyc:%Y%m%d%H}"
+                        prefix = f"{_wm}_{_wp}_"
+                        ever, have = set(), set()
+                        for fn in _map_files:
+                            if not fn.startswith(prefix):
+                                continue
+                            _fh = fn[len(prefix) + 1:len(prefix) + 4]
+                            if not _fh.isdigit():
+                                continue
+                            ever.add(int(_fh))
+                            if f"_{cycs}_" in fn:
+                                have.add(int(_fh))
+                        for region in ("us", "etn"):
+                            for fh in sorted(ever - have):
+                                winter_batch.append((_wm, fh, _wp, region))
+                    winter_batch.sort()          # early hours first
+                    winter_batch = winter_batch[:_WINTER_CAP]
+                    _WINTER_LN_LAST[0] = _t.time()
+                    if winter_batch:
+                        _ws = set(winter_batch)
+                        rot = [c for c in rot if c not in _ws]
+            except Exception:                      # noqa: BLE001 - lane is optional
+                winter_batch = []
+            # ---- end winter lane -----------------------------------------
+
             def _age(combo):
                 # STALENESS semantics: age of the combo's newest frame from
                 # ANY cycle. Keying on the current cycle (the old code) re-
@@ -15082,7 +15134,10 @@ def _seed_model_maps():
 
             # the severe fast lane renders FIRST, inside the pass budget:
             # whatever it takes leaves fewer staleness slots this pass
-            batch = batch[:max(0, _ROT_BATCH - len(severe_batch))]
+            lane_n = len(severe_batch) + len(winter_batch)
+            batch = batch[:max(0, _ROT_BATCH - lane_n)]
+            if winter_batch:
+                batch = winter_batch + batch
             if severe_batch:
                 batch = severe_batch + batch
 
@@ -15121,7 +15176,8 @@ def _seed_model_maps():
             print(f"model-map rotation: {ok} rendered, {fail} failed"
                   + (f" ({', '.join(sorted(failed_models))})" if failed_models else "")
                   + (f" | no live cycle: {', '.join(sorted(skipped))}" if skipped else "")
-                  + (f" | severe-lane {len(severe_batch)}" if severe_batch else ""),
+                  + (f" | severe-lane {len(severe_batch)}" if severe_batch else "")
+                  + (f" | winter-lane {len(winter_batch)}" if winter_batch else ""),
                   flush=True)
             # per-pass telemetry for the models-page feed-health badge
             _record_rotation_pass(_t.time() - _t0, ok, fail,
