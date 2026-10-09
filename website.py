@@ -12322,12 +12322,12 @@ def page_winter(d):
                '<div class="alert ok">No winter alerts for Tennessee - exactly what a quiet day looks like.</div>')
 
     wpc_tiles = "".join(
-        f'<figure class="wpcfig"><img loading="lazy" src="../winter/wpc/{p["file"]}" alt="{html.escape(p["label"])}"/'
+        f'<figure class="wpcfig"><img loading="lazy" src="../winter/wpc/{p["file"]}" alt="{html.escape(p["label"])}"/>'
         f'<figcaption>{html.escape(p["label"])}</figcaption></figure>'
         for p in wpc)
 
     cpc_tiles = "".join(
-        f'<figure class="wpcfig"><img loading="lazy" src="../winter/cpc/{p["file"]}" alt="{html.escape(p["label"])}"/'
+        f'<figure class="wpcfig"><img loading="lazy" src="../winter/cpc/{p["file"]}" alt="{html.escape(p["label"])}"/>'
         f'<figcaption>{html.escape(p["label"])}</figcaption></figure>'
         for p in cpc)
 
@@ -12335,7 +12335,7 @@ def page_winter(d):
     # lives one level deep, so ../static/... mirrors the ../winter/... and
     # ../fire/... patterns the packager rewrites)
     lr_tiles = "".join(
-        f'<figure class="wpcfig"><img loading="lazy" src="{p["url"].replace("/app/static/", "../")}" alt="{html.escape(p["label"])}"/'
+        f'<figure class="wpcfig"><img loading="lazy" src="{p["url"].replace("/app/static/", "../")}" alt="{html.escape(p["label"])}"/>'
         f'<figcaption>{html.escape(p["label"])}</figcaption></figure>'
         for p in lr)
 
@@ -14756,10 +14756,23 @@ def generate_site():
             _is_storm = _pf.startswith("storm_") and _pf.endswith(".html")
             if not (_is_center or _is_storm):
                 continue
+            # The worker serves this stash from D1 with <base href="{SITE_URL}">
+            # injected, so RAW page refs like ../winter/x.gif pop OUT of the
+            # Pages subpath and 404 (2026-10-08: the member winter page's whole
+            # WPC/CPC image set was dark). Run the packager's asset rewrite
+            # over the premium copy too - it converts ../, /app/static/ and
+            # static/ refs to the plain subpath form <base> resolves. The
+            # referenced files already ship on the public site via data.json
+            # refs (verified), so only the URL FORM needs fixing here.
+            try:
+                from github_deploy import rewrite as _prem_rewrite
+                _prem_html = _prem_rewrite(pages[_pf], set())
+            except Exception:              # noqa: BLE001 - best-effort, keep raw
+                _prem_html = pages[_pf]
             _full = os.path.join("static", "premium_pages", _pf)
             _ftmp = _full + ".tmp"
             with open(_ftmp, "w", encoding="utf-8") as _f:
-                _f.write(pages[_pf])
+                _f.write(_prem_html)
             os.replace(_ftmp, _full)
             _ptitle = _PREM_GATED_PAGES.get(_pf) or extra_titles.get(_pf) \
                 or "Storm archive"
