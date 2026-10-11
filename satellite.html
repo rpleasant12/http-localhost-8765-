@@ -1,0 +1,1368 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Satellite - Tennessee Weather Network</title>
+<meta property="og:title" content="Satellite - Tennessee Weather Network"/>
+<meta property="og:type" content="website"/>
+<meta property="og:description" content="Live radar, future cast, satellite, forecast models and East Tennessee forecasts - free, no keys, always updating."/>
+<meta property="og:url" content="https://rpleasant12.github.io/http-localhost-8765-/"/>
+<meta property="og:image" content="https://rpleasant12.github.io/http-localhost-8765-/og.png"/>
+<meta property="og:site_name" content="Tennessee Weather Network"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="https://rpleasant12.github.io/http-localhost-8765-/og.png"/>
+<meta name="description" content="Live East Tennessee weather: radar, future cast, satellite, all forecast models, severe weather, and city forecasts. Updated continuously."/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="manifest" href="manifest.webmanifest"/>
+<meta name="theme-color" content="#0e1117"/>
+<link rel="apple-touch-icon" href="icon-192.png"/>
+
+<!-- member.js in the HEAD: every page's inline member scripts (auth card,
+     strip, teasers) run before the footer, so loading it here is the only
+     way window.TWN exists when they run (was loaded in the footer and all
+     consumers silently bailed on if(!window.TWN) - member UI dead in every
+     real browser, found by the 2026-10-02 browser auth-lifecycle test) -->
+<script>window.TWN_WORKER="https://tnwn-members.nbasportstalk53.workers.dev";</script>
+<script src="member.js"></script>
+
+<style>
+  :root { color-scheme: dark; --bg:#0e1117; --card:#161b26; --line:rgba(255,255,255,.08); --dim:#9aa4b2; --acc:#4da3ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:var(--bg); color:#e8edf4; }
+  a { color:var(--acc); text-decoration:none; }
+  .wrap { max-width:1100px; margin:0 auto; padding:14px; }
+  nav { position:sticky; top:0; z-index:50; background:rgba(14,17,23,.95); backdrop-filter:blur(6px);
+        border-bottom:1px solid var(--line); }
+  nav .wrap { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; padding:10px 14px; }
+  nav .brand { font-weight:800; font-size:18px; margin-right:auto; }
+  nav .brand span { color:var(--acc); }
+  nav a.pg { color:#cdd7e4; font-size:14px; padding:4px 8px; border-radius:6px; }
+  nav a.pg:hover, nav a.pg.on { background:#1d2432; color:#fff; }
+  header.hero { text-align:center; padding:20px 8px 8px; }
+  header.hero h1 { margin:0; font-size:clamp(22px,5vw,36px); }
+  header.hero .sub { color:var(--dim); margin-top:6px; font-size:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin:14px 0; }
+  h2 { font-size:17px; margin:0 0 10px; color:#cdd7e4; }
+  .grid { display:grid; gap:10px; }
+  .cards7 { grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); }
+  .day { background:#10151f; border:1px solid var(--line); border-radius:12px; padding:12px; text-align:center; }
+  .day .hi { font-size:24px; font-weight:800; }
+  .day .tx { color:var(--dim); font-size:12.5px; min-height:30px; }
+  .now { display:flex; flex-wrap:wrap; gap:16px; align-items:center; }
+  .now .big { font-size:clamp(42px,10vw,64px); font-weight:800; }
+  .now .meta { color:var(--dim); font-size:14px; line-height:1.7; }
+  .chip { display:inline-block; padding:8px 18px; border-radius:12px; font-weight:900; color:#102015; }
+  .alerts { display:grid; gap:8px; }
+  .alert { background:#10151f; border-radius:10px; padding:10px 12px; border-left:6px solid #888; }
+  .alert b { color:#fff; } .alert span { color:var(--dim); font-size:13px; display:block; }
+  .alert.ok { border-left-color:#2e7d32; color:#a5d6a7; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; }
+  .kpi { background:#10151f; border:1px solid var(--line); border-radius:12px; padding:10px; text-align:center; }
+  .kpi b { display:block; font-size:22px; } .kpi span { color:var(--dim); font-size:12px; }
+  .ltg-row { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; margin-top:10px; }
+  .wpcfig { flex:1 1 300px; max-width:49%; min-width:260px; margin:0; }
+  .wpcfig img { width:100%; height:auto; display:block; border-radius:10px; }
+  .wpcfig figcaption { font-size:12px; opacity:.75; margin-top:4px; }
+  .wbtn { background:#1d2432; color:#cdd7e4; border:1px solid var(--line); border-radius:8px;
+          padding:6px 11px; font-size:12.5px; cursor:pointer; }
+  .wbtn.on { background:#2a3a55; color:#fff; font-weight:700; }
+  .npTab { background:#1d2432; color:#cdd7e4; border:1px solid var(--line); border-radius:8px;
+           padding:6px 11px; font-size:12.5px; cursor:pointer; }
+  .npTab.on { background:#2a3a55; color:#fff; font-weight:700; }
+  .ltg-cell { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px 10px; min-width:130px; flex:0 0 auto; }
+  .ltg-cell b { display:block; font-size:15px; }
+  .ltg-cell .h { color:var(--dim); font-size:11px; }
+  .ltg-bars { display:flex; align-items:flex-end; gap:2px; height:34px; margin-top:6px; }
+  .ltg-bars i { flex:1 1 0; min-width:4px; background:#ffeb3b; border-radius:2px 2px 0 0; opacity:.9; }
+  .ltg-badge { font-size:11px; font-weight:800; padding:2px 8px; border-radius:8px; color:#102015; }
+  #map { height:clamp(340px,56vh,580px); border-radius:12px; z-index:0; }
+  .ctl { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:10px; }
+  .ctl button { background:#2b80ff; color:#fff; border:none; border-radius:8px; padding:9px 20px; font-size:16px; cursor:pointer; }
+  .ctl button:active { transform:scale(.97); }
+  .ctl select { background:#1b1f27; color:#eee; border:1px solid rgba(255,255,255,.2); border-radius:6px; padding:8px; font-size:14px; max-width:100%; }
+  .stack { position:relative; width:100%; aspect-ratio:4/3; background:#0a0d13; border-radius:10px; overflow:hidden; }
+  .stack .layer { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+  .frame { font-family:ui-monospace,monospace; color:#ffd54f; }
+  .ctl input[type=range] { flex:1; min-width:110px; accent-color:#2b80ff; height:26px; }
+  .frame { min-width:84px; text-align:center; font-weight:700; color:#ffd54f; font-size:16px; }
+  .src { color:var(--dim); font-size:12px; margin-top:8px; }
+  .legend { display:flex; flex-wrap:wrap; gap:8px 14px; font-size:12.5px; color:var(--dim); margin-top:8px; }
+  .legend i { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+  table.cells { width:100%; border-collapse:collapse; font-size:14px; }
+  table.cells th { text-align:left; color:var(--dim); font-weight:600; font-size:12px; padding:6px; }
+  table.cells th.srt { cursor:pointer; user-select:none; white-space:nowrap; }
+  table.cells th.srt:hover { color:var(--ink); }
+  table.cells th.srt .dir { font-size:10px; margin-left:2px; color:var(--accent); }
+  .trend { font-size:11px; font-weight:700; margin-left:3px; }
+  .trend.up { color:#66bb6a; } .trend.dn { color:#ef5350; } .trend.fl { color:var(--dim); font-weight:400; }
+  table.cells td { border-top:1px solid var(--line); padding:7px 6px; }
+  .dbz { font-weight:800; } .sev { color:#ff5252; } .mod { color:#ffb74d; } .lit { color:#aed581; }
+  .gal { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }
+  .gal img { width:100%; border-radius:10px; border:1px solid var(--line); }
+  .gal .cap { color:var(--dim); font-size:12.5px; margin-top:4px; }
+  .stepper { display:flex; align-items:center; gap:8px; margin-top:8px; }
+  .stepper button { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:14px; }
+  .cmp4 { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+  .cmp4 .pane { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px; }
+  .cmp4 .pane h3 { margin:0 0 6px; font-size:13.5px; color:#cdd7e4; display:flex; align-items:center; gap:8px; }
+  .cmp4 .pane h3 .cap { color:var(--dim); font-weight:400; }
+  .cmp4 .pane select { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:3px 6px; font-size:13px; }
+  .cmp4 img { width:100%; border-radius:8px; }
+  .cmp4 .miss { color:var(--dim); font-size:12.5px; padding:22px 6px; text-align:center; }
+  @media (max-width:820px){ .cmp4 { grid-template-columns:1fr; } }
+  .hourly { display:flex; gap:8px; overflow-x:auto; padding-bottom:6px; }
+  .hr { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px 10px; text-align:center; min-width:72px; }
+  .hr b { display:block; } .hr span { color:var(--dim); font-size:11.5px; }
+  .natimg { width:100%; max-width:860px; display:block; margin:0 auto; border-radius:10px; border:1px solid var(--line); background:#fff; }
+  .pre { white-space:pre-wrap; font-size:12.5px; color:#cdd7e4; background:#10151f; border:1px solid var(--line); border-radius:10px; padding:12px; max-height:260px; overflow:auto; }
+  footer { text-align:center; color:var(--dim); font-size:12.5px; padding:18px 8px 26px; line-height:1.8; }
+  .navctl { display:flex; align-items:center; gap:6px; }
+  .navctl button { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:4px 10px; cursor:pointer; font-size:14px; }
+  .autolbl { color:var(--dim); font-size:12px; display:flex; align-items:center; gap:4px; }
+  .map-dark .leaflet-tile-pane { filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(1.05); }
+  /* radar load-state badge (set by the player: ok / loading / empty) */
+  #map { position: relative; }
+  #map::after {
+    content: "";
+    position: absolute; top: 8px; left: 8px; z-index: 800;
+    background: rgba(10, 14, 20, .75); color: #9fe199; border: 1px solid rgba(255,255,255,.15);
+    border-radius: 6px; padding: 2px 9px; font-size: 11.5px; pointer-events: none;
+  }
+  #map[data-radar-state="loading"]::after { content: "radar loading…"; color: #ffd54f; }
+  #map[data-radar-state="empty"]::after { content: "radar unavailable - retrying"; color: #ff8a80; }
+  #map[data-radar-state="ok"]::after { content: "radar live"; color: #9fe199; }
+  /* hide Leaflet's default home marker (the player draws its own) */
+  .leaflet-marker-icon.home-marker { display: none; }
+  .leaflet-control-attribution { background:rgba(14,17,23,.8) !important; color:var(--dim) !important; }
+  .mapctlbtn { background:#1d2432; border:1px solid var(--line); border-radius:6px; color:#eee;
+    padding:5px 9px; font-size:15px; cursor:pointer; margin-bottom:6px; box-shadow:0 1px 4px rgba(0,0,0,.4); text-align:center; }
+  .mapcoord { background:rgba(14,17,23,.85); color:#cdd7e4; border:1px solid var(--line); border-radius:6px;
+    font-size:11.5px; padding:3px 8px; }
+  /* ---------- mobile nav drawer (2026-09-28) ----------
+     phones get a hamburger that opens a grouped, sectioned menu instead
+     of hunting through the flat strip; desktop shows neither */
+  #navBtn { display:none; }
+  #navDrawer { display:none; }
+  @media (max-width:640px){
+    #navBtn { display:block; }
+    #navDrawer { display:block; position:fixed; inset:0; z-index:9999;
+                 background:rgba(5,8,12,.6); backdrop-filter:blur(2px); }
+    #navDrawer[hidden] { display:none; }   /* beats the display above */
+    #navDrawer > .dHead, #navDrawer .dGroup {
+      background:var(--card); border-bottom:1px solid var(--line); }
+    #navDrawer .dHead { position:sticky; top:0; font-weight:800;
+      padding:14px 16px; display:flex; justify-content:space-between;
+      align-items:center; }
+    #navDrawer .dHead button { background:none; border:none;
+      color:var(--dim); font-size:26px; line-height:1; cursor:pointer;
+      padding:2px 8px; }
+    #navDrawer .dGroup { padding:6px 12px; }
+    #navDrawer .dGroup b { display:block; color:var(--dim);
+      font-size:11.5px; text-transform:uppercase; letter-spacing:.08em;
+      margin:10px 4px 4px; }
+    #navDrawer .dGroup a.pg { display:block; padding:11px 10px;
+      font-size:15px; color:#cdd7e4; border-radius:8px; }
+    #navDrawer .dGroup a.pg.on { background:#1d2432; color:#fff;
+      font-weight:700; }
+    #navBtn { background:#1d2432; color:#e8edf4; border:1px solid var(--line);
+      border-radius:8px; font-size:18px; padding:6px 12px; cursor:pointer;
+      order:-1; }
+  }
+  /* ---------- mobile friendliness (2026-09-28) ----------
+     26 nav links wrap into a tall block on phones; wide alert tables
+     (min-width 420-520px) overflow the screen; .wpcfig min-width forces
+     one image per row. Consolidated responsive fixes below. */
+  @media (max-width:900px){
+    /* tighter nav rows before the phone strip kicks in at 640 */
+    nav .wrap { gap:4px 10px; padding:8px 10px; }
+    nav a.pg { font-size:13px; padding:4px 7px; }
+  }
+  @media (max-width:640px){
+    .wrap{padding:10px;} .card{padding:12px;} nav .brand{font-size:16px;}
+    /* nav = one thumb-swipeable strip instead of a 26-link tall block */
+    nav .wrap { flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch;
+                padding:8px; scrollbar-width:none; }
+    nav .wrap::-webkit-scrollbar { display:none; }
+    nav .brand { white-space:nowrap; }
+    nav a.pg { padding:8px 10px; font-size:13.5px; white-space:nowrap;
+               flex:0 0 auto; }
+    nav .navctl { flex:0 0 auto; }
+    /* 2-up KPI cards read better than 4-up squished */
+    .kpis { grid-template-columns:repeat(2,1fr); }
+    .kpi b { font-size:18px; }
+    .gal { grid-template-columns:1fr; }
+    .wpcfig { max-width:100%; flex-basis:100%; }
+    .ltg-cell { flex:1 1 100%; min-width:0; }
+    /* wide tables scroll inside their card instead of breaking the page */
+    .card { overflow-x:auto; }
+    .minitable, table.cells { display:block; overflow-x:auto;
+                              -webkit-overflow-scrolling:touch; }
+    .minitable { min-width:420px; }
+    /* 16px+ controls avoid the iOS Safari focus zoom */
+    select, button { font-size:16px; }
+    .ctl select { font-size:16px; }
+    #baseSel { max-width:110px; }
+    .mapcoord { display:none; }   /* mouse-only lat/lon readout */
+    footer { font-size:12px; }
+  }
+  @media (max-width:400px){ .kpis { grid-template-columns:1fr; } }
+</style>
+</head><body>
+<nav><div class="wrap">
+  <a class="brand" href="weather.html">🌧️ <span>Tennessee Weather Network</span></a>
+  <a class="pg" href="weather.html">Weather</a><a class="pg" href="radar.html">Radar</a><a class="pg on" href="satellite.html">Satellite</a><a class="pg" href="forecast.html">Forecast</a><a class="pg" href="dashboard.html">Dashboard</a><a class="pg" href="national.html">National</a><a class="pg" href="models.html">Models</a><a class="pg" href="gefs.html">GEFS</a><a class="pg" href="hrrr.html">HRRR · RRFS</a><a class="pg" href="tropmodels.html">Trop Models</a><a class="pg" href="cfsv2.html">CFSv2 · Long Range</a><a class="pg" href="meso.html">Mesoanalysis</a><a class="pg" href="charts.html">Charts & MOS</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/severe.html">Severe ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/storms.html">Storms ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/tropical.html">NHC ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/winter.html">Winter Forecast ⭐</a><a class="pg" href="fronts.html">Fronts</a><a class="pg" href="fire.html">Fire</a><a class="pg" href="rivers.html">Rivers</a><a class="pg" href="history.html">History</a><a class="pg" href="climate.html">Climate</a><a class="pg" href="enso.html">El Niño</a><a class="pg" href="obs.html">Obs & Skew-T</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/education.html">Education ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/fieldguide.html">Field Guide ⭐</a><a class="pg" href="traffic.html">Traffic</a><a class="pg" href="pricing.html">⭐ Premium</a><a class="pg" href="member.html">Account</a><a class="pg" href="admin.html">Admin</a>
+  <div class="navctl">
+    <select id="baseSel" title="Basemap" style="max-width:110px"></select>
+    <button id="refreshBtn" title="Refresh this page now">⟳ Refresh</button>
+    <label class="autolbl"><input type="checkbox" id="autoChk" checked/> auto <span id="autoCnt">90</span>s</label>
+    <a id="fbShare" title="Share this page on Facebook" target="_blank" rel="noopener"
+       style="text-decoration:none;background:#1877f2;color:#fff;padding:4px 10px;border-radius:8px;font-size:12.5px;font-weight:600;display:inline-block">📘 Share</a>
+  </div>
+</div></nav>
+
+<button id="navBtn" aria-label="Menu" aria-expanded="false" aria-controls="navDrawer">☰</button>
+<div id="navDrawer" hidden>
+  <div class="dHead">Tennessee Weather Network<button id="navClose" aria-label="Close menu">×</button></div>
+  <div class="dGroup"><b>Live & Forecast</b><a class="pg" href="weather.html">Weather</a><a class="pg" href="radar.html">Radar</a><a class="pg on" href="satellite.html">Satellite</a><a class="pg" href="forecast.html">Forecast</a><a class="pg" href="dashboard.html">Dashboard</a><a class="pg" href="national.html">National</a></div><div class="dGroup"><b>Models</b><a class="pg" href="models.html">Models</a><a class="pg" href="gefs.html">GEFS</a><a class="pg" href="hrrr.html">HRRR · RRFS</a><a class="pg" href="tropmodels.html">Trop Models</a><a class="pg" href="cfsv2.html">CFSv2 · Long Range</a><a class="pg" href="meso.html">Mesoanalysis</a><a class="pg" href="charts.html">Charts & MOS</a></div><div class="dGroup"><b>Storms & Seasons</b><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/severe.html">Severe ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/storms.html">Storms ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/tropical.html">NHC ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/winter.html">Winter Forecast ⭐</a><a class="pg" href="fronts.html">Fronts</a><a class="pg" href="fire.html">Fire</a><a class="pg" href="rivers.html">Rivers</a><a class="pg" href="history.html">History</a></div><div class="dGroup"><b>Climate & Learn</b><a class="pg" href="climate.html">Climate</a><a class="pg" href="enso.html">El Niño</a><a class="pg" href="obs.html">Obs & Skew-T</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/education.html">Education ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/fieldguide.html">Field Guide ⭐</a><a class="pg" href="traffic.html">Traffic</a></div><div class="dGroup"><b>Support</b><a class="pg" href="pricing.html">⭐ Premium</a><a class="pg" href="member.html">Account</a><a class="pg" href="admin.html">Admin</a></div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const SITE_DATA_URL = "data.json";
+/* footer member strip: logged-in members see their status + premium link;
+   everyone else sees a quiet upgrade nudge. Dormant when TWN_WORKER empty.
+   member.js loads in <head> but #memStrip is in the footer BELOW this
+   script, so paint on DOMContentLoaded (pre-fix this IIFE ran here, before
+   both TWN and the strip div existed, and silently did nothing). */
+document.addEventListener("DOMContentLoaded", function () {
+  if (!window.TWN || !window.TWN.member || !window.TWN_WORKER) return;
+  const el = document.getElementById("memStrip");
+  if (!el) return;
+  TWN.member.refreshMe().then(function (me) {
+    if (me && me.premiumActive) {
+      /* ad-free perk: hide every free-tier slot for active subscribers */
+      document.querySelectorAll(".adSlot").forEach(a => a.style.display = "none");
+    }
+    if (me && me.member) {
+      el.innerHTML = "<span class='src' style='color:#8ab4f8'>★ " + TWN.member.esc(me.email)
+        + (me.premiumActive ? " · ⭐ Premium active" : " · free account")
+        + " · <a href='member.html'>account</a>"
+        + (me.admin ? " · <a href='admin.html'>admin</a>" : "") + "</span><br/>";
+    } else {
+      el.innerHTML = "<span class='src'>⭐ <a href='pricing.html'>Go premium: weather centers, AI model maps, ad-free - $4.99/mo</a></span><br/>";
+    }
+  }).catch(function () {});
+});
+/* GitHub Pages caches data.json up to 10 min (max-age=600); the timestamp
+   query makes the browser fetch a fresh copy from the Pages CDN instead of
+   reusing a stale cached one. Public data publishes ~every 10 min, so the
+   footer age normally reads 0-10 min - that is the honest cadence. */
+function dataUrl() {
+  try { return SITE_DATA_URL + "?t=" + Date.now(); } catch (_e) { return SITE_DATA_URL; }
+}
+/* live-update watchdog: re-fetch data.json every 3 min and show its age.
+   The footer age is computed from dataEpochMs (server epoch), NOT from the
+   human-readable 'generated' string (now "... 12:17 AM ET" - unparseable). */
+let SITE_DATA = null;
+function fmtAge(mins) {
+  if (mins < 1) return "just now";
+  if (mins < 60) return mins + " min ago";
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return h + " h " + (m ? m + " min " : "") + "ago";
+}
+function updTick() {
+  if (!SITE_DATA) return;
+  const el = document.getElementById("upd");
+  if (!el) return;
+  const ms = Date.now() - (SITE_DATA.dataEpochMs || 0);
+  if (!SITE_DATA.dataEpochMs || ms < 0) { el.textContent = "\u2705 Live data"; return; }
+  const mins = Math.floor(ms / 60000);
+  /* Public site: GitHub publishes ~every 10 min, so age up to ~12 min is the
+     normal cadence - warn only past that. Pages' own max-age=600 means the
+     fetch itself can lag a couple minutes behind the publish. */
+  const took = (function () {
+    const lu = SITE_DATA.lastUpdate;
+    if (!lu || !(lu.lastDurationS > 0)) return "";
+    const s = lu.lastDurationS, m = Math.floor(s / 60);
+    let t = " \u00b7 last update took " + (m ? m + " min " + (s % 60) + " s" : s + " s");
+    if (lu.cycles > 1 && lu.avgDurationS > 0) {
+      const am = Math.floor(lu.avgDurationS / 60);
+      t += " \u00b7 avg " + (am ? am + " min " + (lu.avgDurationS % 60) + " s" : lu.avgDurationS + " s");
+    }
+    return t;
+  })();
+  const maxAge = (location.hostname === "localhost" || location.hostname === "127.0.0.1") ? 2 : 12;
+  const grew = SITE_DATA._lastAge != null && mins > SITE_DATA._lastAge + 2 && mins > maxAge;
+  SITE_DATA._lastAge = mins;
+  if (mins <= maxAge) el.textContent = "\u2705 Live data \u00b7 refreshed " + fmtAge(mins) + took;
+  else if (mins <= 30) el.textContent = "\u23f3 Data " + fmtAge(mins) + " old \u00b7 next publish soon" + took;
+  else if (grew) el.textContent = "\u23f3 Data " + fmtAge(mins) + " old \u00b7 waking the weather center - catching up now";
+  else el.textContent = "\u26a0\ufe0f Data " + fmtAge(mins) + " old \u00b7 PC asleep or offline - updates pause until it wakes";
+}
+async function siteRefresh() {
+  try {
+    SITE_DATA = await (await fetch(dataUrl(), {cache: "no-store"})).json();
+    if (typeof onDataRefresh === "function") onDataRefresh(SITE_DATA);
+    updTick();
+    /* winter/product maps: the WPC/CPC GIFs render once at page load and
+       nothing re-requested them, so a long-open tab served its own cached
+       copy forever while fresh files sat on the CDN (found 2026-10-04: the
+       winter map looked frozen all afternoon). Radar pages refresh their
+       own maps through onDataRefresh; the winter center's imgs have no such
+       hook, so re-request them here with a cache-buster on every tick.
+       loading="lazy" keeps the cost down - off-screen imgs don't re-fetch. */
+    try {
+      document.querySelectorAll("img[src*='/winter/']").forEach(function (im) {
+        im.src = im.getAttribute("src").split("?")[0] + "?t=" + Date.now();
+      });
+    } catch (_e) {}
+    try { syncAutoPref(); } catch (_e) {}   /* version now known: apply/wipe stale auto pref */
+    /* auto-heal: if the served copy is still 30+ min old on two consecutive
+       polls (6 min apart), force a cache-busted reload once - recovers from
+       a stuck CDN copy or a missed publish without looping. */
+    if (SITE_DATA.dataEpochMs && Date.now() - SITE_DATA.dataEpochMs > 30 * 60000) {
+      siteRefresh._stale = (siteRefresh._stale || 0) + 1;
+      if (siteRefresh._stale >= 2 && !sessionStorage.getItem("tnwxHealed")) {
+        sessionStorage.setItem("tnwxHealed", "1");
+        const u = new URL(location.href); u.searchParams.set("t", Date.now());
+        location.replace(u); return;
+      }
+    } else siteRefresh._stale = 0;
+  } catch (e) { /* offline: keep last data */ }
+}
+siteRefresh();
+setInterval(updTick, 30000);
+setInterval(siteRefresh, 180000);
+/* paused-banner: the STOP shortcut writes PAUSED.json, so any page that
+   still loads while updates are paused tells the truth instead of showing
+   a stale timestamp that looks like normal lag. START removes the marker. */
+(async function () {
+  try {
+    const pr = await fetch("PAUSED.json?t=" + Date.now(), { cache: "no-store" });
+    if (!pr.ok) return;   /* 404 = running normally */
+    const p = await pr.json();
+    const pb = document.createElement("div");
+    pb.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:99999;"
+      + "background:#b3261e;color:#fff;text-align:center;font-weight:700;"
+      + "padding:8px 12px;font-size:14px;font-family:inherit;";
+    pb.textContent = "\u23f8 Weather updates are PAUSED - press the START shortcut "
+      + "to resume. Data on this page is frozen"
+      + (p && p.since ? " (paused " + String(p.since).replace(/^paused\s*/, "") + ")" : "") + ".";
+    document.body.appendChild(pb);
+    document.body.style.paddingTop = "38px";
+    if (autoCnt) autoCnt.textContent = "\u221e";   /* freeze the auto-reload countdown too */
+  } catch (_e) { /* marker unreadable: treat as running */ }
+})();
+/* page auto-refresh: soft (map pages define onDataRefresh) or hard reload.
+   Hard reloads MUST cache-bust: GitHub Pages sends max-age=600, so a plain
+   location.reload() can serve the same stale HTML for up to 10 minutes. */
+function hardReload() {
+  try {
+    const u = new URL(location.href);
+    u.searchParams.set("t", Date.now());
+    location.replace(u);
+  } catch (_e) { location.reload(); }
+}
+let AUTO_LEFT = 90;
+const autoCnt = document.getElementById("autoCnt"), autoChk = document.getElementById("autoChk");
+document.getElementById("refreshBtn").onclick = () => {
+  const b = document.getElementById("refreshBtn");
+  if (b) { b.textContent = "…"; }
+  hardReload();
+};
+/* auto-refresh preference is remembered per siteVersion (a fingerprint of
+   the site code, served in data.json). A saved "off" therefore cannot
+   survive a site update: after new code pushes, the flag belongs to an old
+   version, is wiped, and auto-refresh resumes - an update always re-opens
+   the refresh tap. Before the first data pull resolves the version is
+   unknown, so the checkbox defaults ON and re-syncs the moment data lands. */
+function autoPrefKey() {
+  /* SITE_DATA is a script-level let - reachable by name in this scope but
+     never as window.SITE_DATA, so the bare (guarded) reference is required */
+  let v = "";
+  try { v = (typeof SITE_DATA !== "undefined" && SITE_DATA && SITE_DATA.siteVersion) || ""; } catch (_e) {}
+  return v ? "tnwxAuto." + v : "";
+}
+function syncAutoPref() {
+  const k = autoPrefKey();
+  if (!k) return;
+  try {
+    /* wipe the legacy flag and flags saved under other versions */
+    Object.keys(localStorage)
+      .filter(x => x === "tnwxAuto" || (x.indexOf("tnwxAuto.") === 0 && x !== k))
+      .forEach(x => localStorage.removeItem(x));
+    autoChk.checked = localStorage.getItem(k) !== "off";
+  } catch (_e) {}
+}
+syncAutoPref();
+autoChk.onchange = () => {
+  AUTO_LEFT = 90;
+  const k = autoPrefKey();
+  try { if (k) localStorage.setItem(k, autoChk.checked ? "on" : "off"); } catch (_e) {}
+};
+/* interacting with the page postpones the auto cycle: a hard reload in the
+   middle of a zoom/pinch/scrub reads as "the map won't zoom" (2026-09-18) */
+["pointerdown", "wheel", "touchstart"].forEach(function (ev) {
+  document.addEventListener(ev, function () { AUTO_LEFT = 90; }, { passive: true, capture: true });
+});
+setInterval(() => {
+  if (!autoChk.checked) { if (autoCnt) autoCnt.textContent = "\u221e"; return; }
+  AUTO_LEFT -= 1;
+  if (autoCnt) autoCnt.textContent = AUTO_LEFT;
+  if (AUTO_LEFT <= 0) {
+    AUTO_LEFT = 90;
+    if (typeof onDataRefresh === "function") siteRefresh(); else hardReload();
+  }
+}, 1000);
+
+const BASEMAPS = {
+  dark:  { label: "Dark", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", invert: true },
+  light: { label: "Light", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", invert: false },
+  sat:   { label: "Satellite", url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", invert: false },
+  topo:  { label: "Terrain", url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}", invert: false }
+};
+let _baseLayer = null, _baseKey = null;
+function setBase(key, map) {
+  if (key === "mapbox" && !BASEMAPS.mapbox && typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN)
+    BASEMAPS.mapbox = { label: "Mapbox", style: "mapbox://styles/mapbox/light-v11" };
+  const b = BASEMAPS[key] || BASEMAPS.dark;
+  if (_baseKey === key && _baseLayer) return;
+  if (_baseLayer) map.removeLayer(_baseLayer);
+  if (b.style) _baseLayer = L.mapboxGL({ accessToken: MAPBOX_TOKEN, style: b.style, attribution: "&copy; Mapbox" }).addTo(map);
+  else _baseLayer = L.tileLayer(b.url, { maxNativeZoom: 19, maxZoom: 21, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
+  map.getContainer().classList.toggle("map-dark", !!b.invert);
+  _baseKey = key;
+  try { localStorage.setItem("tnwxBase", key); } catch (_e) {}
+  const sel = document.getElementById("baseSel"); if (sel && sel.value !== key) sel.value = key;
+}
+function addMapControls(map, home, homeZoom) {
+  const btn = (txt, title, fn) => {
+    const c = L.control({ position: "topleft" });
+    c.onAdd = () => { const d = L.DomUtil.create("div", "mapctlbtn"); d.textContent = txt; d.title = title;
+      L.DomEvent.disableClickPropagation(d); d.onclick = fn; return d; };
+    c.addTo(map);
+  };
+  btn("⛶", "Fullscreen map", () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else map.getContainer().requestFullscreen();
+  });
+  btn("⌂", "Home view", () => map.setView(home, homeZoom));
+  btn("◎", "My location", () => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(p => {
+      map.setView([p.coords.latitude, p.coords.longitude], 10);
+      L.circleMarker([p.coords.latitude, p.coords.longitude], { radius: 7, color: "#fff", weight: 2, fillColor: "#4da3ff", fillOpacity: 1 })
+        .addTo(map).bindTooltip("You are here").openTooltip();
+    }, () => {}, { timeout: 8000 });
+  });
+  L.control.scale({ imperial: true, metric: false }).addTo(map);
+  document.addEventListener("fullscreenchange", () => setTimeout(() => map.invalidateSize(), 200));
+  const coord = L.control({ position: "bottomright" });
+  coord.onAdd = () => L.DomUtil.create("div", "mapcoord");
+  coord.addTo(map);
+  const el = document.querySelector(".mapcoord");
+  map.on("mousemove", e => { if (el) el.textContent = e.latlng.lat.toFixed(3) + ", " + e.latlng.lng.toFixed(3); });
+  map.on("mouseout", () => { if (el) el.textContent = ""; });
+  const sel = document.getElementById("baseSel");
+  if (sel) {
+    sel.innerHTML = Object.entries(BASEMAPS).map(([k, b]) => `<option value="${k}">${b.label}</option>`).join("");
+    let saved = null; try { saved = localStorage.getItem("tnwxBase"); } catch (_e) {}
+    setBase(saved && BASEMAPS[saved] ? saved : ((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark"), map);
+    sel.onchange = e => setBase(e.target.value, map);
+  } else setBase((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark", map);
+  if (typeof drawHomeMarker === "function") drawHomeMarker(map, home);
+}
+function drawHomeMarker(map, home) {
+  if (map._tnwxHome) return;
+  map._tnwxHome = L.circleMarker(home, { radius: 7, color: "#fff", weight: 2,
+    fillColor: "#ff5252", fillOpacity: 1 }).addTo(map).bindTooltip((typeof DATA_PLACE !== "undefined" && DATA_PLACE) || "Home");
+}
+
+
+setTimeout(function () {
+  /* mobile drawer: hamburger opens the grouped nav; scrim click, X,
+     Escape and link taps all close it */
+  var nb = document.getElementById("navBtn"),
+      nd = document.getElementById("navDrawer");
+  if (nb && nd) {
+    var setDrawer = function (open) {
+      nd.hidden = !open;
+      nb.setAttribute("aria-expanded", open ? "true" : "false");
+      document.body.style.overflow = open ? "hidden" : "";
+    };
+    nb.addEventListener("click", function () { setDrawer(nd.hidden); });
+    var xc = document.getElementById("navClose");
+    if (xc) xc.addEventListener("click", function () { setDrawer(false); });
+    nd.addEventListener("click", function (e) {
+      if (e.target === nd) setDrawer(false);   /* scrim tap, not a link */
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") setDrawer(false);
+    });
+    nd.addEventListener("click", function (e) {
+      if (e.target && e.target.closest && e.target.closest("a")) setDrawer(false);
+    });
+    setDrawer(false);
+  }
+  if (typeof map === "undefined" || !map) return;
+  const sel = document.getElementById("baseSel");
+  if (typeof addMapControls === "function" && (typeof _baseLayer === "undefined" || !_baseLayer)) {
+    const la = (typeof DATA_LAT !== "undefined") ? DATA_LAT : 36.2;
+    const lo = (typeof DATA_LON !== "undefined") ? DATA_LON : -83.0;
+    addMapControls(map, [la, lo], 6);
+  } else if (typeof setBase === "function") {
+    if (!_baseLayer) setBase((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark", map);
+    if (sel) sel.onchange = function (e) { setBase(e.target.value, map); };
+  }
+}, 600);
+
+</script>
+<div class="wrap">
+
+<header class="hero"><h1>🛰️ Satellite</h1>
+<div class="sub">Every GOES-19 ABI band — water vapor (high/mid/low + GINI full-disk), IR, all visible bands, fire, ozone, CO2 — plus NOAA STAR quick-look products.</div></header>
+<div class="card">
+  <div id="map" class="map-dark"></div>
+  <div class="ctl">
+    <button id="play">⏸</button><span class="frame" id="frame">--:--</span>
+    <select id="layer"></select>
+    <input type="range" id="opacity" min="30" max="100" value="90"/>
+  </div>
+  <div class="src" id="pend"></div>
+  <div class="src">GOES-19 ABI decoded from NOAA open data and rendered locally; the NOAA STAR group mirrors STAR's ready-to-view products (5-min cadence). Visible bands go dark at night - that is the satellite, not the site. Full-disk water vapor takes a couple of minutes to render the first time.</div>
+</div>
+
+<div class="card"><h2>🍂 Fall color tracker - when the mountains turn</h2>
+<div class="kpis">
+  <div class="kpi"><span>NDVI snapshot</span><b id="fcDate">-</b></div>
+  <div class="kpi"><span>Compare to</span><b>Sep 1 baseline</b></div>
+  <div class="kpi"><span>Season</span><b id="fcSeason">peaking up top first</b></div>
+  <div class="kpi"><span>Under cursor</span><b id="fcPixel">hover the map</b></div>
+</div>
+<div id="fallMap" class="map-dark" style="height:460px"></div>
+<div class="legend">
+  <span><i style="background:#6b8f3c"></i>dense green</span>
+  <span><i style="background:#d9c95c"></i>starting to turn</span>
+  <span><i style="background:#e08c3a"></i>peak color</span>
+  <span><i style="background:#a65b2a"></i>past peak</span>
+  <span><i style="background:linear-gradient(90deg,#6b8f3c,#d9c95c,#e08c3a,#a65b2a)"></i>NDVI: plant vigor declines as chlorophyll fades - the color wave, measured by satellite</span>
+</div>
+<div class="ctl">
+  <label><input type="checkbox" id="fcNdvi" checked/> foliage index</label>
+  <label><input type="checkbox" id="fcTc"/> true color</label>
+  <select id="fcDateSel" title="8-day NDVI composite"></select>
+  <button id="fcSweep">▶ Sweep the season</button>
+</div>
+<div class="src">Vegetation index (NDVI) from MODIS-Terra via NASA's open GIBS service - where photosynthesis is fading, color is coming. The <b>foliage index</b> layer shows the measured signal (dark green = still growing; gold/orange/brown = color change underway); <b>true color</b> is what the satellite actually photographed, clouds permitting. Sweep runs Sep 1 through late October - future composites stay empty until the satellite paints them; the latest date with real tiles is the honest "now".</div>
+<div id="foliageLinks" style="margin-top:8px">
+  <div class="src" style="margin-bottom:4px"><b>Weekly color reports</b> - official &amp; free, updated through the season:</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a class="chip" style="background:#2e5d34;color:#fff;text-decoration:none;padding:6px 10px;border-radius:10px;font-size:12.5px;display:inline-block" href="https://www.nps.gov/grsm/planyourvisit/fallcolor.htm" target="_blank" rel="noopener">🍂 Great Smoky Mountains NPS</a>
+    <a class="chip" style="background:#3a6ea5;color:#fff;text-decoration:none;padding:6px 10px;border-radius:10px;font-size:12.5px;display:inline-block" href="https://smokieslife.org/fall-colors-reports/" target="_blank" rel="noopener">Smokies Life weekly report</a>
+    <a class="chip" style="background:#5d3a2e;color:#fff;text-decoration:none;padding:6px 10px;border-radius:10px;font-size:12.5px;display:inline-block" href="http://tnstateparks.com/inspiration/experience-fall" target="_blank" rel="noopener">TN State Parks</a>
+    <a class="chip" style="background:#5d3a2e;color:#fff;text-decoration:none;padding:6px 10px;border-radius:10px;font-size:12.5px;display:inline-block" href="https://www.exploreasheville.com/things-to-do/things-to-do-by-season/fall/fall-forecast-and-weekly-fall-color-report" target="_blank" rel="noopener">NC - Asheville weekly report</a>
+    <a class="chip" style="background:#5d3a2e;color:#fff;text-decoration:none;padding:6px 10px;border-radius:10px;font-size:12.5px;display:inline-block" href="https://www.blueridgeparkway.org/plan-your-parkway-trip/stories-guides/fall-color-on-the-parkway/" target="_blank" rel="noopener">Blue Ridge Parkway</a>
+    <a class="chip" style="background:#5d2e47;color:#fff;text-decoration:none;padding:6px 10px;border-radius:10px;font-size:12.5px;display:inline-block" href="https://www.dof.virginia.gov/education-and-recreation/fall-foliage-in-virginia/" target="_blank" rel="noopener">VA Forestry (weekly map)</a>
+    <a class="chip" style="background:#5d2e47;color:#fff;text-decoration:none;padding:6px 10px;border-radius:10px;font-size:12.5px;display:inline-block" href="https://www.dcr.virginia.gov/state-parks/foliage-report" target="_blank" rel="noopener">VA State Parks report</a>
+    <a class="chip" style="background:#2e5d34;color:#fff;text-decoration:none;padding:6px 10px;border-radius:10px;font-size:12.5px;display:inline-block" href="https://www.fs.usda.gov/visit/fall-colors" target="_blank" rel="noopener">US Forest Service hotline</a>
+  </div>
+  <div class="src" style="margin-top:3px">Satellite NDVI shows the whole season at a glance; the links above are the human ground truth - rangers and foresters who stand next to the trees. Reports run weekly from mid-September through early November.</div>
+</div>
+<div id="peakLadder" style="margin-top:14px">
+  <div class="src" style="margin-bottom:4px"><b>Peak-color ladder - typical weeks per elevation band</b> (East TN / high country): color starts on the highest peaks and falls downslope roughly 1,000 ft a week, so each band gets its moment. The band(s) inside their typical window today are highlighted.</div>
+  <div id="ladderRows"></div>
+  <div class="src" style="margin-top:3px" id="ladderNow"></div>
+  <div class="src" style="margin-top:3px">Windows after the classic Grandfather Mountain / Blue Ridge high-country guides (Howie Neufeld's week-by-week elevation ladder), clipped to East Tennessee landmarks - a compass, not a clock: any band can swing a week either way with the year's weather. Pair with the satellite layers above and the weekly reports to see where the wave actually is.</div>
+</div>
+</div>
+
+<div class="card"><h2>🪞 Same scene, two lenses - raw band vs STAR product</h2>
+<style>
+  .cmp-wrap { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  @media (max-width:760px){ .cmp-wrap { grid-template-columns:1fr; } }
+  .cmp-map { height:340px; border-radius:8px; border:1px solid #2b3441; background:#0b0f14; }
+  .cmp-base { filter:invert(1) hue-rotate(180deg); }
+  .cmp-tag { position:absolute; top:6px; left:6px; z-index:500; background:rgba(10,14,20,.85); border:1px solid #2b3441; color:#cfd8e3; padding:2px 8px; border-radius:8px; font-size:11.5px; }
+</style>
+<div class="ctl">
+  <select id="cmpAbi" title="Raw ABI band (left map)"></select>
+  <select id="cmpStar" title="NOAA STAR product (right map)"></select>
+  <button id="cmpPlay">⏵</button>
+  <span class="frame" id="cmpFrame">--:--</span>
+</div>
+<div class="cmp-wrap">
+  <div style="position:relative"><div id="cmpMapA" class="cmp-map"></div><div class="cmp-tag" id="cmpTagA">raw ABI</div></div>
+  <div style="position:relative"><div id="cmpMapB" class="cmp-map"></div><div class="cmp-tag" id="cmpTagB">STAR</div></div>
+</div>
+<div class="src">Left: the <b>raw ABI band</b>, decoded locally from NOAA open data - exactly what the sensor measured. Right: <b>NOAA STAR's ready-made product</b> built from the same feed. Frames pair by valid time (labels show the offset when the two sides have no exact shared minute); pan or zoom either map and the other follows. If the raw band's structure shows up honestly in the product, the product earns your trust - that is the whole point of this card.</div>
+</div>
+
+<div class="card"><h2>📖 Reading the bands - which layer for what</h2>
+<div class="src">
+<b>Water vapor (high / mid / low)</b> - moisture at three heights of the atmosphere. Swirls here are the storms of tomorrow: a plume pulling in from the Gulf or a dry slot boring into the Tennessee Valley shows up hours before clouds form. The <b>GINI full-disk</b> style is the classic weather-broadcast look.<br/><br/>
+<b>Infrared (10.3 / 11.2 / dirty 12.3)</b> - cloud-top temperature, day and night. Colder = higher = stronger convection; the dirty-IR split with 11.2 helps separate low clouds from fog.<br/><br/>
+<b>Visible bands (day only)</b> - red visible is the crisp daytime picture; blue and near-IR (veggie) see haze and vegetation; <b>cirrus</b> picks out thin high cloud the others miss; <b>snow/ice</b> makes winter surfaces pop; <b>cloud particle size</b> distinguishes water droplets from ice.<br/><br/>
+<b>Shortwave IR (fire/hot spots)</b> - glows at wildfire lines and industrial heat day or night; <b>CO2 / cloud top height</b> helps gauge how deep storms reach.<br/><br/>
+<b>NOAA STAR quick-look</b> - pre-built band combinations from NOAA's STAR program, one per row in the table below.
+</div>
+<div style="overflow-x:auto">
+<table style="width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px">
+  <thead><tr style="color:#9fb0c0;text-align:left;border-bottom:1px solid #2b3441">
+    <th style="padding:6px 8px">Product</th>
+    <th style="padding:6px 8px">What you are looking at</th>
+    <th style="padding:6px 8px">Reach for it when&hellip;</th>
+  </tr></thead>
+  <tbody>
+    <tr style="border-bottom:1px solid #1d2430">
+      <td style="padding:7px 8px"><b>GeoColor</b></td>
+      <td style="padding:7px 8px">True-color by day (natural vegetation, rivers, terrain), city lights and moonlit cloud by night.</td>
+      <td style="padding:7px 8px">Sharing the big picture - storms, river fog, smoke, snow cover - with someone who does not read satellite imagery. The default first look, day or night.</td>
+    </tr>
+    <tr style="border-bottom:1px solid #1d2430">
+      <td style="padding:7px 8px"><b>Water Vapor (3 layers)</b></td>
+      <td style="padding:7px 8px">Moisture at three heights: mid and low layers track where rain-producing moisture actually sits, not just the pretty high-altitude swirls.</td>
+      <td style="padding:7px 8px">The classic full-disk swirl looks impressive but nothing is reaching the ground - check mid/low to see if the moisture column connects to your weather.</td>
+    </tr>
+    <tr style="border-bottom:1px solid #1d2430">
+      <td style="padding:7px 8px"><b>Infrared</b></td>
+      <td style="padding:7px 8px">Cloud-top temperature in a clean NWS-style palette, day and night.</td>
+      <td style="padding:7px 8px">Judging storm strength at night or in winter - the coldest tops here are the same signal as the raw 10.3&nbsp;&mu;m band, just readable at a glance.</td>
+    </tr>
+    <tr style="border-bottom:1px solid #1d2430">
+      <td style="padding:7px 8px"><b>Red Visible</b> <span style="color:#9fb0c0">(day)</span></td>
+      <td style="padding:7px 8px">What your eye would see from orbit - 500 m red-band visible, crisp and natural.</td>
+      <td style="padding:7px 8px">Daytime detail work: fog banks in valleys, cumulus streets, snow on the Plateau, shelf clouds. Useless after dark.</td>
+    </tr>
+    <tr style="border-bottom:1px solid #1d2430">
+      <td style="padding:7px 8px"><b>Air Mass</b></td>
+      <td style="padding:7px 8px">Air-mass boundaries from red/green/blue channel ratios: warm-moist greens, cold-dry blues, stratospheric intrusion reds.</td>
+      <td style="padding:7px 8px">Chasing jet-stream dynamics and troughs days out - a dark-red dry slot boring into the ridge is a severe-weather ingredient arriving early.</td>
+    </tr>
+    <tr style="border-bottom:1px solid #1d2430">
+      <td style="padding:7px 8px"><b>Sandwich</b></td>
+      <td style="padding:7px 8px">Visible underneath with coldest IR tops overlaid in color, so texture and strength share one image.</td>
+      <td style="padding:7px 8px">Convection at its most readable: you see the storm's texture <i>and</i> which cell owns the coldest, strongest tops without flipping layers.</td>
+    </tr>
+    <tr style="border-bottom:1px solid #1d2430">
+      <td style="padding:7px 8px"><b>Fire Temperature</b></td>
+      <td style="padding:7px 8px">Shortwave-IR tuned so fire lines and industrial heat glow white-hot against cool terrain.</td>
+      <td style="padding:7px 8px">Wildfire monitoring day or night - the hottest pixels are the active head of the fire, and the glow cuts through smoke where visible fails.</td>
+    </tr>
+    <tr style="border-bottom:1px solid #1d2430">
+      <td style="padding:7px 8px"><b>Dust</b></td>
+      <td style="padding:7px 8px">Daytime dust and ash split out in pink by the same band math that separates it from cloud.</td>
+      <td style="padding:7px 8px">Saharan outbreaks and local blowing dust - also useful for faint plumes that look like nothing in GeoColor until they are on top of you.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+<div class="src" style="margin-top:6px">These are STAR's ready-made composites - same GOES-19 feed the raw bands above are decoded from, just pre-combined and pre-colored by the scientists at NOAA/NESDIS STAR. The pair in the compare card (raw band + STAR product) is the sanity check: when the raw band shows the same structure, the product is telling the truth. Cadence and coverage match the quick-look picker (5-minute updates, 1-hour loops).</div>
+</div>
+<script>
+
+const MAPBOX_TOKEN = null;
+let LAYERS = {};
+const OPACITY = () => { const o = document.getElementById("opacity"); return o ? o.value / 100 : 0.8; };
+let DATA = null, map, curLayers = [], frames = [], idx = 0, timer = null, playing = true, kind = "past";
+const frameEl = document.getElementById("frame");
+
+function initMap() {
+  window.DATA_LAT = DATA.lat; window.DATA_LON = DATA.lon; window.DATA_PLACE = DATA.place;
+  /* zoomAnimation: false - the frame loop + soft refresh rebuild overlays
+     continuously; a CSS zoom animation colliding with a rebuild gets
+     cancelled and snaps back to the old zoom ("map won't zoom", 2026-09-18).
+     Instant zoom has nothing to cancel and always sticks. */
+  map = L.map("map", { zoomSnap: 0.5, zoomAnimation: false, maxZoom: 21 }).setView([DATA.lat, DATA.lon], 6);
+  addMapControls(map, [DATA.lat, DATA.lon], 6);
+  L.circleMarker([DATA.lat, DATA.lon], { radius: 7, color: "#fff", weight: 2, fillColor: "#ff5252", fillOpacity: 1 })
+    .addTo(map).bindTooltip(DATA.place);
+}
+function fmt(ts) { return new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }); }
+function clear() { for (const l of curLayers) { try { map.removeLayer(l); } catch (_e) {} } curLayers = []; }
+let glmLayer = null;
+/* RainViewer is THE real-time radar layer (visitor preference, 2026-09-10):
+   no auto-switching to other layers. During a RainViewer outage the page
+   shows its "radar unavailable - retrying" badge and keeps retrying. */
+/* Tile layers are CACHED PER FRAME and re-attached, never recreated: the old
+   code built a fresh tileLayer every 700 ms animation tick, re-requesting
+   every tile each loop (hundreds of req/min) and tripping RainViewer's
+   per-IP rate limit (429). With reuse, each frame's tiles fetch ONCE. */
+const _tileCache = new Map();
+let _builtKind = null;
+let _curTileUrl = null;
+/* Real-time layer = RainViewer when it works; while their tilecache is down
+   (500/429 outages), the SAME layer draws our own NOAA NEXRAD composite PNGs
+   (rendered every 2 min, no rate limit) with a transparent note, and flips
+   back to RainViewer automatically once a probe sees their tiles recover. */
+let rvState = "ok";      /* "ok" | "down" */
+let rvDowns = 0;
+let rvProbed = false;
+const RV_NOTE = "RainViewer is down right now - showing the official NOAA NEXRAD composite. Back to RainViewer automatically the moment it recovers.";
+const RV_RETRY = "RainViewer is having trouble serving tiles right now - retrying automatically. If it keeps failing, the official NOAA NEXRAD mosaic takes over within a couple of minutes.";
+/* The page may have been served with a STALE frame list (CDN lag): RainViewer
+   rotates old frames out of their tilecache within hours, so old paths 500
+   forever. This live refresh pulls their public CORS-open frame list and
+   updates DATA.radar.past/nowcast in place - stale pages heal themselves. */
+let _rvRefT = 0;
+async function rvRefresh() {
+  const now = Date.now();
+  if (now - _rvRefT < 120000) return;   /* at most every 2 min */
+  _rvRefT = now;
+  try {
+    const r = await fetch("https://api.rainviewer.com/public/weather-maps.json", {cache: "no-store"});
+    if (!r.ok) return;
+    const j = await r.json();
+    const rad = j.radar || {};
+    const conv = a => (a || []).map(f => ({time: f.time, path: f.path, label: fmt(f.time), kind: (rad.nowcast || []).includes(f) ? "nowcast" : "past"}));
+    const past = conv(rad.past);
+    const now2 = conv(rad.nowcast);
+    if (DATA.radar && past.length) {
+      const changed = !DATA.radar.past.length || DATA.radar.past[DATA.radar.past.length - 1].time !== past[past.length - 1].time;
+      DATA.radar.past = past;
+      if ((DATA.radar.nowcast || []).length !== now2.length) DATA.radar.nowcast = now2;
+      _tileCache.forEach(l => { try { map.removeLayer(l); } catch (_e) {} });
+      _tileCache.clear();
+      if (kind === "past" && changed && rvState === "ok") { frames = framesFor("past"); show(frames.length - 1); }
+      if (kind === "nowcast" && DATA.radar.nowcast.length) { frames = framesFor("nowcast"); show(frames.length - 1); }
+    }
+  } catch (_e) {}
+}
+setInterval(rvRefresh, 120000);
+/* Status-aware probe: fetch() can read the HTTP code, Image() cannot.
+   429 = rate limit (our own fault) -> back off, do NOT count as outage.
+   5xx / network error = their outage -> 2 strikes (~2 min) flips to NEXRAD.
+   Any success recovers instantly. */
+async function rvProbe() {
+  const fr = (DATA.radar && DATA.radar.past) || [];
+  const f = fr.length && fr[fr.length - 1];
+  if (!f || !f.path) return;
+  const url = "https://tilecache.rainviewer.com" + f.path + "/256/6/16/25/2/1_1.png";
+  try {
+    const r = await fetch(url, { cache: "no-store" });
+    if (r.ok) {
+      rvDowns = 0;
+      if (rvState === "down") { rvState = "ok"; if (kind === "past") build(); }
+      return;
+    }
+    if (r.status === 429) return;   /* backed off, not down */
+    rvDowns++;
+  } catch (_e) { rvDowns++; }
+  if (rvState === "ok" && rvDowns >= 2) { rvState = "down"; if (kind === "past") build(); }
+}
+function drawGlm(ts) {
+  const box = document.getElementById("ly_glm");
+  if (!box) return;   /* lightning overlay is radar-page only */
+  if (glmLayer) { map.removeLayer(glmLayer); glmLayer = null; }
+  if (!box.checked) return;
+  const frames = (DATA.lightning && DATA.lightning.frames) || [];
+  if (!frames.length) return;
+  let f = frames[0];
+  for (const fr of frames) {
+    const t = Date.parse((fr.time || "").replace("Z", "+00:00"));
+    if (!isNaN(t) && Math.abs(t - ts) < Math.abs(Date.parse((f.time || "").replace("Z", "+00:00")) - ts)) f = fr;
+  }
+  const b = f.bounds;
+  const lb = (Array.isArray(b) && !Array.isArray(b[0])) ? L.latLngBounds([[b[0], b[1]], [b[2], b[3]]]) : b;
+  glmLayer = L.imageOverlay(f.pngUrl, lb, { opacity: Math.min(1, OPACITY() + 0.15), interactive: false }).addTo(map);
+}
+
+function show(i) {
+  idx = i; clear();
+  const f = frames[i]; if (!f) return;
+  let frameBad = 0;   /* failed tiles this frame (read by the note below) */
+  const spec = LAYERS[kind] || {};
+  if (spec.mode === "tiles" && f.path) {
+    /* modern RainViewer URL: no legacy _<module 'time' (built-in)> suffix (their tilecache
+       500s that form at high zooms - 2026-09-11 outage) */
+    const url = "https://tilecache.rainviewer.com" + f.path + spec.path + ".png";
+    _curTileUrl = url;
+    let tl = _tileCache.get(url);
+    if (!tl) {
+      tl = L.tileLayer(url, { opacity: OPACITY(), maxNativeZoom: 10, maxZoom: 21 });
+      let okT = 0;
+      frameBad = 0;
+      tl.on("tileload", () => {
+        okT++;
+        if (okT === 1) { setRadarState("ok"); tl._loadedOnce = true; }
+      });
+      tl.on("tileerror", () => {
+        frameBad++;
+        /* 429 blips trip this fast otherwise - require most of the frame's
+           tiles to fail before showing "empty", and only then probe. */
+        if (!okT && frameBad >= 8) { setRadarState("empty"); if (!rvProbed) rvProbe(); }
+      });
+      _tileCache.set(url, tl);
+    }
+    tl.setOpacity(OPACITY());
+    tl.addTo(map);
+    curLayers.push(tl);
+    frameEl.textContent = fmt(f.time);
+    drawGlm(f.time * 1000);
+    setRadarState(tl._loadedOnce ? "ok" : "loading");
+  } else if (f.pngUrl && f.bounds) {
+    const b = f.bounds;
+    const lb = (Array.isArray(b) && !Array.isArray(b[0])) ? L.latLngBounds([[b[0], b[1]], [b[2], b[3]]]) : b;
+    setRadarState("loading");
+    const ly = L.imageOverlay(f.pngUrl, lb, { opacity: OPACITY(), maxZoom: 21 }).addTo(map);
+    const el = ly.getElement();
+    if (el) {
+      el.onload = () => setRadarState("ok");
+      el.onerror = () => setRadarState("empty");
+    }
+    curLayers.push(ly);
+    frameEl.textContent = f.label || "";
+    wbMarkers(f);
+    /* NWS-fallback frames carry an ISO string 'time', RV frames an epoch int:
+       coerce both to ms so the GLM overlay match cannot throw (a throw here
+       killed show() mid-frame and left the map stuck "retrying"). */
+    const tMs = (typeof f.time === "number") ? f.time * 1000 : Date.parse((f.time || "").replace("Z", "+00:00"));
+    if (!isNaN(tMs)) drawGlm(tMs);
+  } else { frameEl.textContent = "rendering\u2026"; setRadarState("empty"); }
+  preload(idx);
+  if (document.getElementById("pend")) {
+    const r = DATA.radar || {};
+    const tileTrouble = (kind === "past" && rvState === "ok" && frameBad >= 8);
+    document.getElementById("pend").textContent =
+      (kind === "past" && rvState === "down") ? RV_NOTE :
+      (tileTrouble ? RV_RETRY :
+      ((typeof queuedNote !== "undefined" && queuedNote) ||
+      ((kind === "future" && r.futureReady < r.futureTotal)
+        ? "Rendering future radar: " + r.futureReady + "/" + r.futureTotal + " hours ready - new hours appear automatically." : "")));
+  }
+}
+function play() { playing = true; document.getElementById("play").textContent = "\u23f8"; timer = setInterval(() => show((idx + 1) % frames.length), 1500); }
+/* preload: warm the NEXT frame so stepping never stalls on a cold fetch;
+   kept to 1 frame - bulk prewarming trips RainViewer's per-IP rate limit */
+const _preloaded = new Set();
+function preload(i) {
+  if (!frames.length) return;
+  for (let k = 1; k <= 1; k++) {
+    const f = frames[(i + k) % frames.length];
+    if (!f || !f.pngUrl) continue;
+    const url = f.pngUrl;
+    if (_preloaded.has(url)) continue;
+    _preloaded.add(url);
+    const im = new Image();
+    im.onload = () => {};
+    im.onerror = () => _preloaded.delete(url);
+    im.src = url;
+  }
+}
+function setRadarState(state) {
+  const mapEl = document.getElementById("map");
+  if (!mapEl) return;
+  mapEl.dataset.radarState = state;   // ok | loading | empty (CSS badge)
+}
+function pause() { playing = false; document.getElementById("play").textContent = "\u25b6"; clearInterval(timer); }
+function framesFor(k) {
+  if (k === "past")   /* real-time layer: RainViewer frames, NEXRAD while down */
+    return rvState === "down" ? ((DATA.radar && DATA.radar.nws) || [])
+                              : ((DATA.radar && DATA.radar.past) || []);
+  if (k === "wbgt") return wbFrames();   /* scope-aware (East TN / US) */
+  const spec = LAYERS[k] || {};
+  if (spec.framesKey) return (DATA.radar && DATA.radar[spec.framesKey]) || [];
+  if (spec.satKey) return (DATA.satBands[spec.satKey] || {}).frames || [];
+  if (spec.starKey) return ((DATA.starBands || {})[spec.starKey] || {}).frames || [];
+  return [];
+}
+/* Leaflet never refetches failed tiles: while the radar shows "empty"
+   (RainViewer 429/outage), drop the current frame's cached layer every 60 s
+   so the next show() recreates it with FRESH requests - recovery is automatic. */
+setInterval(() => {
+  const m = document.getElementById("map");
+  if (!m || m.dataset.radarState !== "empty" || !_curTileUrl || rvState === "down") return;
+  const l = _tileCache.get(_curTileUrl);
+  if (l) { try { map.removeLayer(l); } catch (_e) {} _tileCache.delete(_curTileUrl); }
+}, 60000);
+setInterval(rvProbe, 60000);   /* recovery check while RainViewer is down */
+function build() {
+  if (!DATA) return;   /* data.json fetch failed/truncated - retry lands via refresh */
+  if (kind === "past" && !rvProbed) { rvProbed = true; rvProbe(); }
+  if (_builtKind !== kind) {   /* layer switched: drop cached tile layers */
+    _tileCache.forEach(l => { try { map && map.removeLayer(l); } catch (_e) {} });
+    _tileCache.clear();
+    _builtKind = kind;
+  }
+  if (kind.startsWith("site:")) {
+    const sid = kind.slice(5), rendered = DATA.sites[sid];
+    frames = (rendered && rendered.frames) || [];
+    if (frames.length) { queuedNote = "";
+      if (!timer) { show(frames.length - 1); if (playing) play(); } else show(frames.length - 1);
+      return;
+    }
+  }
+  frames = framesFor(kind);
+  const spec0 = LAYERS[kind] || {};
+  for (const fb of (spec0.fallbacks || [])) if (!frames.length && framesFor(fb).length) { kind = fb; break; }
+  frames = framesFor(kind);
+  /* these pickers exist on the radar page; the satellite page reuses this
+     build() but has none of them - guard so a missing element can't crash
+     the whole map (satellite was blank since the WBGT scope-picker addition) */
+  const mp = document.getElementById("mrmsProd"); if (mp) mp.style.display = kind === "mrms" ? "" : "none";
+  const wbh = document.getElementById("wbHour"); if (wbh) wbh.style.display = kind === "wbgt" ? "" : "none";
+  const wbs = document.getElementById("wbScope"); if (wbs) wbs.style.display = kind === "wbgt" ? "" : "none";
+  wbMarkers();
+  if (kind === "wbgt") wbFill();
+  const sel = document.getElementById("layer"); if (sel && sel.value !== kind) sel.value = kind;
+  if (!frames.length) { frameEl.textContent = "no frames yet"; setRadarState("empty"); return; }
+  setRadarState("loading");
+  if (!timer) { show(frames.length - 1); if (playing) play(); } else show(frames.length - 1);
+}
+/* ---- WBGT heat-stress layer: region + hour pickers + per-point markers ---- */
+function wbFrames() {
+  const scope = (document.getElementById("wbScope") || {}).value || "etn";
+  const src = scope === "us" ? DATA.wbgtUs : DATA.wbgt;
+  return (src && src.frames) || [];
+}
+let wbHourSel = null, wbMarkerLayer = null;
+function wbCatColor(v) {
+  return v >= 93 ? "#c828c8" : v >= 90 ? "#eb3c3c" : v >= 88 ? "#ff783c"
+       : v >= 85 ? "#ffb242" : v >= 82 ? "#ffe066" : "#81c784";
+}
+function wbFill() {
+  wbHourSel = wbHourSel || document.getElementById("wbHour");
+  const prev = wbHourSel.value;
+  const fr = wbFrames();
+  wbHourSel.innerHTML = fr.map(f => `<option value="${f.id}">${f.label}</option>`).join("");
+  if (prev && fr.some(x => x.id === prev)) wbHourSel.value = prev;
+}
+function wbActive() {
+  if (kind !== "wbgt") return null;
+  wbHourSel = wbHourSel || document.getElementById("wbHour");
+  const fr = wbFrames();
+  return fr.find(x => x.id === wbHourSel.value) || fr[fr.length - 1] || null;
+}
+function wbMarkers(f) {
+  f = f || wbActive();
+  if (wbMarkerLayer) { try { map.removeLayer(wbMarkerLayer); } catch (_e) {} wbMarkerLayer = null; }
+  const box = document.getElementById("ly_wb");
+  if (!f || !f.vals || !f.vals.length || (box && !box.checked)) return;
+  wbMarkerLayer = L.layerGroup();
+  for (const p of f.vals) {
+    const c = wbCatColor(p[2]);
+    wbMarkerLayer.addLayer(L.circleMarker([p[0], p[1]], {
+      radius: 5, color: "#1b2027", weight: 1.5, fillColor: c, fillOpacity: .95,
+    }).bindTooltip(`WBGT ${Math.round(p[2])}°F`));
+  }
+  wbMarkerLayer.addTo(map);
+}
+document.addEventListener("change", e => {
+  if (e.target && e.target.id === "wbHour") {
+    /* explicit hour choice: stop the loop so the selection sticks */
+    if (playing) pause();
+    const i = frames.findIndex(x => x.id === e.target.value);
+    show(i >= 0 ? i : frames.length - 1);
+  }
+  if (e.target && e.target.id === "wbScope") {
+    wbFill(); frames = framesFor("wbgt");
+    if (playing) pause();
+    idx = frames.length - 1; show(idx);
+  }
+  if (e.target && e.target.id === "ly_wb") {
+    if (e.target.checked) wbMarkers(); else wbMarkers({vals: []});
+  }
+});
+function refresh(d) { if (!d) return; DATA = d; if (map) build(); }
+window.onDataRefresh = function (d) { refresh(d); };   /* soft auto-refresh: the 90 s cycle updates frames in place - a hard reload here kills zoom/pinch gestures mid-move ("map won't zoom", 2026-09-18) */
+
+document.getElementById("play").onclick = () => playing ? pause() : play();
+document.getElementById("opacity").oninput = () => { for (const l of curLayers) if (l.setOpacity) l.setOpacity(OPACITY()); };
+const layerSel = document.getElementById("layer");
+layerSel.onchange = (e) => { kind = e.target.value; try { localStorage.setItem("tnwxSatKind", kind); } catch (_e) {} build(); };
+function fillLayerPicker() {
+  /* group ABI bands and STAR quick-look products into labeled optgroups */
+  const groups = {};
+  for (const [k, v] of Object.entries(LAYERS))
+    (groups[v.group || "GOES-19 ABI (decoded locally)"] = groups[v.group || "GOES-19 ABI (decoded locally)"] || []).push([k, v]);
+  layerSel.innerHTML = "";
+  for (const [g, items] of Object.entries(groups)) {
+    const og = document.createElement("optgroup"); og.label = g;
+    for (const [k, v] of items) {
+      const o = document.createElement("option"); o.value = k; o.textContent = v.label;
+      if (k === kind) o.selected = true; og.appendChild(o);
+    }
+    layerSel.appendChild(og);
+  }
+}
+async function boot() {
+  /* one failed fetch used to leave the page blank until a manual reload -
+     retry a few times before giving up (auto-refresh heals it after that) */
+  for (let tries = 0; tries < 4; tries++) {
+    try { DATA = await (await fetch(dataUrl(), {cache: "no-store"})).json(); break; }
+    catch (_e) { if (tries === 3) return; await new Promise(r => setTimeout(r, 2500)); }
+  }
+  document.title = DATA.pageName + " - Satellite";
+  LAYERS = {};
+  for (const [k, v] of Object.entries(DATA.satBands || {}))
+    if ((v.frames || []).length) LAYERS[k] = { label: v.label, mode: "png", satKey: k };
+  for (const [k, v] of Object.entries(DATA.starBands || {}))
+    if ((v.frames || []).length) LAYERS[k] = { label: v.label, mode: "png", starKey: k, group: v.group };
+  try { const sv = localStorage.getItem("tnwxSatKind"); if (sv && LAYERS[sv]) kind = sv; } catch (_e) {}
+  if (LAYERS[DATA.satHome]) kind = DATA.satHome;
+  else if (Object.keys(LAYERS).length) kind = Object.keys(LAYERS)[0];
+  initMap(); fillLayerPicker(); build();
+  setInterval(async () => { refresh(await (await fetch(dataUrl(), {cache: "no-store"})).json()); }, 180000);
+}
+boot();
+document.addEventListener("visibilitychange", () => document.hidden ? pause() : play());
+function onDataRefresh(d) { refresh(d); }
+
+/* ---- fall color tracker: NASA GIBS NDVI + true color, East TN view ---- */
+(function () {
+  const FC_GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best";
+  /* 8-day NDVI composite start dates. Sep 1 is the season baseline; the
+     marked-ahead October dates render empty until MODIS composites them. */
+  const FC_DATES = [
+    { d: "2026-09-01", l: "Sep 1 (baseline)" },
+    { d: "2026-09-09", l: "Sep 9" },
+    { d: "2026-09-17", l: "Sep 17" },
+    { d: "2026-09-25", l: "Sep 25 (latest)" },
+    { d: "2026-10-03", l: "Oct 3 (est.)" },
+    { d: "2026-10-11", l: "Oct 11 (est.)" },
+    { d: "2026-10-19", l: "Oct 19 (est.)" },
+  ];
+  const FC_PLACES = [
+    ["Knoxville", 35.96, -83.92], ["Chattanooga", 35.05, -85.31],
+    ["Tri-Cities", 36.44, -82.40], ["Crossville - Plateau", 35.95, -85.03],
+    ["Newfound Gap - GSMNP", 35.61, -83.43], ["Gatlinburg", 35.71, -83.51],
+    ["Cherokee NF", 36.05, -82.10], ["Cookeville", 36.16, -85.50],
+    ["Asheville NC", 35.60, -82.55],
+  ];
+  const fcMap = document.getElementById("fallMap");
+  if (!fcMap || typeof L === "undefined" || !L.map) return;
+  let fmap = null, ndviLayer = null, tcLayer = null, fcIdx = 0, fcTimer = null;
+  let fcHadTiles = false, fcTileErrors = 0, fcTilesTotal = 0;
+  const ndviUrl = d => `${FC_GIBS}/MODIS_Terra_NDVI_8Day/default/${d}/GoogleMapsCompatible_Level9/{z}/{x}/{y}.png`;
+  const tcUrl = d => `${FC_GIBS}/MODIS_Terra_CorrectedReflectance_TrueColor/default/${d}/GoogleMapsCompatible_Level9/{z}/{x}/{y}.jpg`;
+  function bootFall() {
+    fmap = L.map("fallMap", { zoomSnap: 0.5, maxZoom: 9 }).setView([35.9, -83.6], 6);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+      { maxNativeZoom: 9, maxZoom: 9, attribution: "&copy; OpenStreetMap contributors" }).addTo(fmap);
+    FC_PLACES.forEach(p => L.circleMarker([p[1], p[2]], {
+      radius: 4, color: "#fff", weight: 1.5, fillColor: "#b0762c", fillOpacity: .92,
+    }).bindTooltip(p[0]).addTo(fmap));
+    const sel = document.getElementById("fcDateSel");
+    sel.innerHTML = FC_DATES.map((x, i) => `<option value="${i}">${x.l}</option>`).join("");
+    sel.value = 3;   /* latest dated composite */
+    sel.onchange = () => { fcStop(); showFc(+sel.value); };
+    document.getElementById("fcNdvi").onchange = showFcCur;
+    document.getElementById("fcTc").onchange = showFcCur;
+    document.getElementById("fcSweep").onclick = () => fcTimer ? fcStop() : fcPlay();
+    showFc(3);
+  }
+  function showFc(i) {
+    fcIdx = (i + FC_DATES.length) % FC_DATES.length;
+    showFcCur();
+  }
+  function showFcCur() {
+    if (!fmap) return;
+    const d = FC_DATES[fcIdx].d;
+    document.getElementById("fcDate").textContent = FC_DATES[fcIdx].l;
+    if (ndviLayer) { fmap.removeLayer(ndviLayer); ndviLayer = null; }
+    if (tcLayer) { fmap.removeLayer(tcLayer); tcLayer = null; }
+    fcHadTiles = false; fcTileErrors = 0; fcTilesTotal = 0;
+    if (document.getElementById("fcTc").checked) {
+      tcLayer = L.tileLayer(tcUrl(d), { opacity: .95, maxNativeZoom: 9, maxZoom: 9,
+        attribution: "NASA GIBS" }).addTo(fmap);
+    }
+    if (document.getElementById("fcNdvi").checked) {
+      ndviLayer = L.tileLayer(ndviUrl(d), { opacity: .78, maxNativeZoom: 9, maxZoom: 9,
+        crossOrigin: true,   /* GIBS sends ACAO:* - without this getImageData taints and throws */
+        attribution: "NASA GIBS / MODIS-Terra NDVI" });
+      ndviLayer.on("tileload", () => { fcHadTiles = true; fcNote(); });
+      ndviLayer.on("tileerror", () => { fcTileErrors++; if (fcTilesTotal && fcTileErrors >= fcTilesTotal) fcNote(); });
+      ndviLayer.on("tileloadstart", () => { fcTilesTotal++; });
+      ndviLayer.addTo(fmap);
+    }
+    fcNote();
+  }
+  function fcNote() {
+    const el = document.getElementById("fcSeason");
+    if (!el) return;
+    const d = FC_DATES[fcIdx];
+    el.textContent = (!fcHadTiles && fcTileErrors > 0)
+      ? "no tiles yet - future or not composited"
+      : (d.d === "2026-09-01" ? "baseline - color wave begins up high"
+         : d.est ? "color wave descending"
+         : d.l.includes("latest") ? "latest measured snapshot"
+         : "color wave descending");
+  }
+  function fcPlay() {
+    fcIdx = 0; showFc(0);
+    document.getElementById("fcSweep").textContent = "⏸ Sweeping...";
+    fcTimer = setInterval(() => {
+      if (fcIdx >= FC_DATES.length - 1) { fcStop(); return; }
+      showFc(fcIdx + 1);
+      const sel = document.getElementById("fcDateSel"); if (sel) sel.value = fcIdx;
+    }, 2200);
+  }
+  function fcStop() {
+    if (fcTimer) { clearInterval(fcTimer); fcTimer = null; }
+    const b = document.getElementById("fcSweep"); if (b) b.textContent = "▶ Sweep the season";
+  }
+  /* ---- pixel sampler: NDVI color under the cursor -> foliage stage word.
+     Canvas 2D getImageData on the rendered tile <img>s - no WebGL anywhere.
+     The palette is GIBS' MODIS NDVI 8-day ramp; sampled RGB is matched to
+     the nearest ramp entry and mapped to an approximate stage word. The
+     readout always says "approximate" - opacity blending, the basemap and
+     resampling make exact classification impossible, which is fine: the
+     NDVI layer already proves color via the human-eye check next to it. */
+  let fcRaf = 0, fcLastEvt = null;
+  const FC_STAGE = {
+    ramp: [   /* sampled at level-9 pixel values from the GIBS NDVI palette */
+      [26, 92, 26], [49, 121, 49], [73, 150, 73], [98, 179, 98],
+      [146, 195, 98], [170, 205, 90], [191, 214, 92], [216, 219, 98],
+      [230, 190, 74], [233, 160, 58], [219, 122, 46], [184, 95, 40],
+      [148, 74, 36]],
+    words: ["dense green", "dense green", "dense green", "starting to turn",
+            "starting to turn", "starting to turn", "patchy color",
+            "near peak", "peak color", "peak color", "past peak",
+            "past peak", "past peak"] };
+  function fcSampleWord(e) {
+    const smapPane = fmap.getContainer().querySelector(".leaflet-tile-pane");
+    if (!smapPane) return null;
+    const rect = fmap.getContainer().getBoundingClientRect();
+    const px = e.clientX - rect.left, py = e.clientY - rect.top;
+    let best = null;
+    /* find the topmost NDVI tile <img> containing the cursor point; use its
+       bounding rect so CSS transforms (fractional zoom) are accounted for */
+    for (const img of smapPane.querySelectorAll("img.leaflet-tile")) {
+      const r = img.getBoundingClientRect();
+      if (px < r.left - rect.left || px >= r.right - rect.left ||
+          py < r.top - rect.top || py >= r.bottom - rect.top) continue;
+      const src = img.currentSrc || img.src || "";
+      if (src.indexOf("NDVI") === -1) continue;      /* NDVI layer only */
+      fcSampleWord.overNdvi = true;                  /* cursor is on the layer */
+      const c = fcSampleWord._c || (fcSampleWord._c = document.createElement("canvas"));
+      c.width = img.naturalWidth; c.height = img.naturalHeight;
+      const ctx = c.getContext("2d");
+      try { ctx.drawImage(img, 0, 0); } catch (_e) { return null; }
+      let d;
+      try { d = ctx.getImageData(
+        Math.round((px - (r.left - rect.left)) * img.naturalWidth / r.width),
+        Math.round((py - (r.top - rect.top)) * img.naturalHeight / r.height),
+        1, 1).data; } catch (_e) { return null; }   /* tainted canvas */
+      if (d[3] < 200) return null;                   /* transparent - gap */
+      best = [d[0], d[1], d[2]];
+      break;
+    }
+    if (!best) return null;
+    let bi = 0, bd = Infinity;
+    FC_STAGE.ramp.forEach((rgb, i) => {
+      const dist = (rgb[0]-best[0])**2 + (rgb[1]-best[1])**2 + (rgb[2]-best[2])**2;
+      if (dist < bd) { bd = dist; bi = i; }
+    });
+    return { word: FC_STAGE.words[bi], rgb: best };
+  }
+  function fcShow(e) {
+    const out = document.getElementById("fcPixel");
+    if (!out || !fmap || !document.getElementById("fcNdvi").checked) return;
+    const s = fcSampleWord(e);
+    out.innerHTML = s
+      ? `<span style="display:inline-block;width:11px;height:11px;border-radius:3px;
+           background:rgb(${s.rgb[0]},${s.rgb[1]},${s.rgb[2]});vertical-align:-1px"></span>
+           ~${s.word}`
+      : (fcSampleWord.overNdvi
+          ? "cloud / no data here - try another date"
+          : "hover the map");
+  }
+  if (document.getElementById("fallMap")) {
+    document.getElementById("fallMap").addEventListener("mousemove", (e) => {
+      fcLastEvt = e;
+      if (fcRaf) return;
+      fcRaf = requestAnimationFrame(() => { fcRaf = 0; fcShow(fcLastEvt); });
+    });
+  }
+  /* ---- peak-color ladder: typical peak windows per elevation band,
+     after the Grandfather Mountain / Blue Ridge high-country guides.
+     Pure render - no fetches. Today's date highlights the band(s) in
+     their typical window; before/after the season says so honestly. */
+  (function peakLadderInit() {
+    const MMM = ["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const LADDER = [
+      ["above 5,500 ft", "Mt. LeConte summit, Roan high balds", 9, 26, 10, 9],
+      ["4,500 - 5,500 ft", "Newfound Gap, high crest ridges", 10, 3, 10, 16],
+      ["3,500 - 4,500 ft", "mid-slopes, Cherohala Skyway", 10, 10, 10, 23],
+      ["2,000 - 3,500 ft", "valleys & foothill towns", 10, 17, 10, 30],
+      ["below 2,000 ft", "Tennessee River valley floor", 10, 24, 11, 6]];
+    const rows = document.getElementById("ladderRows");
+    if (!rows) return;
+    const now = new Date(), yr = now.getFullYear(), t = now.getTime();
+    const states = LADDER.map(([band, where, m1, d1, m2, d2]) => {
+      const s = new Date(yr, m1 - 1, d1).getTime();
+      const e = new Date(yr, m2 - 1, d2, 23, 59, 59).getTime();
+      return { band, where, win: MMM[m1] + " " + d1 + " – " + MMM[m2] + " " + d2, on: t >= s && t <= e };
+    });
+    rows.innerHTML = states.map(st => `
+      <div style="display:grid;grid-template-columns:auto 1fr auto;gap:3px 12px;align-items:baseline;padding:6px 10px;margin-bottom:4px;border-radius:8px;border:1px solid ${st.on ? "#e08c3a" : "#2b3441"};background:${st.on ? "rgba(224,140,58,.13)" : "#10151f"}">
+        <b>${st.band}</b><span style="color:#9fb0c0">${st.where}</span>
+        <span style="color:${st.on ? "#e08c3a" : "#cfd8e3"};font-weight:${st.on ? 700 : 400};white-space:nowrap">${st.win}</span>
+      </div>`).join("");
+    const onIdx = states.map((s, i) => s.on ? i : -1).filter(i => i >= 0);
+    const today = now.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const nowLine = document.getElementById("ladderNow");
+    if (nowLine) {
+      let tail;
+      if (!onIdx.length) {
+        tail = t < new Date(yr, 8, 26).getTime()
+          ? "too early — the high country is still green; the wave starts on the 5,500 ft peaks in late September."
+          : "the color wave has moved off the mountains — last color lingers on the valley floor into early November.";
+      } else if (onIdx[onIdx.length - 1] === 0) {
+        tail = "the wave is just starting at the top — lower bands still green.";
+      } else if (onIdx[onIdx.length - 1] === states.length - 1) {
+        tail = "this is the last stop — the wave is on the valley floor.";
+      } else {
+        tail = "higher bands past peak, lower bands still turning — mid-ladder is the place to be.";
+      }
+      nowLine.innerHTML = `<b>${today}:</b> peak window open now for ${onIdx.map(i => "<b>" + states[i].band + "</b>").join(" and ") || "no band"} — ${tail}`;
+    }
+  })();
+  if (document.getElementById("fallMap")) bootFall();
+})();
+
+/* ---- side-by-side: raw ABI band vs NOAA STAR product. Both frame sets
+   are already in data.json (satBands / starBands, same frame shape), so
+   this is pure render: two linked Leaflet maps, one unified timeline,
+   frames paired by nearest valid time. Starts after boot() delivers DATA. */
+(function () {
+  const elA = document.getElementById("cmpMapA");
+  if (!elA) return;
+  const cvt = f => (typeof f.time === "number") ? f.time * 1000
+    : Date.parse(((f.time || "") + "").replace("Z", "+00:00"));
+  let mA, mB, lA = [], lB = [], timeline = [], tIdx = 0, cmpTimer = null, playing = false;
+  const nearest = (frames, tMs) => {
+    let bi = -1, bd = Infinity;
+    frames.forEach((f, i) => { const d = Math.abs(cvt(f) - tMs); if (d < bd) { bd = d; bi = i; } });
+    return { i: bi, gap: bd };
+  };
+  function arm() {
+    const abis = [], stars = [];
+    for (const [k, v] of Object.entries(DATA.satBands || {}))
+      if ((v.frames || []).length >= 2) abis.push([k, v.label || k]);
+    for (const [k, v] of Object.entries(DATA.starBands || {}))
+      if ((v.frames || []).length >= 2) stars.push([k, v.label || k]);
+    if (!abis.length || !stars.length) return false;
+    const selA = document.getElementById("cmpAbi"), selB = document.getElementById("cmpStar");
+    selA.innerHTML = abis.map(([k, l]) => `<option value="${k}">${l}</option>`).join("");
+    selB.innerHTML = stars.map(([k, l]) => `<option value="${k}">${l}</option>`).join("");
+    selA.value = abis.some(([k]) => k === "ir") ? "ir" : abis[0][0];
+    selB.value = stars.some(([k]) => k === "star_geo") ? "star_geo" : stars[0][0];
+    mA = L.map("cmpMapA", { attributionControl: false, zoomControl: false, center: [35.8, -86.5], zoom: 5 });
+    mB = L.map("cmpMapB", { attributionControl: false, zoomControl: false, center: [35.8, -86.5], zoom: 5 });
+    for (const m of [mA, mB])
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { className: "cmp-base", maxZoom: 21 }).addTo(m);
+    let syncing = false;
+    const link = (from, to) => () => {
+      if (syncing) return; syncing = true;
+      to.setView(from.getCenter(), from.getZoom(), { animate: false });
+      syncing = false;
+    };
+    mA.on("move", link(mA, mB)); mB.on("move", link(mB, mA));
+    selA.onchange = selB.onchange = () => { rebuild(); };
+    document.getElementById("cmpPlay").onclick = () => playing ? cmpPause() : cmpPlay();
+    window.addEventListener("resize", () => { mA.invalidateSize(); mB.invalidateSize(); });
+    rebuild();
+    return true;
+  }
+  function cur() {
+    return { A: ((DATA.satBands || {})[document.getElementById("cmpAbi").value] || {}).frames || [],
+             B: ((DATA.starBands || {})[document.getElementById("cmpStar").value] || {}).frames || [] };
+  }
+  function rebuild() {
+    const { A, B } = cur();
+    const ts = new Set();
+    A.forEach(f => { const t = cvt(f); if (!isNaN(t)) ts.add(t); });
+    B.forEach(f => { const t = cvt(f); if (!isNaN(t)) ts.add(t); });
+    timeline = [...ts].sort((x, y) => x - y);
+    tIdx = Math.max(0, timeline.length - 1);
+    showPair();
+  }
+  function put(m, frames, tMs, arr) {
+    const { i, gap } = nearest(frames, tMs);
+    if (i < 0) return null;
+    const f = frames[i], b = f.bounds;
+    const lb = (Array.isArray(b) && !Array.isArray(b[0])) ? L.latLngBounds([[b[0], b[1]], [b[2], b[3]]]) : b;
+    while (arr.length) m.removeLayer(arr.pop());
+    const ly = L.imageOverlay(f.pngUrl, lb, { opacity: 0.85, interactive: false, maxZoom: 21 }).addTo(m);
+    arr.push(ly);
+    return { f, gapMin: Math.round(gap / 60000) };
+  }
+  function showPair() {
+    if (!mA || !timeline.length) return;
+    const { A, B } = cur();
+    const t = timeline[tIdx];
+    const ra = put(mA, A, t, lA), rb = put(mB, B, t, lB);
+    const tag = (id, r) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = (r && r.f && r.f.label ? r.f.label : "--") + (r && r.gapMin > 0 ? " (nearest ±" + r.gapMin + "m)" : "");
+    };
+    tag("cmpTagA", ra); tag("cmpTagB", rb);
+    const fe = document.getElementById("cmpFrame");
+    if (fe) fe.textContent = new Date(t).toISOString().slice(11, 16) + "Z";
+  }
+  function cmpPlay() {
+    playing = true;
+    document.getElementById("cmpPlay").textContent = "⏸";
+    cmpTimer = setInterval(() => { tIdx = (tIdx + 1) % timeline.length; showPair(); }, 1400);
+  }
+  function cmpPause() {
+    playing = false;
+    document.getElementById("cmpPlay").textContent = "⏵";
+    if (cmpTimer) { clearInterval(cmpTimer); cmpTimer = null; }
+  }
+  /* boot() fills DATA asynchronously - arm when it lands. DATA is null
+     (not merely empty) until boot's fetch resolves, so the readiness
+     check must be null-safe: dereferencing DATA.satBands here used to
+     throw and kill the whole IIFE, leaving the card inert. */
+  const cmpReady = () => !!DATA && !!DATA.satBands && Object.keys(DATA.satBands).length > 0;
+  if (cmpReady()) { arm(); }
+  else {
+    let n = 0;
+    const iv = setInterval(() => {
+      if (++n > 48) { clearInterval(iv); return; }
+      if (cmpReady() && arm()) clearInterval(iv);
+    }, 250);
+  }
+  /* soft auto-refresh replaces DATA - keep the timeline current */
+  if (typeof window.onDataRefresh === "function") {
+    const _prev = window.onDataRefresh;
+    window.onDataRefresh = d => { _prev(d); try { if (mA) rebuild(); } catch (_e) {} };
+  }
+  /* debug/test handle (harmless in prod): lets ops drive the pair */
+  window.__cmp = { get A() { return mA; }, get B() { return mB; }, rebuild, showPair };
+})();
+</script>
+
+</div>
+<footer>
+  <div id="upd" style="color:#7d8794">checking data age…</div>
+  <div id="memStrip"></div>
+  Data: National Weather Service · NOAA · RainViewer · SPC — all free, no keys.<br/>
+  Page generated Oct 11 2026 04:06 UTC · auto-updated every few minutes by the Tennessee Weather Network weather center ·
+  <a href="https://www.facebook.com/tennesseeweathernetwork" target="_blank">Facebook page</a> ·
+  <a id="fbShareFt" href="#" target="_blank" rel="noopener">📘 Post this page to Facebook</a> ·
+  <a href="fb_page.html" target="_blank">📱 Facebook post page (stand-alone)</a>
+</footer>
+<script>
+/* Facebook share: use the canonical public URL when served from it,
+   otherwise share the page's public home (localhost shares are useless) */
+(function () {
+  var pub = "https://rpleasant12.github.io/http-localhost-8765-/";
+  window.TNWN_PUBLIC_URL = pub; /* reusable share target (certificate, etc.) */
+  var here = location.origin + location.pathname;
+  var target = (location.hostname === "localhost" || location.hostname === "127.0.0.1") && pub ? pub : here;
+  var u = "https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(target);
+  ["fbShare", "fbShareFt"].forEach(function (id) {
+    var a = document.getElementById(id); if (a) a.href = u;
+  });
+})();
+/* PWA: register the service worker (shell precache + offline fallback for
+   pages and data.json; tiles/gifs/CDN pass through untouched). Relative
+   scope so it covers every page under the GitHub Pages subpath. */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("sw.js").catch(function (_e) {
+      /* SW is an enhancement - offline support silently absent on failure */
+    });
+  });
+}
+</script>
+</body></html>

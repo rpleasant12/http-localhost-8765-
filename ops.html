@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta http-equiv="refresh" content="60"/>
+<meta name="robots" content="noindex"/>
+<title>TNWN Ops</title>
+<style>
+body{margin:0;background:#0e1117;color:#d7dde6;font:14px/1.45 -apple-system,'Segoe UI',Roboto,sans-serif;padding:18px}
+h1{font-size:19px;margin:0 0 2px}
+h2{font-size:13px;color:#8b96a5;margin:18px 0 6px;text-transform:uppercase;letter-spacing:.06em}
+.stamp{color:#66707e;font-size:12px;margin:0 0 14px}
+.chip{display:inline-block;padding:1px 9px;border-radius:10px;font-size:12px;font-weight:600}
+.ok{background:#123c22;color:#4ade80}
+.warn{background:#3f3208;color:#fbbf24}
+.fail{background:#451717;color:#f87171}
+.cards{display:flex;flex-wrap:wrap;gap:8px}
+.card{background:#161b22;border:1px solid #232a33;border-radius:8px;padding:8px 12px;min-width:130px}
+.label{color:#8b96a5;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.value{font-size:17px;font-weight:600;margin-top:2px}
+.sub{color:#66707e;font-size:11px;margin-top:2px;max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+table{border-collapse:collapse;width:100%;max-width:780px}
+td,th{text-align:left;padding:4px 10px 4px 0;border-bottom:1px solid #1c232c;vertical-align:top}
+th{color:#8b96a5;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.num{text-align:right;white-space:nowrap;color:#aab4c0}
+</style></head><body>
+<h1>TNWN ops <span id="ovChip"><span class="chip fail">FAIL</span></span></h1>
+<p class="stamp" id="stamp">checked <span id="when">1 min ago (2026-10-11 01:12:47)</span> &middot; live view - re-fetches data.json every 60 s</p>
+<div class="cards"><div class="card"><div class="label">local build</div><div class="value" id="cLocal">64 min</div><div class="sub" id="cLocalSub">local build 63 min old</div></div><div class="card"><div class="label">public site</div><div class="value" id="cPublic">64 min</div><div class="sub" id="cPublicSub">public data.json 63 min old</div></div><div class="card"><div class="label">publish lag</div><div class="value" id="cLag">0 min</div><div class="sub" id="cLagSub">public site 0 min behind local build</div></div><div class="card"><div class="label">last cycle</div><div class="value" id="cCycle">455 s</div><div class="sub" id="cCycleSub">finished 60 min ago</div></div><div class="card"><div class="label">updater avg</div><div class="value" id="cAvg">382 s</div><div class="sub" id="cAvgSub">10 cycles in window</div></div></div>
+<h2>freshness checks</h2>
+<table><thead><tr><th>check</th><th>level</th><th>detail</th><th class="num">anchor age</th></tr></thead>
+<tbody id="rows"><tr><td>local build</td><td><span class="chip warn">WARN</span></td><td>local build 63 min old</td><td class="num">64 min</td></tr><tr><td>public site</td><td><span class="chip fail">FAIL</span></td><td>public data.json 63 min old</td><td class="num">64 min</td></tr><tr><td>publish lag</td><td><span class="chip ok">OK</span></td><td>public site 0 min behind local build</td><td class="num">-</td></tr><tr><td>members worker</td><td><span class="chip ok">OK</span></td><td>members worker responding</td><td class="num">1 min</td></tr><tr><td>D1 pages</td><td><span class="chip ok">OK</span></td><td>D1 pages: 16 rows, newest upload 0.1 h old, all shas current</td><td class="num">5 min</td></tr><tr><td>CF mirror</td><td><span class="chip ok">OK</span></td><td>Cloudflare mirror synced 0.0 h ago</td><td class="num">2.0 h</td></tr></tbody>
+</table>
+<p class="stamp" id="src">freshness_watch.py &rarr; docs/ops.html &middot; baked 2026-10-11 01:13 &middot; js re-renders from data.json (monitor + lastUpdate) every 60 s</p>
+<script>window.MONITOR = {"monitor":{"overall":"FAIL","checkedEpochS":1791695567,"levels":{"local_build":"WARN","gh_pages_age":"FAIL","gh_pages_lag":"OK","worker":"OK","d1_pages_age":"OK","cf_mirror":"OK"},"details":{"local_build":"local build 63 min old","gh_pages_age":"public data.json 63 min old","gh_pages_lag":"public site 0 min behind local build","worker":"members worker responding","d1_pages_age":"D1 pages: 16 rows, newest upload 0.1 h old, all shas current","cf_mirror":"Cloudflare mirror synced 0.0 h ago"},"epochs":{"local_build":1791691803.776,"gh_pages_age":1791691803.776,"gh_pages_lag":null,"worker":1791695563.289026,"d1_pages_age":1791695314.0,"cf_mirror":1791688384.2607892},"stats":{"lastDurationS":455,"ok":true,"avgDurationS":382,"cycles":10,"finishedEpochS":1791692042}}};</script>
+<script>
+(function () {
+  var BADGE = { OK: ['ok', 'OK'], WARN: ['warn', 'WARN'], FAIL: ['fail', 'FAIL'] };
+  var BAKED = window.MONITOR;   // polled data.json replaces MONITOR; keep base
+  function el(id) { return document.getElementById(id); }
+  function chip(lv) {
+    var b = BADGE[lv] || ['warn', String(lv || '?').toUpperCase()];
+    return '<span class="chip ' + b[0] + '">' + b[1] + '</span>';
+  }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function age(sec) {
+    if (!sec || sec < 0) return '-';
+    var m = sec / 60;
+    return m < 120 ? Math.round(m) + ' min' : (m / 60).toFixed(1) + ' h';
+  }
+  function epSec(ep) { return ep ? (ep > 1e12 ? ep / 1000 : ep) : 0; }
+  function fmt() {
+    // Polled data.json overlays the baked snapshot per key: an old-shape or
+    // partial monitor block (details/epochs arrive with the next build after
+    // deploy) falls back to the baked copy instead of blanking the page.
+    var src = window.MONITOR || BAKED || {};
+    var pm = src.monitor || {}, bm = (BAKED || {}).monitor || {};
+    var s = src.lastUpdate || pm.stats || bm.stats || {};
+    var now = Date.now() / 1000;
+    var lv = pm.levels || bm.levels || {},
+        det = pm.details || bm.details || {},
+        ep = pm.epochs || bm.epochs || {};
+    var chk = pm.checkedEpochS || bm.checkedEpochS || 0;
+    var stale = chk && (now - chk) > 900;
+    el('ovChip').innerHTML = chip(pm.overall || bm.overall) +
+      (stale ? ' <span class="chip fail">STALE</span>' : '');
+    el('when').textContent = chk ? age(now - chk) + ' ago' : 'no snapshot';
+    var rows = [
+      ['local build', lv.local_build, det.local_build, ep.local_build],
+      ['public site', lv.gh_pages_age, det.gh_pages_age, ep.gh_pages_age],
+      ['publish lag', lv.gh_pages_lag, det.gh_pages_lag, 0],
+      ['members worker', lv.worker, det.worker, ep.worker],
+      ['D1 pages', lv.d1_pages_age, det.d1_pages_age, ep.d1_pages_age],
+      ['CF mirror', lv.cf_mirror, det.cf_mirror, ep.cf_mirror]
+    ];
+    var h = '';
+    for (var i = 0; i < rows.length; i++) {
+      var e = epSec(rows[i][3]);
+      h += '<tr><td>' + esc(rows[i][0]) + '</td><td>' + chip(rows[i][1]) + '</td><td>' +
+           esc(rows[i][2] || '-') + '</td><td class="num">' +
+           (e ? age(now - e) : '-') + '</td></tr>';
+    }
+    el('rows').innerHTML = h;
+    var lb = epSec(ep.local_build), pb = epSec(ep.gh_pages_age);
+    el('cLocal').textContent = lb ? age(now - lb) : '-';
+    el('cLocalSub').textContent = det.local_build || '';
+    el('cPublic').textContent = pb ? age(now - pb) : '-';
+    el('cPublicSub').textContent = det.gh_pages_age || '';
+    var lagdet = det.gh_pages_lag || '';
+    el('cLag').textContent = lagdet ?
+      lagdet.replace('public site ', '').replace(' behind local build', '') : '-';
+    el('cLagSub').textContent = lagdet;
+    el('cCycle').textContent = s.lastDurationS != null ? s.lastDurationS + ' s' : '-';
+    el('cCycleSub').textContent = 'finished ' +
+      (s.finishedEpochS ? age(now - s.finishedEpochS) + ' ago' : '?') +
+      (s.ok === false ? ' - FAILED' : '');
+    el('cAvg').textContent = s.avgDurationS != null ? s.avgDurationS + ' s' : '-';
+    el('cAvgSub').textContent = (s.cycles || 0) + ' cycles in window';
+  }
+  function poll(first) {
+    var x = new XMLHttpRequest();
+    x.open('GET', 'data.json?_=' + Date.now(), true);
+    x.onload = function () {
+      if (x.status !== 200) return;
+      try { window.MONITOR = JSON.parse(x.responseText); } catch (e) { return; }
+      fmt();
+      if (!first) el('stamp').textContent = 'live - refreshed ' +
+        new Date().toLocaleTimeString() + ' - re-fetches data.json every 60 s';
+    };
+    x.send();
+  }
+  fmt();
+  poll(true);
+  setInterval(function () { poll(false); }, 60000);
+})();
+</script>
+</body></html>
