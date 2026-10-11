@@ -518,7 +518,7 @@ setTimeout(function () {
 <div class="wrap">
 
 <header class="hero"><h1>🔥 Fire Weather</h1>
-<div class="sub">SPC Fire Weather Outlooks (days 1-8) · VIIRS satellite fire detections · US Drought Monitor · Red Flag Warnings — updated 2026-10-11 12:10 AM ET</div></header>
+<div class="sub">SPC Fire Weather Outlooks (days 1-8) · VIIRS satellite fire detections · US Drought Monitor · Red Flag Warnings — updated 2026-10-11 12:31 AM ET</div></header>
 
 <div class="card">
   <div class="kpis">
@@ -543,10 +543,10 @@ setTimeout(function () {
 
 <div class="card"><h2>🛰️ Satellite fire detections - last 24 hours (NASA VIIRS)</h2>
 <div class="kpis">
-  <div class="kpi"><span>Detections CONUS</span><b style="color:#ff7043">2,246</b></div>
-  <div class="kpi"><span>Tennessee region</span><b>30</b></div>
+  <div class="kpi"><span>Detections CONUS</span><b style="color:#ff7043">866</b></div>
+  <div class="kpi"><span>Tennessee region</span><b>1</b></div>
   <div class="kpi"><span>Closest to Greeneville, TN</span><b style="color:#ffb74d">50 mi</b></div>
-  <div class="kpi"><span>Newest detection</span><b>2026-10-10 2329</b></div>
+  <div class="kpi"><span>Newest detection</span><b>2026-10-11 0147</b></div>
 </div>
 <div id="firemap" class="map-dark" style="height:420px"></div>
 <div class="legend" style="margin-top:6px">
@@ -567,7 +567,7 @@ setTimeout(function () {
 <div class="src">Wildfire safety: never burn on dry, windy days - embers travel. If a wildfire threatens, follow Tennessee Division of Forestry and local emergency-management evacuation orders immediately.</div>
 
 <script>
-const FIRMS = [{"lat": 36.129, "lon": -89.641, "bright": 355.0, "frp": 37.9, "conf": "nominal", "when": "2026-10-09 1934", "night": false}, {"lat": 35.936, "lon": -89.714, "bright": 350.0, "frp": 7.7, "conf": "nominal", "when": "2026-10-09 1934", "night": false}, {"lat": 36.128, "lon": -89.645, "bright": 347.0, "frp": 37.9, "conf": "low", "when": "2026-10-09 1934", "night": false}, {"lat": 36.527, "lon": -87.396, "bright": 341.0, "frp": 5.0, "conf": "nominal", "when": "2026-10-09 1934", "night": false}, {"lat": 34.802, "lon": -90.343, "bright": 339.0, "frp": 5.0, "conf": "low", "when": "2026-10-09 1934", "night": false}, {"lat": 35.649, "lon": -89.935, "bright": 338.0, "frp": 5.8, "conf": "nominal", "when": "2026-10-09 1934", "night": false}, {"lat": 36.712, "lon": -89.088, "bright": 336.0, "frp": 3.6, "conf": "low", "when": "2026-10-09 1934", "night": false}, {"lat": 35.98, "lon": -83.955, "bright": 334.0, "frp": 3.0, "conf": "nominal", "when": "2026-10-10 1915", "night": false}, {"lat": 35.935, "lon": -89.714, "bright": 333.0, "frp": 3.1, "conf": "nominal", "when": "2026-10-09 0813", "night": true}, {"lat": 36.848, "lon": -90.271, "bright": 333.0, "frp": 3.4, "conf": "nominal", "when": "2026-10-09 1936", "night": false}, {"lat": 36.524, "lon": -87.395, "bright": 331.0, "frp": 7.9, "conf": "low", "when": "2026-10-09 1934", "night": false}, {"lat": 35.648, "lon": -89.935, "bright": 328.0, "frp": 1.9, "conf": "nominal", "when": "2026-10-09 0813", "night": true}, {"lat": 34.981, "lon": -90.038, "bright": 311.0, "frp": 1.0, "conf": "nominal", "when": "2026-10-09 0816", "night": true}, {"lat": 35.066, "lon": -90.147, "bright": 310.0, "frp": 0.7, "conf": "nominal", "when": "2026-10-09 0813", "night": true}, {"lat": 35.044, "lon": -90.163, "bright": 309.0, "frp": 0.8, "conf": "nominal", "when": "2026-10-09 0813", "night": true}, {"lat": 35.942, "lon": -89.712, "bright": 308.0, "frp": 1.1, "conf": "nominal", "when": "2026-10-09 0813", "night": true}, {"lat": 35.608, "lon": -89.943, "bright": 307.0, "frp": 0.7, "conf": "nominal", "when": "2026-10-09 0813", "night": true}, {"lat": 35.264, "lon": -87.72, "bright": 305.0, "frp": 1.5, "conf": "nominal", "when": "2026-10-09 0813", "night": true}, {"lat": 35.609, "lon": -89.948, "bright": 304.0, "frp": 0.7, "conf": "nominal", "when": "2026-10-09 0813", "night": true}, {"lat": 34.803, "lon": -88.322, "bright": 304.0, "frp": 1.1, "conf": "nominal", "when": "2026-10-09 0813", "night": true}, {"lat": 34.982, "lon": -90.042, "bright": 304.0, "frp": 1.0, "conf": "nominal", "when": "2026-10-09 0816", "night": true}, {"lat": 35.938, "lon": -89.713, "bright": 303.0, "frp": 3.1, "conf": "nominal", "when": "2026-10-09 0813", "night": true}, {"lat": 35.671, "lon": -89.963, "bright": 303.0, "frp": 0.7, "conf": "nominal", "when": "2026-10-09 0813", "night": true}, {"lat": 35.048, "lon": -90.167, "bright": 303.0, "frp": 1.4, "conf": "nominal", "when": "2026-10-09 0813", "night": true}, {"lat": 34.876, "lon": -88.428, "bright": 302.0, "frp": 0.8, "conf": "nominal", "when": "2026-10-09 0813", "night": true}, {"lat": 35.945, "lon": -89.711, "bright": 301.0, "frp": 1.1, "conf": "nominal", "when": "2026-10-09 0813", "night": true}, {"lat": 35.642, "lon": -89.942, "bright": 301.0, "frp": 1.2, "conf": "nominal", "when": "2026-10-09 0813", "night": true}, {"lat": 36.655, "lon": -88.24, "bright": 299.0, "frp": 0.9, "conf": "nominal", "when": "2026-10-09 0813", "night": true}, {"lat": 36.318, "lon": -86.395, "bright": 298.0, "frp": 1.1, "conf": "nominal", "when": "2026-10-09 0813", "night": true}, {"lat": 36.035, "lon": -87.984, "bright": 297.0, "frp": 0.5, "conf": "nominal", "when": "2026-10-09 0813", "night": true}];
+const FIRMS = [{"lat": 35.98, "lon": -83.955, "bright": 334.0, "frp": 3.0, "conf": "nominal", "when": "2026-10-10 1915", "night": false}];
 async function fireBoot() {
   DATA = await (await fetch(dataUrl(), {cache: "no-store"})).json();
   document.title = DATA.pageName + " - Fire";
@@ -591,7 +591,7 @@ fireBoot();
   <div id="upd" style="color:#7d8794">checking data age…</div>
   <div id="memStrip"></div>
   Data: National Weather Service · NOAA · RainViewer · SPC — all free, no keys.<br/>
-  Page generated Oct 11 2026 04:06 UTC · auto-updated every few minutes by the Tennessee Weather Network weather center ·
+  Page generated Oct 11 2026 04:28 UTC · auto-updated every few minutes by the Tennessee Weather Network weather center ·
   <a href="https://www.facebook.com/tennesseeweathernetwork" target="_blank">Facebook page</a> ·
   <a id="fbShareFt" href="#" target="_blank" rel="noopener">📘 Post this page to Facebook</a> ·
   <a href="fb_page.html" target="_blank">📱 Facebook post page (stand-alone)</a>

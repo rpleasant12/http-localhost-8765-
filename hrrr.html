@@ -623,10 +623,10 @@ setTimeout(function () {
 </script>
 
 <header class="hero"><h1>⚡ <span style="color:var(--acc)">HRRR · RRFS</span></h1>
-<div class="sub">3-km convection-allowing models: SPC's official HRRR browser + our own RRFS/HRRR MetPy renders · free, no keys · updated 2026-10-11 12:10 AM ET</div></header>
+<div class="sub">3-km convection-allowing models: SPC's official HRRR browser + our own RRFS/HRRR MetPy renders · free, no keys · updated 2026-10-11 12:31 AM ET</div></header>
 
 <div class="card">
-  <h2>📡 RRFS radar <span class="src" style="font-weight:400">simulated composite reflectivity · our MetPy render from NOAA 3-km GRIB · <span id="zAge">HRRR init 10/11 02Z · 2 h old · RRFS init 10/11 00Z · 4 h old · updated 10/11 12:13 AM ET</span></span></h2>
+  <h2>📡 RRFS radar <span class="src" style="font-weight:400">simulated composite reflectivity · our MetPy render from NOAA 3-km GRIB · <span id="zAge">HRRR init 10/11 03Z · 3 h old · RRFS init 10/11 03Z · 3 h old · updated 10/11 01:39 AM ET</span></span></h2>
   <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
     <label class="src" style="margin:0">Area</label>
     <select id="zRegion"><option value="etn">East Tennessee</option><option value="us">US (CONUS)</option></select>
@@ -644,7 +644,7 @@ setTimeout(function () {
 
 
 <div class="card">
-  <h2>⏱️ RAP nowcast <span class="src" style="font-weight:400">newest hourly Rapid Refresh init Sat 10 PM ET · radar / CAPE + wind / hourly QPF / temp + dew point · next 3 h at 13 km · updates every hour · our MetPy render from NOAA open data</span></h2>
+  <h2>⏱️ RAP nowcast <span class="src" style="font-weight:400">newest hourly Rapid Refresh init Sun 12 AM ET · radar / CAPE + wind / hourly QPF / temp + dew point · next 3 h at 13 km · updates every hour · our MetPy render from NOAA open data</span></h2>
   <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
     <label class="src" style="margin:0">Product</label>
     <select id="rnProd"><option value="refc">Simulated radar (composite reflectivity)</option><option value="cape_wind">SBCAPE + 10 m wind</option><option value="qpf">Hourly QPF</option><option value="tmpdew">Temperature / dew point</option></select>
@@ -659,8 +659,8 @@ setTimeout(function () {
   <p class="src" style="margin-top:6px">RAP publishes every hour, ~45 min after init - the freshest model guidance on this page for the next 3 hours. When HRRR/RRFS are holding on an old cycle during NOAA lag, this card still rolls.</p>
 </div>
 <script>
-const RN_FRAMES = {"refc": ["rapnow/rap_refc_f000_2026101102_etn.png", "rapnow/rap_refc_f001_2026101102_etn.png", "rapnow/rap_refc_f002_2026101102_etn.png", "rapnow/rap_refc_f003_2026101102_etn.png"], "cape_wind": ["rapnow/rap_cape_wind_f000_2026101102_etn.png", "rapnow/rap_cape_wind_f001_2026101102_etn.png", "rapnow/rap_cape_wind_f002_2026101102_etn.png", "rapnow/rap_cape_wind_f003_2026101102_etn.png"], "qpf": ["rapnow/rap_qpf_f001_2026101102_etn.png", "rapnow/rap_qpf_f002_2026101102_etn.png", "rapnow/rap_qpf_f003_2026101102_etn.png"], "tmpdew": ["rapnow/rap_tmpdew_f000_2026101102_etn.png", "rapnow/rap_tmpdew_f001_2026101102_etn.png", "rapnow/rap_tmpdew_f002_2026101102_etn.png", "rapnow/rap_tmpdew_f003_2026101102_etn.png"]};
-const RN_LBLS = {"refc": ["F000 \u00b7 2026-10-10 10 PM ET", "F001 \u00b7 2026-10-10 11 PM ET", "F002 \u00b7 2026-10-11 12 AM ET", "F003 \u00b7 2026-10-11 1 AM ET"], "cape_wind": ["F000 \u00b7 2026-10-10 10 PM ET", "F001 \u00b7 2026-10-10 11 PM ET", "F002 \u00b7 2026-10-11 12 AM ET", "F003 \u00b7 2026-10-11 1 AM ET"], "qpf": ["F001 \u00b7 2026-10-10 11 PM ET", "F002 \u00b7 2026-10-11 12 AM ET", "F003 \u00b7 2026-10-11 1 AM ET"], "tmpdew": ["F000 \u00b7 2026-10-10 10 PM ET", "F001 \u00b7 2026-10-10 11 PM ET", "F002 \u00b7 2026-10-11 12 AM ET", "F003 \u00b7 2026-10-11 1 AM ET"]};
+const RN_FRAMES = {"refc": ["rapnow/rap_refc_f000_2026101104_etn.png", "rapnow/rap_refc_f001_2026101104_etn.png", "rapnow/rap_refc_f002_2026101104_etn.png", "rapnow/rap_refc_f003_2026101104_etn.png"], "cape_wind": ["rapnow/rap_cape_wind_f000_2026101104_etn.png", "rapnow/rap_cape_wind_f001_2026101104_etn.png", "rapnow/rap_cape_wind_f002_2026101104_etn.png", "rapnow/rap_cape_wind_f003_2026101104_etn.png"], "qpf": ["rapnow/rap_qpf_f001_2026101104_etn.png", "rapnow/rap_qpf_f002_2026101104_etn.png", "rapnow/rap_qpf_f003_2026101104_etn.png"], "tmpdew": ["rapnow/rap_tmpdew_f000_2026101104_etn.png", "rapnow/rap_tmpdew_f001_2026101104_etn.png", "rapnow/rap_tmpdew_f002_2026101104_etn.png", "rapnow/rap_tmpdew_f003_2026101104_etn.png"]};
+const RN_LBLS = {"refc": ["F000 \u00b7 2026-10-11 12 AM ET", "F001 \u00b7 2026-10-11 1 AM ET", "F002 \u00b7 2026-10-11 2 AM ET", "F003 \u00b7 2026-10-11 3 AM ET"], "cape_wind": ["F000 \u00b7 2026-10-11 12 AM ET", "F001 \u00b7 2026-10-11 1 AM ET", "F002 \u00b7 2026-10-11 2 AM ET", "F003 \u00b7 2026-10-11 3 AM ET"], "qpf": ["F001 \u00b7 2026-10-11 1 AM ET", "F002 \u00b7 2026-10-11 2 AM ET", "F003 \u00b7 2026-10-11 3 AM ET"], "tmpdew": ["F000 \u00b7 2026-10-11 12 AM ET", "F001 \u00b7 2026-10-11 1 AM ET", "F002 \u00b7 2026-10-11 2 AM ET", "F003 \u00b7 2026-10-11 3 AM ET"]};
 let rnTimer = null;
 function rnKey() { return document.getElementById("rnProd").value; }
 function rnFill() {
@@ -709,7 +709,7 @@ if (RN_FRAMES && Object.keys(RN_FRAMES).length) rnFill();
 </script>
 
 <div class="card">
-  <h2>⚔️ HRRR vs RRFS <span class="src" style="font-weight:400">side-by-side · same valid time · where the two 3-km CAMs disagree · <span id="cAge">HRRR init 10/11 02Z · 2 h old · RRFS init 10/11 00Z · 4 h old · updated 10/11 12:13 AM ET</span></span></h2>
+  <h2>⚔️ HRRR vs RRFS <span class="src" style="font-weight:400">side-by-side · same valid time · where the two 3-km CAMs disagree · <span id="cAge">HRRR init 10/11 03Z · 3 h old · RRFS init 10/11 03Z · 3 h old · updated 10/11 01:39 AM ET</span></span></h2>
   <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
     <label class="src" style="margin:0">Product</label>
     <select id="cProd"></select>
@@ -800,7 +800,7 @@ if (RN_FRAMES && Object.keys(RN_FRAMES).length) rnFill();
 /* filled by onDataRefresh: SITE_DATA is still null while this script
    parses (data.json loads async), so the payload always arrives late */
 let SHR = {}, REND = [], CMP = [], sBooted = false;
-let DATA_STAMP = "2026-10-11 12:10 AM ET";
+let DATA_STAMP = "2026-10-11 12:31 AM ET";
 const cycLbl = s => s.slice(4,6) + "/" + s.slice(6,8) + " " + s.slice(8,10) + "Z";
 
 /* ---------------- RRFS simulated-radar player ---------------- */
@@ -1135,7 +1135,7 @@ rFill();
   <div id="upd" style="color:#7d8794">checking data age…</div>
   <div id="memStrip"></div>
   Data: National Weather Service · NOAA · RainViewer · SPC — all free, no keys.<br/>
-  Page generated Oct 11 2026 04:06 UTC · auto-updated every few minutes by the Tennessee Weather Network weather center ·
+  Page generated Oct 11 2026 04:28 UTC · auto-updated every few minutes by the Tennessee Weather Network weather center ·
   <a href="https://www.facebook.com/tennesseeweathernetwork" target="_blank">Facebook page</a> ·
   <a id="fbShareFt" href="#" target="_blank" rel="noopener">📘 Post this page to Facebook</a> ·
   <a href="fb_page.html" target="_blank">📱 Facebook post page (stand-alone)</a>
