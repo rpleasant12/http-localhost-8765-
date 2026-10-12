@@ -9859,19 +9859,62 @@ _PREM_GATED_PAGES = {"severe.html": "Severe", "storms.html": "Storms",
                      "education.html": "Education", "fieldguide.html": "Field Guide"}
 
 
-def _prem_shell_page(fname, title, storm=False):
+def _prem_preview(fname, full_html):
+    """Free teaser card for a gated page's public shell.
+
+    A pure paywall gave non-members nothing (2026-10-08): the winter shell
+    now shows the WPC Day 1 snow outlook, mirrored from NOAA and already
+    shipped on the public site by data.winter's hourly mirror (the SAME
+    copy the packager serves at winter/wpc/...). Parsing it out of the
+    full page keeps the teaser in lockstep with whatever the mirror
+    currently carries - no second fetch, no second source of truth.
+    Only public, already-shipped assets may appear here; anything that
+    would leak premium-only imagery must stay out.
+    """
+    if fname != "winter.html":
+        return ""
+    try:
+        m = re.search(
+            r'<figure class="wpcfig"><img[^>]+src="[^"]*day1_psnow_gt_01_conus\.gif"[^>]*/>'
+            r'<figcaption>([^<]*)</figcaption></figure>',
+            full_html)
+        if not m:
+            return ""
+        # The tile markup already HTML-escaped its label (">" -> "&gt;");
+        # unescape first so escaping below doesn't double-encode ("&amp;gt;").
+        label = html.unescape(m.group(1))
+        return (
+            '<h2>🌨️ Free preview - WPC Day 1 snow outlook (national)</h2>'
+            '<div class="src">Weather Prediction Center probability of at least 1 inch of '
+            'snow through tonight - mirrored live from NOAA. The full winter center adds '
+            'Days 2-3, ice, the HRRR snow/ice maps, every model\'s snowfall and the '
+            'CPC seasonal outlooks.</div>'
+            '<figure class="wpcfig" style="max-width:520px">'
+            '<img loading="lazy" src="../winter/wpc/day1_psnow_gt_01_conus.gif" '
+            f'alt="{html.escape(label)}"/>'
+            f'<figcaption>{html.escape(label)} - free for everyone</figcaption></figure>'
+        )
+    except Exception:                          # noqa: BLE001 - teaser is optional
+        return ""
+
+
+def _prem_shell_page(fname, title, storm=False, preview_html=""):
     """Public locked shell for a gated center or storm-archive page. Premium
     visitors are bounced to the worker copy automatically; everyone else
-    sees the upgrade CTA."""
+    sees the upgrade CTA. preview_html (optional) adds a genuinely-free
+    teaser card so the shell is useful, not just a paywall - it must only
+    reference public assets the packager already ships."""
     price = getattr(config, "PREMIUM_PRICE_LABEL", "$4.99/mo")
     worker = getattr(config, "MEMBER_WORKER_URL", "")
     dest = worker.rstrip("/") + "/p/" + fname
     _what = "storm archive page" if storm else "center"
     _thing = "page" if storm else "center"
+    preview_card = (f'<div class="card">{preview_html}</div>' if preview_html else "")
     body = f"""
 <header class="hero"><h1>🔒 {html.escape(title)} <span style="color:var(--acc)">Premium</span></h1>
 <div class="sub">The full {html.escape(title)} {_what} is part of ⭐ TNWN Premium - {price}, cancel anytime.</div></header>
 
+{preview_card}
 <div class="card">
 <h2>🔒 Premium {_thing}</h2>
 <p class="src">Free members keep radar, forecasts and core models; premium adds this {_thing}, the other premium weather centers, advanced AI model maps and the CFSv2 long-range library.</p>
@@ -14776,7 +14819,9 @@ def generate_site():
             os.replace(_ftmp, _full)
             _ptitle = _PREM_GATED_PAGES.get(_pf) or extra_titles.get(_pf) \
                 or "Storm archive"
-            pages[_pf] = _prem_shell_page(_pf, _ptitle, storm=_is_storm)
+            pages[_pf] = _prem_shell_page(
+                _pf, _ptitle, storm=_is_storm,
+                preview_html=_prem_preview(_pf, pages[_pf]))
         for name, content in pages.items():
             ptmp = os.path.join(SITE_DIR, name + ".tmp")
             with open(ptmp, "w", encoding="utf-8") as f:
