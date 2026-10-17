@@ -518,7 +518,7 @@ setTimeout(function () {
 <div class="wrap">
 
 <header class="hero"><h1>🌡️ Observations & Skew-T</h1>
-<div class="sub">Live METARs for East Tennessee, Southwest VA & Western NC — plus the whole US · city board · RAP 13 km soundings at 8 locations · updated <span id="obsStamp">2026-10-17 3:10 PM ET</span></div></header>
+<div class="sub">Live METARs for East Tennessee, Southwest VA & Western NC — plus the whole US · city board · RAP 13 km soundings at 8 locations · updated <span id="obsStamp">2026-10-17 3:12 PM ET</span></div></header>
 
 <div class="card">
   <div id="map" class="map-dark"></div>
@@ -546,7 +546,7 @@ setTimeout(function () {
 </div>
 
 <script>
-const SND = {"hours": {"Greeneville, TN": {"0": {"url": "soundings/rap_bb28654185b8.png", "meta": {"cycle": "2026-10-17 2 PM ET", "fh": 1, "valid": "2026-10-17 3 PM ET"}}, "6": {"url": "soundings/rap_5cd50f604c07.png", "meta": {"cycle": "2026-10-17 2 PM ET", "fh": 7, "valid": "2026-10-17 9 PM ET"}}, "12": {"url": "soundings/rap_1c8cf0a79cdf.png", "meta": {"cycle": "2026-10-17 2 PM ET", "fh": 13, "valid": "2026-10-18 3 AM ET"}}, "18": {"url": "soundings/rap_5acb8920ef3f.png", "meta": {"cycle": "2026-10-17 12 PM ET", "fh": 18, "valid": "2026-10-18 6 AM ET"}}}, "Knoxville TN": {"0": {"url": "soundings/rap_c62b3f1dff98.png", "meta": {"cycle": "2026-10-17 2 PM ET", "fh": 1, "valid": "2026-10-17 3 PM ET"}}, "6": {"url": "soundings/rap_064b0447ff43.png", "meta": {"cycle": "2026-10-17 2 PM ET", "fh": 7, "valid": "2026-10-17 9 PM ET"}}, "12": {"url": "soundings/rap_0b7ac040dc07.png", "meta": {"cycle": "2026-10-17 2 PM ET", "fh": 13, "valid": "2026-10-18 3 AM ET"}}}}, "locations": {"Greeneville, TN": {"lat": 36.1627, "lon": -82.8332}, "Knoxville TN": {"lat": 35.9606, "lon": -83.9207}, "Tri-Cities TN": {"lat": 36.3134, "lon": -82.3573}, "Chattanooga TN": {"lat": 35.0456, "lon": -85.3097}, "Nashville TN": {"lat": 36.1628, "lon": -86.7816}, "Crossville TN": {"lat": 35.9479, "lon": -85.0269}, "Oak Ridge TN": {"lat": 35.9903, "lon": -84.2853}, "Atlanta GA": {"lat": 33.6407, "lon": -84.4277}}};
+const SND = {"hours": {"Greeneville, TN": {"0": {"url": "soundings/rap_bb28654185b8.png", "meta": {"cycle": "2026-10-17 2 PM ET", "fh": 1, "valid": "2026-10-17 3 PM ET"}}, "6": {"url": "soundings/rap_5cd50f604c07.png", "meta": {"cycle": "2026-10-17 2 PM ET", "fh": 7, "valid": "2026-10-17 9 PM ET"}}, "12": {"url": "soundings/rap_1c8cf0a79cdf.png", "meta": {"cycle": "2026-10-17 2 PM ET", "fh": 13, "valid": "2026-10-18 3 AM ET"}}, "18": {"url": "soundings/rap_5acb8920ef3f.png", "meta": {"cycle": "2026-10-17 12 PM ET", "fh": 18, "valid": "2026-10-18 6 AM ET"}}}, "Knoxville TN": {"0": {"url": "soundings/rap_c62b3f1dff98.png", "meta": {"cycle": "2026-10-17 2 PM ET", "fh": 1, "valid": "2026-10-17 3 PM ET"}}, "6": {"url": "soundings/rap_064b0447ff43.png", "meta": {"cycle": "2026-10-17 2 PM ET", "fh": 7, "valid": "2026-10-17 9 PM ET"}}, "12": {"url": "soundings/rap_0b7ac040dc07.png", "meta": {"cycle": "2026-10-17 2 PM ET", "fh": 13, "valid": "2026-10-18 3 AM ET"}}, "18": {"url": "soundings/rap_d0ebd93859c0.png", "meta": {"cycle": "2026-10-17 12 PM ET", "fh": 18, "valid": "2026-10-18 6 AM ET"}}}, "Tri-Cities TN": {"0": {"url": "soundings/rap_06ddd2fd9cf3.png", "meta": {"cycle": "2026-10-17 2 PM ET", "fh": 1, "valid": "2026-10-17 3 PM ET"}}}}, "locations": {"Greeneville, TN": {"lat": 36.1627, "lon": -82.8332}, "Knoxville TN": {"lat": 35.9606, "lon": -83.9207}, "Tri-Cities TN": {"lat": 36.3134, "lon": -82.3573}, "Chattanooga TN": {"lat": 35.0456, "lon": -85.3097}, "Nashville TN": {"lat": 36.1628, "lon": -86.7816}, "Crossville TN": {"lat": 35.9479, "lon": -85.0269}, "Oak Ridge TN": {"lat": 35.9903, "lon": -84.2853}, "Atlanta GA": {"lat": 33.6407, "lon": -84.4277}}};
 /* city board: one renderer used by boot AND every soft refresh, with
    clickable column sorts and prev-observation trend arrows. Sort state
    survives refreshes; arrows come from prevTempF computed at build time. */
@@ -680,7 +680,7 @@ function onDataRefresh(d2) {
   <div id="upd" style="color:#7d8794">checking data age…</div>
   <div id="memStrip"></div>
   Data: National Weather Service · NOAA · RainViewer · SPC — all free, no keys.<br/>
-  Page generated Oct 17 2026 19:08 UTC · auto-updated every few minutes by the Tennessee Weather Network weather center ·
+  Page generated Oct 17 2026 19:11 UTC · auto-updated every few minutes by the Tennessee Weather Network weather center ·
   <a href="https://www.facebook.com/tennesseeweathernetwork" target="_blank">Facebook page</a> ·
   <a id="fbShareFt" href="#" target="_blank" rel="noopener">📘 Post this page to Facebook</a> ·
   <a href="fb_page.html" target="_blank">📱 Facebook post page (stand-alone)</a>
