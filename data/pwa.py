@@ -31,7 +31,8 @@ STABLE_PAGES = [
     "rivers.html", "obs.html", "national.html", "climate.html",
     "storms.html", "dashboard.html", "charts.html",
     "hrrr.html", "gefs.html", "meso.html", "fronts.html", "enso.html",
-    "education.html", "fieldguide.html", "history.html", "status.html",
+    "education.html", "fieldguide.html", "winterguide.html", "tropicalguide.html",
+    "history.html", "status.html",
     "pricing.html", "member.html", "admin.html",
 ]
 # membership client, shipped verbatim as a generated asset (static/ is a

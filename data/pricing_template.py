@@ -235,7 +235,7 @@ footer{text-align:center;color:var(--dim);font-size:12.5px;padding:20px 8px 30px
         <li><span class="check">✓</span>National weather</li>
         <li><span class="check">✓</span>GFS, NAM, HRRR & ECMWF staples</li>
         <li><span class="check">✓</span>Fronts, fire, rivers & climate centers</li>
-        <li><span class="star">★</span>Education & Field Guide <span class="premium-lock">PREMIUM</span></li>
+        <li><span class="star">★</span>Education &amp; Field Guides <span class="premium-lock">PREMIUM</span></li>
         <li><span class="check">✓</span>Free account access</li>
         <li>• Ad-supported</li>
       </ul>
@@ -249,6 +249,7 @@ footer{text-align:center;color:var(--dim);font-size:12.5px;padding:20px 8px 30px
         <li><span class="star">★</span>Severe & Storms Center</li>
         <li><span class="star">★</span>NHC Tropical Center</li>
         <li><span class="star">★</span>Winter Weather Center</li>
+        <li><span class="star">★</span>Winter &amp; Tropical Field Guides</li>
         <li><span class="star">★</span>Advanced AI model maps</li>
         <li><span class="star">★</span>CFSv2 long-range analysis</li>
         <li><span class="star">★</span>Ad-free everywhere</li>
@@ -307,9 +308,9 @@ footer{text-align:center;color:var(--dim);font-size:12.5px;padding:20px 8px 30px
 
     <article class="feature">
       <div class="icon">🧭</div>
-      <h3>Field Guide <span class="premium-lock">PREMIUM</span></h3>
-      <p>Use the TNWN field guide for clouds, storms, weather observations, identification and practical weather reference material.</p>
-      <div class="tags"><span class="tag">Clouds</span><span class="tag">Storms</span><span class="tag">Observation</span></div>
+      <h3>Field Guides <span class="premium-lock">PREMIUM</span></h3>
+      <p>Beyond the Storm Chaser's field guide: the Winter and Tropical field guides teach snow/ice guidance reading and hurricane cone/model reading, each with a graded quiz and print-and-carry field card.</p>
+      <div class="tags"><span class="tag">Storms</span><span class="tag">Winter</span><span class="tag">Tropical</span></div>
     </article>
 
     <article class="feature">
@@ -342,7 +343,7 @@ footer{text-align:center;color:var(--dim);font-size:12.5px;padding:20px 8px 30px
   </div>
 
   <section class="faq">
-    <details><summary>Is the basic weather service still free?</summary><p>Yes. Tennessee Weather Network keeps the core weather experience free, including current conditions, forecasts, radar and core weather information. Education and Field Guide are Premium features.</p></details>
+    <details><summary>Is the basic weather service still free?</summary><p>Yes. Tennessee Weather Network keeps the core weather experience free, including current conditions, forecasts, radar and core weather information. Education and the Field Guides are Premium features.</p></details>
     <details><summary>How much is Premium?</summary><p>Choose from $4.99 monthly, $24.95 for 6 months with 1 month free, or $49.90 annually with 2 months free.</p></details>
     <details><summary>Can I cancel?</summary><p>Yes. Premium is intended to be cancellable at any time through the account/subscription system.</p></details>
     <details><summary>Does Premium remove ads?</summary><p>Yes. Active Premium accounts are recognized by the site and Premium members receive the ad-free benefit.</p></details>

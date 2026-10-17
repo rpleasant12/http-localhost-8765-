@@ -4998,7 +4998,8 @@ def _page(title, active, body, extra_head="", feed_strip=False):
             ("meso.html", "Mesoanalysis"), ("charts.html", "Charts & MOS"))),
         ("Storms & Seasons", (
             ("severe.html", "Severe ⭐"), ("storms.html", "Storms ⭐"),
-            ("tropical.html", "NHC ⭐"), ("winter.html", "Winter Forecast ⭐"),
+            ("tropical.html", "NHC ⭐"), ("tropicalguide.html", "Tropical Guide ⭐"),
+            ("winter.html", "Winter Forecast ⭐"), ("winterguide.html", "Winter Guide ⭐"),
             ("fronts.html", "Fronts"), ("fire.html", "Fire"),
             ("rivers.html", "Rivers"), ("history.html", "History"))),
         ("Climate & Learn", (
@@ -9856,6 +9857,8 @@ def _prem_page_url(fname):
 # marks them PREMIUM; owner confirmed).
 _PREM_GATED_PAGES = {"severe.html": "Severe", "storms.html": "Storms",
                      "tropical.html": "NHC", "winter.html": "Winter",
+                     "winterguide.html": "Winter Field Guide",
+                     "tropicalguide.html": "Tropical Field Guide",
                      "education.html": "Education", "fieldguide.html": "Field Guide"}
 
 
@@ -9868,32 +9871,75 @@ def _prem_preview(fname, full_html):
     copy the packager serves at winter/wpc/...). Parsing it out of the
     full page keeps the teaser in lockstep with whatever the mirror
     currently carries - no second fetch, no second source of truth.
+    the field guides (2026-10-17) follow the same rule: shell teasers pick
+    only figures whose images the packager already ships publicly (the WPC
+    mirror for the winter guide, the free Trop Models page's intensity
+    render for the tropical guide).
     Only public, already-shipped assets may appear here; anything that
     would leak premium-only imagery must stay out.
     """
-    if fname != "winter.html":
-        return ""
     try:
-        m = re.search(
-            r'<figure class="wpcfig"><img[^>]+src="[^"]*day1_psnow_gt_01_conus\.gif"[^>]*/>'
-            r'<figcaption>([^<]*)</figcaption></figure>',
-            full_html)
-        if not m:
-            return ""
-        # The tile markup already HTML-escaped its label (">" -> "&gt;");
-        # unescape first so escaping below doesn't double-encode ("&amp;gt;").
-        label = html.unescape(m.group(1))
-        return (
-            '<h2>🌨️ Free preview - WPC Day 1 snow outlook (national)</h2>'
-            '<div class="src">Weather Prediction Center probability of at least 1 inch of '
-            'snow through tonight - mirrored live from NOAA. The full winter center adds '
-            'Days 2-3, ice, the HRRR snow/ice maps, every model\'s snowfall and the '
-            'CPC seasonal outlooks.</div>'
-            '<figure class="wpcfig" style="max-width:520px">'
-            '<img loading="lazy" src="../winter/wpc/day1_psnow_gt_01_conus.gif" '
-            f'alt="{html.escape(label)}"/>'
-            f'<figcaption>{html.escape(label)} - free for everyone</figcaption></figure>'
-        )
+        if fname == "winter.html":
+            m = re.search(
+                r'<figure class="wpcfig"><img[^>]+src="[^"]*day1_psnow_gt_01_conus\.gif"[^>]*/>'
+                r'<figcaption>([^<]*)</figcaption></figure>',
+                full_html)
+            if not m:
+                return ""
+            # The tile markup already HTML-escaped its label (">" -> "&gt;");
+            # unescape first so escaping below doesn't double-encode ("&amp;gt;").
+            label = html.unescape(m.group(1))
+            return (
+                '<h2>🌨️ Free preview - WPC Day 1 snow outlook (national)</h2>'
+                '<div class="src">Weather Prediction Center probability of at least 1 inch of '
+                'snow through tonight - mirrored live from NOAA. The full winter center adds '
+                'Days 2-3, ice, the HRRR snow/ice maps, every model\'s snowfall and the '
+                'CPC seasonal outlooks.</div>'
+                '<figure class="wpcfig" style="max-width:520px">'
+                '<img loading="lazy" src="../winter/wpc/day1_psnow_gt_01_conus.gif" '
+                f'alt="{html.escape(label)}"/>'
+                f'<figcaption>{html.escape(label)} - free for everyone</figcaption></figure>'
+            )
+        if fname == "winterguide.html":
+            m = re.search(
+                r'<figure class="wpcfig"><img[^>]+src="[^"]*day1_composite\.gif"[^>]*/>'
+                r'<figcaption>([^<]*)</figcaption></figure>',
+                full_html)
+            if not m:
+                return ""
+            label = html.unescape(m.group(1))
+            return (
+                '<h2>🌨️ Free preview - WPC Day 1 winter composite (national)</h2>'
+                '<div class="src">The Weather Prediction Center\'s Day 1 winter desk composite '
+                '- snow and ice probabilities on one map, mirrored live from NOAA. The full '
+                'guide teaches the whole winter-read skill set: snow ratios, model blending, '
+                'banding radar signatures, ice thresholds and the seasonal tilt maps.</div>'
+                '<figure class="wpcfig" style="max-width:520px">'
+                '<img loading="lazy" src="../winter/wpc/day1_composite.gif" '
+                f'alt="{html.escape(label)}"/>'
+                f'<figcaption>{html.escape(label)} - free for everyone</figcaption></figure>'
+            )
+        if fname == "tropicalguide.html":
+            m = re.search(
+                r'<figure class="tropfig"><img[^>]+src="([^"]*)"[^>]*/>'
+                r'<figcaption>([^<]*)</figcaption></figure>',
+                full_html)
+            if not m:
+                return ""
+            src = html.unescape(m.group(1))
+            label = html.unescape(m.group(2))
+            return (
+                '<h2>🌀 Free preview - live storm intensity forecast (all models)</h2>'
+                '<div class="src">Every model\'s intensity spread for the current system - a '
+                'render the free Trop Models page already serves everyone. The full guide '
+                'teaches how to read cones, wind radii, fuel/shear checks, ensemble track '
+                'fans and the inland-flood threat that matters most in East Tennessee.</div>'
+                '<figure class="tropfig" style="max-width:520px">'
+                f'<img loading="lazy" src="{html.escape(src, quote=True)}" '
+                f'alt="{html.escape(label)}"/>'
+                f'<figcaption>{html.escape(label)} - free for everyone</figcaption></figure>'
+            )
+        return ""
     except Exception:                          # noqa: BLE001 - teaser is optional
         return ""
 
@@ -11937,6 +11983,157 @@ boot();
     return _page("Severe", "severe.html", body, feed_strip=True)
 
 
+# ------------------------------------------------------------------
+# Guide quiz kit (2026-10-17): the Field Guide's graded "read the map"
+# quiz, shared by the new Winter + Tropical field guides - same markup
+# and grading JS, with a per-guide answer key + localStorage entry.
+# ------------------------------------------------------------------
+def _quiz_cards(qs):
+    """MC quiz markup; tuples are
+    (chip_prod, chip_val, question, options, correct_idx, why). val=None
+    skips the chip (winter/tropical scenarios carry their values in prose)."""
+    def _chip(prod, val):
+        if val is None:
+            return ""
+        if val < 0.5: c, t = "#c1e9c1", "#1a1a1a"
+        elif val < 1.0: c, t = "#66bb6a", "#1a1a1a"
+        elif val < 2.0: c, t = "#fff176", "#1a1a1a"
+        elif val < 3.0: c, t = "#ffa726", "#1a1a1a"
+        elif val < 4.0: c, t = "#ef5350", "#ffffff"
+        else: c, t = "#ff00ff", "#1a1a1a"
+        return (f'<span style="display:inline-block;background:{c};color:{t};font-weight:700;'
+                f'padding:2px 10px;border-radius:4px;border:1px solid #555;margin-right:6px">{prod} {val:.1f}</span>')
+
+    return "".join(
+        f'<div class="fgq" data-correct="{ci}" data-why="{html.escape(why)}" style="margin:12px 0">'
+        f'<b>{i}. {_chip(prod, val)}{html.escape(scn)}</b>'
+        + "".join(
+            f'<label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px">'
+            f'<input type="radio" name="fgq{i}" value="{j}" style="accent-color:#42a5f5;cursor:pointer"> {html.escape(o)}</label>'
+            for j, o in enumerate(opts))
+        + "</div>"
+        for i, (prod, val, scn, opts, ci, why) in enumerate(qs, 1))
+
+
+def _quiz_js(key, pass_n, victory):
+    """Grading script for _quiz_block: green-correct / red-picked marks,
+    per-question whys, best score in localStorage under `key`."""
+    js = """
+<script>
+(function () {
+  var KEY = '__B_KEY__';
+  var qs = Array.prototype.slice.call(document.querySelectorAll('.fgq'));
+  var PASS = __B_PASS__;
+  function best() { try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { return null; } }
+  function paintBest() {
+    var el = document.getElementById('fg-best'), b = best();
+    if (el) el.textContent = b ? ('best: ' + b.score + ' / ' + qs.length + ' (' + b.pct + '%)' + (b.score >= PASS ? ' ✓' : '')) : 'no attempts yet';
+  }
+  function clearMarks() {
+    qs.forEach(function (q) {
+      Array.prototype.forEach.call(q.querySelectorAll('label'), function (l) { l.style.background = ''; l.style.color = ''; });
+      var w = q.querySelector('.fgq-why'); if (w) w.remove();
+    });
+  }
+  function grade() {
+    clearMarks();
+    var score = 0, un = 0;
+    qs.forEach(function (q) {
+      var inputs = q.querySelectorAll('input');
+      var pick = q.querySelector('input:checked');
+      var labels = q.querySelectorAll('label');
+      var ci = parseInt(q.dataset.correct, 10);
+      var w = document.createElement('div');
+      w.className = 'fgq-why src';
+      w.style.margin = '2px 0 2px 16px';
+      w.textContent = '✓ ' + q.dataset.why;
+      q.appendChild(w);
+      if (!pick) { un++; labels[ci].style.background = '#2e7d32'; labels[ci].style.color = '#fff'; return; }
+      var idx = Array.prototype.indexOf.call(inputs, pick);
+      if (idx === ci) { score++; }
+      labels[ci].style.background = '#2e7d32'; labels[ci].style.color = '#fff';
+      if (idx !== ci) { labels[idx].style.background = '#b71c1c'; labels[idx].style.color = '#fff'; }
+    });
+    var res = document.getElementById('fg-result');
+    if (un > 0) { res.textContent = 'Answer all ' + qs.length + ' scenarios first — ' + un + ' left.'; res.style.color = '#ffb74d'; return; }
+    var pct = Math.round(100 * score / qs.length), pass = score >= PASS;
+    res.textContent = pass
+      ? ('🎉 ' + score + ' / ' + qs.length + ' (' + pct + '%) — __B_VICTORY__.')
+      : (score + ' / ' + qs.length + ' (' + pct + '%) — ' + PASS + ' to pass. Re-read the green-marked whys and retake.');
+    res.style.color = pass ? '#8ef2a0' : '#ffb74d';
+    var b = best();
+    if (!b || score > b.score) { try { localStorage.setItem(KEY, JSON.stringify({ score: score, pct: pct, date: new Date().toISOString().slice(0, 10) })); } catch (e) {} }
+    paintBest();
+  }
+  var g = document.getElementById('fg-grade');
+  if (g) g.addEventListener('click', grade);
+  var r = document.getElementById('fg-retake');
+  if (r) r.addEventListener('click', function () {
+    Array.prototype.forEach.call(document.querySelectorAll('.fgq input'), function (i) { i.checked = false; });
+    clearMarks();
+    var res = document.getElementById('fg-result'); if (res) res.textContent = '';
+  });
+  var pc = document.getElementById('fg-card-print');
+  if (pc) pc.addEventListener('click', function () { window.print(); });
+  paintBest();
+})();
+</script>
+"""
+    return js.replace("__B_KEY__", key).replace("__B_PASS__", str(pass_n)) \
+             .replace("__B_VICTORY__", victory)
+
+
+def _quiz_block(title, intro, qs, key, pass_n, victory):
+    """The graded quiz card + script for a field-guide page."""
+    return ('<div class="card" id="fg-quiz" style="border:2px solid #ffa726">'
+            f'<h2>{title}</h2>'
+            f'<p style="margin:6px 0">{intro} <b>{pass_n} of {len(qs)} ({100 * pass_n // len(qs)}%)</b> passes. '
+            'Grading marks green-correct / red-picked, explains the why behind each answer, '
+            'and your best score is saved on this device.</p>'
+            + _quiz_cards(qs) +
+            '<button id="fg-grade" style="background:#2e7d32;color:#fff;border:none;border-radius:6px;padding:8px 18px;font-weight:700;cursor:pointer;margin:6px 6px 0 0">Grade my scenarios</button> '
+            '<button id="fg-retake" style="background:transparent;color:inherit;border:1px solid currentColor;border-radius:6px;padding:8px 14px;cursor:pointer;margin:6px 0 0">Retake (clears answers)</button> '
+            '<span id="fg-best" class="src" style="margin-left:8px"></span>'
+            '<p id="fg-result" style="margin:10px 0 2px;font-weight:700;font-size:1.05em"></p>'
+            '</div>'
+            + _quiz_js(key, pass_n, victory))
+
+
+def _print_card_style(card_id):
+    """@media print CSS: hide everything but the guide's cheat-sheet card,
+    flipped to ink-friendly light while inline swatches keep their colors."""
+    _cid = card_id
+    return f"""
+<style>
+@media print {{
+  @page {{ margin: 10mm; }}
+  body * {{ visibility: hidden; }}
+  #{_cid}, #{_cid} * {{ visibility: visible; }}
+  #{_cid} {{ position: absolute; top: 0; left: 0; width: 100%;
+    background: #fff !important; border: 3px double #1d3557 !important;
+    padding: 14px 18px !important; }}
+  #{_cid} * {{ color: #111 !important; }}
+  #{_cid} .src {{ color: #444 !important; }}
+  #{_cid} .no-print {{ display: none !important; }}
+}}
+</style>"""
+
+
+def _print_btn(card_id, title, subtitle):
+    """Cheat-sheet card header + print button (id must match
+    _print_card_style's card_id; handler wired in the page's JS)."""
+    return (f'<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">'
+            f'<h2 style="margin:0">{title}</h2>'
+            f'<span class="src">{subtitle}</span>'
+            f'<button id="pr-{card_id}" class="no-print" style="margin-left:auto;background:#1d3557;color:#fff;border:none;border-radius:6px;padding:7px 14px;cursor:pointer;font-weight:700">🖨️ Print this card</button>'
+            f'</div>')
+
+
+def _print_js(card_id):
+    return (f'<script>(function(){{var b=document.getElementById("pr-{card_id}");'
+            f'if(b)b.addEventListener("click",function(){{window.print();}});}})();</script>')
+
+
 def page_fieldguide(d):
     """Storm-chaser's field guide: reading SCP / STP / EHI + SPC colors together.
 
@@ -12057,27 +12254,7 @@ def page_fieldguide(d):
     fg_thumb_ship = _wall_thumb("ship", "Significant Hail Parameter")
     fg_thumb_600 = _wall_thumb("600_tmp", "600 mb Temperature (melt layer)")
 
-    def _fg_chip(prod, val):
-        if val is None:
-            return ""
-        if val < 0.5: c, t = "#c1e9c1", "#1a1a1a"
-        elif val < 1.0: c, t = "#66bb6a", "#1a1a1a"
-        elif val < 2.0: c, t = "#fff176", "#1a1a1a"
-        elif val < 3.0: c, t = "#ffa726", "#1a1a1a"
-        elif val < 4.0: c, t = "#ef5350", "#ffffff"
-        else: c, t = "#ff00ff", "#1a1a1a"
-        return (f'<span style="display:inline-block;background:{c};color:{t};font-weight:700;'
-                f'padding:2px 10px;border-radius:4px;border:1px solid #555;margin-right:6px">{prod} {val:.1f}</span>')
-
-    fg_qhtml = "".join(
-        f'<div class="fgq" data-correct="{ci}" data-why="{html.escape(why)}" style="margin:12px 0">'
-        f'<b>{i}. {_fg_chip(prod, val)}{html.escape(scn)}</b>'
-        + "".join(
-            f'<label style="display:block;margin:3px 0 3px 16px;cursor:pointer;padding:2px 6px;border-radius:4px">'
-            f'<input type="radio" name="fgq{i}" value="{j}" style="accent-color:#42a5f5;cursor:pointer"> {html.escape(o)}</label>'
-            for j, o in enumerate(opts))
-        + "</div>"
-        for i, (prod, val, scn, opts, ci, why) in enumerate(fg_scenarios, 1))
+    fg_qhtml = _quiz_cards(fg_scenarios)
 
     # --- Printable one-page chase card ---------------------------------------
     # Everything the guide teaches on one sheet: the SPC ladder, the four
@@ -12173,81 +12350,14 @@ def page_fieldguide(d):
   <p class="src" style="margin:8px 0 0;font-size:11.5px">Educational guidance only \u00b7 official sources: weather.gov \u00b7 spc.noaa.gov \u00b7 your local NWS office \u00b7 Tennessee Weather Network field guide</p>
 </div>"""
 
-    FG_QUIZ_HTML = (
-        '<div class="card" id="fg-quiz" style="border:2px solid #ffa726">'
-        '<h2>🧠 Field quiz — read the walls, 8 of 10 to pass</h2>'
-        '<p style="margin:6px 0">Ten map-reading scenarios straight off the severe walls. '
-        'The colored chips use the SPC fills from the ladder above — judge each answer like you would on a chase day. '
-        '<b>8 of 10 (80%)</b> passes. Grading marks green-correct / red-picked, explains the why behind each answer, '
-        'and your best score is saved on this device.</p>'
-        + fg_qhtml +
-        '<button id="fg-grade" style="background:#2e7d32;color:#fff;border:none;border-radius:6px;padding:8px 18px;font-weight:700;cursor:pointer;margin:6px 6px 0 0">Grade my scenarios</button> '
-        '<button id="fg-retake" style="background:transparent;color:inherit;border:1px solid currentColor;border-radius:6px;padding:8px 14px;cursor:pointer;margin:6px 0 0">Retake (clears answers)</button> '
-        '<span id="fg-best" class="src" style="margin-left:8px"></span>'
-        '<p id="fg-result" style="margin:10px 0 2px;font-weight:700;font-size:1.05em"></p>'
-        '</div>')
+    FG_QUIZ_HTML = _quiz_block(
+        '🧠 Field quiz — read the walls, 8 of 10 to pass',
+        'Ten map-reading scenarios straight off the severe walls. The colored chips use '
+        'the SPC fills from the ladder above — judge each answer like you would on a chase day.',
+        fg_scenarios, 'tnwn.fg.quiz.v1', 8,
+        'you read the walls like a chaser. Field-ready')
 
-    FG_QUIZ_JS = """
-<script>
-(function () {
-  var KEY = 'tnwn.fg.quiz.v1';
-  var qs = Array.prototype.slice.call(document.querySelectorAll('.fgq'));
-  var PASS = 8;
-  function best() { try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { return null; } }
-  function paintBest() {
-    var el = document.getElementById('fg-best'), b = best();
-    if (el) el.textContent = b ? ('best: ' + b.score + ' / ' + qs.length + ' (' + b.pct + '%)' + (b.score >= PASS ? ' ✓' : '')) : 'no attempts yet';
-  }
-  function clearMarks() {
-    qs.forEach(function (q) {
-      Array.prototype.forEach.call(q.querySelectorAll('label'), function (l) { l.style.background = ''; l.style.color = ''; });
-      var w = q.querySelector('.fgq-why'); if (w) w.remove();
-    });
-  }
-  function grade() {
-    clearMarks();
-    var score = 0, un = 0;
-    qs.forEach(function (q) {
-      var inputs = q.querySelectorAll('input');
-      var pick = q.querySelector('input:checked');
-      var labels = q.querySelectorAll('label');
-      var ci = parseInt(q.dataset.correct, 10);
-      var w = document.createElement('div');
-      w.className = 'fgq-why src';
-      w.style.margin = '2px 0 2px 16px';
-      w.textContent = '✓ ' + q.dataset.why;
-      q.appendChild(w);
-      if (!pick) { un++; labels[ci].style.background = '#2e7d32'; labels[ci].style.color = '#fff'; return; }
-      var idx = Array.prototype.indexOf.call(inputs, pick);
-      if (idx === ci) { score++; }
-      labels[ci].style.background = '#2e7d32'; labels[ci].style.color = '#fff';
-      if (idx !== ci) { labels[idx].style.background = '#b71c1c'; labels[idx].style.color = '#fff'; }
-    });
-    var res = document.getElementById('fg-result');
-    if (un > 0) { res.textContent = 'Answer all ' + qs.length + ' scenarios first — ' + un + ' left.'; res.style.color = '#ffb74d'; return; }
-    var pct = Math.round(100 * score / qs.length), pass = score >= PASS;
-    res.textContent = pass
-      ? ('🎉 ' + score + ' / ' + qs.length + ' (' + pct + '%) — you read the walls like a chaser. Field-ready.')
-      : (score + ' / ' + qs.length + ' (' + pct + '%) — ' + PASS + ' to pass. Re-read the green-marked whys and retake.');
-    res.style.color = pass ? '#8ef2a0' : '#ffb74d';
-    var b = best();
-    if (!b || score > b.score) { try { localStorage.setItem(KEY, JSON.stringify({ score: score, pct: pct, date: new Date().toISOString().slice(0, 10) })); } catch (e) {} }
-    paintBest();
-  }
-  var g = document.getElementById('fg-grade');
-  if (g) g.addEventListener('click', grade);
-  var r = document.getElementById('fg-retake');
-  if (r) r.addEventListener('click', function () {
-    Array.prototype.forEach.call(document.querySelectorAll('.fgq input'), function (i) { i.checked = false; });
-    clearMarks();
-    var res = document.getElementById('fg-result'); if (res) res.textContent = '';
-  });
-  var pc = document.getElementById('fg-card-print');
-  if (pc) pc.addEventListener('click', function () { window.print(); });
-  paintBest();
-})();
-</script>
-"""
+    FG_QUIZ_JS = ""
 
     body = f"""
 <div class="card"><h2>🌪️ Storm Chaser's Field Guide — reading the composites &amp; SPC colors together</h2>
@@ -12332,6 +12442,410 @@ def page_fieldguide(d):
 """
     return _page("Storm Chaser's Field Guide", "fieldguide.html", body,
                  feed_strip=True)
+
+
+def page_winterguide(d):
+    """Winter field guide: reading snow/ice guidance & seasonal outlooks.
+
+    Static teaching page, same pattern as page_fieldguide (graded quiz +
+    printable cheat-sheet card + safety). Live thumbnails come ONLY from
+    assets the packager already serves publicly (data.winter's WPC/CPC
+    mirrors + the models-page model-map PNGs), so nothing premium-only
+    rides in the full page."""
+    wnt = d.get("winter") or {}
+    alerts = wnt.get("alerts") or {}
+    wpc = wnt.get("wpc") or []
+    cpc = wnt.get("cpc") or []
+    msnow = wnt.get("modelSnow") or {}
+
+    us_n = alerts.get("usCount", 0)
+    if us_n:
+        live_alert = (
+            f'<div class="alert" style="border-left-color:#ff9f43"><b>Live right now:</b> '
+            f'{us_n} winter alert{"s" if us_n != 1 else ""} nationwide — every ladder rung '
+            f'below is in force somewhere. The <a href="winter.html">Winter Center</a> '
+            f'lists Tennessee rows and expiry times.</div>')
+    else:
+        live_alert = (
+            '<div class="alert ok">No winter alerts nationwide right now — read the guide '
+            'anyway: the next cold intrusion is always a few weeks out.</div>')
+
+    def _wfig(fname, label):
+        return (f'<figure class="wpcfig"><img loading="lazy" '
+                f'src="../winter/wpc/{html.escape(fname)}" alt="{html.escape(label)}"/>'
+                f'<figcaption>{html.escape(label)}</figcaption></figure>')
+
+    def _cfig(fname, label):
+        return (f'<figure class="wpcfig"><img loading="lazy" '
+                f'src="../winter/cpc/{html.escape(fname)}" alt="{html.escape(label)}"/>'
+                f'<figcaption>{html.escape(label)}</figcaption></figure>')
+
+    # newest GFS snowfall frame the models-page rotation has rendered (us
+    # region set only: GFS-A has bounds; GFS-ETN zoom is its own entry)
+    def _msfig():
+        info = msnow.get("GFS") or {}
+        fr = [f for f in (info.get("frames") or []) if f.get("pngUrl")]
+        if not fr:
+            return ('<div class="src" style="margin:8px 0">No GFS snowfall render in the '
+                    'current cycle yet — the <a href="winter.html">Winter Center</a> keeps '
+                    'the full multi-model snowfall set.</div>')
+        fr.sort(key=lambda f: f.get("hour") or 0)
+        pick = next((f for f in fr if (f.get("hour") or 0) >= 48), fr[-1])
+        png = (pick.get("pngUrl") or "").replace("/app/static/", "../")
+        return (f'<figure class="wpcfig"><img loading="lazy" src="{html.escape(png, quote=True)}" '
+                f'alt="GFS snowfall forecast map"/>'
+                f'<figcaption>GFS snowfall — {html.escape(pick.get("label") or "")}. '
+                f'The Winter Center loops every model hour by hour.</figcaption></figure>')
+
+    # WPC tiles used by the guide (composites first - the shell teaser parses
+    # the day1 composite figure, keep it the FIRST wpcfig)
+    fig_day1 = _wfig("day1_composite.gif",
+                     "WPC Day 1 winter composite — snow + ice probabilities in one map") \
+        if any(p.get("file") == "day1_composite.gif" for p in wpc) else ""
+    fig_day2 = _wfig("day2_psnow_gt_04.gif",
+                     "WPC Day 2: probability of snow exceeding 4 inches") \
+        if any(p.get("file") == "day2_psnow_gt_04.gif" for p in wpc) else ""
+    fig_ice = _wfig("day1_pice_gt_25.gif",
+                    "WPC Day 1: probability of ice exceeding 0.25 inch") \
+        if any(p.get("file") == "day1_pice_gt_25.gif" for p in wpc) else ""
+    fig_lr = "".join(
+        f'<figure class="wpcfig"><img loading="lazy" src="{p["url"].replace("/app/static/", "../")}" '
+        f'alt="{html.escape(p["label"])}"/><figcaption>{html.escape(p["label"])}</figcaption></figure>'
+        for p in (wnt.get("longRange") or [])[:2])
+    fig_cpc = _cfig("610temp.new.gif", "CPC 6-10 day temperature outlook — the pattern that decides whether this week can snow") \
+        if any(p.get("file") == "610temp.new.gif" for p in cpc) else ""
+    fig_ms = _msfig()
+
+    wg_scenarios = [
+        (None, None, "A WPC winter desk map paints 70% over a region labeled “8 inches or more”. What does 70% mean?",
+         ["8 inches will fall — it is a forecast amount",
+          "There is a 70% chance of at least 8 inches — 3 in 10 odds it stays under",
+          "70% of the region gets that much",
+          "8 inches plus 70% model error"], 1,
+         "WPC winter desk graphics are PROBABILITY of exceedance: “70% chance of ≥ 8 in”. They never forecast an exact total."),
+        (None, None, "A model forecasts 0.75 inch of QPF with a classic ~10:1 snow ratio. What snowfall total does that imply?",
+         ["0.75 inch", "7.5 inches", "75 inches", "1.75 inches"], 1,
+         "Total ≈ QPF × ratio: 0.75 × 10 = 7.5 in. The ratio is the biggest single lever in a snowfall forecast."),
+        (None, None, "Two storms carry the same QPF. One runs at 8:1, the other at 14:1. What does the ratio tell you?",
+         ["Nothing — QPF is all that matters",
+          "The 14:1 storm doubles the snow for the same water — warmer wet storms have LOW ratios",
+          "The 8:1 storm produces more snow",
+          "Ratios only matter in blizzards"], 1,
+         "Wet, windy or marginal storms (8:1 or lower) crush accumulation; deep cold air columns fluff it to 14:1-18:1."),
+        (None, None, "An overnight map shows a narrow corridor of 2-3 in/h snowfall rates inside a larger shield. What is that corridor?",
+         ["A rendering artifact — erase it",
+          "A snowband (deformation band) — the thump zone where totals finish 50-100% above surrounding areas",
+          "Lake-effect snow only",
+          "Radar interference from the sun"], 1,
+         "Snowbands are the classic East TN stripe: mesoscale ascent folds warm Gulf air over the low's nose; totals double inside the band and stall outside it."),
+        (None, None, "The ice map shows 0.30 inch of freezing rain over your county. How does that compare with 6 inches of snow?",
+         ["Far less severe — it is a small number",
+          "Worse — 0.25 in+ glazes power lines and trees; 0.5 in is a multi-day outage disaster",
+          "Identical impact",
+          "Only airport operations care"], 1,
+         "Ice beats snow on the damage ladder at a tenth the depth: 0.25 in + = Ice Storm Warning means snapped limbs, lines out for days."),
+        (None, None, "A “Blizzard Warning” is issued with a forecast of only 4 inches of snow. Is that possible?",
+         ["No — blizzards require a foot of snow",
+          "Yes — blizzard is about wind + falling/blowing snow cutting visibility below 1/4 mile for 3+ hours, not depth",
+          "Only in the Great Plains",
+          "Only with hail"], 1,
+         "Blizzard criteria are visibility and wind, not accumulation. A 3-inch fluff storm blowing sideways in 40 mph gusts qualifies."),
+        (None, None, "GFS says 10 inches, the blend (NBM) says 4, and GEFS mean says 5 with a wide spread. How do you lean?",
+         ["Always take the scariest model",
+          "Average everything to zero and ignore it",
+          "Lean toward the consensus/blend, note the spread as uncertainty, and re-check each new cycle — the band position usually decides",
+          "Trust the single member that shows 18 inches"], 2,
+         "The blend exists to calm outliers; wide ensemble spread = low confidence. Big busts happen when you chase one extreme run."),
+        (None, None, "The CPC 8-14 day outlook is nearly all gray over Tennessee. What is the map saying?",
+         ["A big storm will hit",
+          "Equal chances — the model signal is too weak to tilt cold or warm; nothing is forecast-able yet",
+          "Record heat guaranteed",
+          "The maps are broken"], 1,
+         "Gray = EC (equal chances) — an honest shrug. Colored maps are TILTS: blue = below normal, red = above; only a cold tilt + wet tilt overlap can make snow."),
+        (None, None, "A Winter Storm Watch is up forDD your county beginning Saturday. Today is Wednesday. What is the right read?",
+         ["Cancel everything now — the storm is certain",
+          "Conditions are POSSIBLE 24-72 h out — watch = planmaking time; the warning upgrade usually comes 12-24 h out",
+          "Watches mean the storm already arrived",
+          "Watches are only for lake-effect"], 1,
+         "Watch = possibility + lead time; Warning = expected/occurring + act. The ladder is the advisories' whole grammar."),
+        (None, None, "Cars are stuck on your road in 1 inch of snow and the temperature is 28°F. The bitter cold arrives tomorrow. The biggest near-term killer?",
+         ["The snow depth",
+          "Roads turning black-ice slick as the wet refreezes tonight, plus tomorrow's wind-chill on anyone stranded",
+          "Avalanches",
+          "Lightning from the snow storm"], 1,
+         "Refreeze and cold are the outsized killers: travel stops, stranded exposure begins. Check on neighbors and power outages before the deep cold lands."),
+    ]
+
+    body = f"""
+<div class="card"><h2>❄️ Winter Field Guide — reading snow, ice &amp; seasonal guidance like a pro</h2>
+  <p>This guide teaches one skill: opening the <a href="winter.html">Winter Center</a> and knowing what every map there is actually saying — HRRR snow/ice overlays, WPC winter desks, the multi-model snowfall set, CPC seasonal tilts — and turning them into one forecast you can act on.</p>
+  {live_alert}
+</div>
+
+<div class="card"><h2>🪜 The NWS winter ladder — one grammar for every headline</h2>
+  <table style="width:100%;border-collapse:collapse;font-size:13.5px">
+    <tr style="text-align:left;border-bottom:2px solid #444"><th style="padding:6px">Product</th><th>Means</th><th>Your move</th></tr>
+    <tr style="border-bottom:1px solid #333"><td style="padding:6px"><b>Winter Weather Advisory</b></td><td>Nuisance winter weather (1-3 in, light glaze) — travel slows, nothing catastrophic</td><td>Leave early, drive smart</td></tr>
+    <tr style="border-bottom:1px solid #333"><td style="padding:6px"><b>Winter Storm Watch</b></td><td>Heavy snow/ice POSSIBLE 24-72 h out — still uncertain</td><td>Make the plan; gas, groceries</td></tr>
+    <tr style="border-bottom:1px solid #333"><td style="padding:6px"><b>Winter Storm Warning</b></td><td>Heavy snow/ice EXPECTED or occurring — in the Valley usually ≥ 6 in</td><td>Execute the plan; stay off roads in the storm</td></tr>
+    <tr style="border-bottom:1px solid #333"><td style="padding:6px"><b>Ice Storm Warning</b></td><td>≥ 0.25 in glaze</td><td>Power-outage plan — lines and trees will fail</td></tr>
+    <tr style="border-bottom:1px solid #333"><td style="padding:6px"><b>Blizzard Warning</b></td><td>Sustained/blowing snow, visibility &lt; 1/4 mile for 3+ hours (depth irrelevant)</td><td>Nobody travels, period</td></tr>
+    <tr><td style="padding:6px"><b>Extreme Cold / Wind Chill</b></td><td>Life-threatening cold on exposed skin</td><td>Warm the people first, then the pipes</td></tr>
+  </table>
+  <p class="src">HRRR snow overlays use the same NWS-style ramp as the alert zones: light blue 0.1-1 in (→ deep blue 2-4 in), purple 6-12 in, magenta 12 in+. Ice ramps pink-to-red: 0.25 in + is the red zone.</p>
+</div>
+
+<div class="card"><h2>📏 Snow ratios — the lever that swings a forecast by 2×</h2>
+  <div class="kpi"><span>The one equation</span><b style="font-family:monospace;font-size:13px">total ≈ QPF × ratio (classic 10:1)</b></div>
+  <p>Same storm water, wildly different snow: a warm-shear storm compacts at <b>8:1 or lower</b>, dry cold columns fluff to <b>14:1-18:1</b>. East Tennessee's worst “misses” are almost always ratio problems — the QPF verified, the ratio didn't. When the NBM and GFS disagree by 2×, they are usually arguing about the ratio, not the storm.</p>
+  {fig_ms}
+  <p class="src">The <a href="winter.html">Winter Center</a> stacks GFS (day 1-10), the GEFS ensemble mean + spread (consensus and uncertainty) and the NBM 6-hour blend — read them top to bottom: reach, agreement, blend.</p>
+</div>
+
+<div class="card"><h2>🗺️ Reading the WPC Winter Weather Desk — probabilities, not promises</h2>
+  {fig_day1}
+  {fig_day2}
+  {fig_ice}
+  <div class="alert" style="border-left-color:#ffff00"><b>How to read them</b><span>each shade is the chance of EXCEEDING the map's threshold (1 / 4 / 8 / 12 in, or 0.25 in ice). A 70% blot means 7-in-10 odds of at least that much — 3-in-10 it stays under.</span></div>
+  <p class="src">The composite folds the desk's snow + ice grids into one at-a-glance threat map. Day 2-3 maps run lower odds but cover the interference pattern that busts local forecasts — when 4-inch Day 2 colors show up over i mideast, start watching the HRRR overlay.</p>
+</div>
+
+<div class="card"><h2>🎯 Banding — where the storm pays double</h2>
+  <p>Snow rarely falls evenly. Mesoscale <b>deformation bands</b> fold warm moist air over the low's cold nose and drop <b>2-3 inches per hour</b> stripes inside a general 0.2 in/h shield: totals double inside the band and half outside it. On <a href="radar.html">radar</a>, the band is a narrow 30-40 dBZ corridor persistent for hours; between bands, snow can fully pause. In the Valley the band position — Bachman Plateau vs. the airport — IS the forecast.</p>
+  <div class="alert" style="border-left-color:#ffa726"><b>The bright band tell</b><span>Don't panic at 55 dBZ in winter radar — a melting layer (bright band) inflates returns even at modest rates. Judge the STEADINESS of the corridor and hourly the HRRR accumulation gain, not the color.</span></div>
+</div>
+
+<div class="card"><h2>🧊 Ice — the smallest numbers with the biggest consequences</h2>
+  <table style="width:100%;border-collapse:collapse;font-size:13.5px">
+    <tr style="text-align:left;border-bottom:2px solid #444"><th style="padding:6px">Glaze</th><th>Impacts</th></tr>
+    <tr style="border-bottom:1px solid #333"><td style="padding:6px"><b>&lt; 0.05 in</b></td><td>bridges glaze first — black-ice morning drives</td></tr>
+    <tr style="border-bottom:1px solid #333"><td style="padding:6px"><b>0.10-0.25 in</b></td><td>branches start breaking; scattered outages; advisory-scaled danger</td></tr>
+    <tr style="border-bottom:1px solid #333"><td style="padding:6px"><b>0.25-0.50 in</b></td><td>major limbs + lines down; outage counts go regional</td></tr>
+    <tr><td style="padding:6px"><b>&gt; 0.50 in</b></td><td>infrastructure fails broadly — days to weeks of restoration</td></tr>
+  </table>
+  <p class="src">Why ice wins on the danger board: it lies FLAT — on every line, road and canopy simultaneously — while snow drifts harmlessly. Forecast the storm path relative to the freezing line: a 20-mile track shift turns tonight's 0.3 in glaze into an ordinary cold rain.</p>
+</div>
+
+<div class="card"><h2>🔮 Seasonal tilts — reading the CPC maps without overreaching</h2>
+  {fig_cpc}
+  {fig_lr}
+  <div class="alert" style="border-left-color:#81c784"><b>Three moves</b><span>blue = below-normal tilt, red = above, gray = equal chances (no signal). A snow winter needs a COLD tilt AND a WET tilt overlapping the same weeks — the Winter Center's snow-chance contours compute exactly that.</span></div>
+  <p class="src">A gray map is an honest shrug, not a coverup. La Niña / El Niño tilts (the warm ocean phase you can explore on <a href="enso.html">El Niño</a>) bend Tennessee winters measurably but never guarantee a single storm.</p>
+</div>
+
+{_print_card_style("wg-card")}
+<div class="card" id="wg-card" style="border:2px solid #1d3557">
+  {_print_btn("wg-card", "❄️ TNWN Winter Field Card", "one page — alerts · ratios · probabilities · ice · safety")}
+  <p style="margin:8px 0 4px"><b>1 · Alerts ladder</b> — Advisory (nuisance) → Watch (possible, 24-72 h) → Warning (expect/occurring) → Ice Storm (≥ 0.25 in) / Blizzard (vis &lt; 1/4 mi, 3 h).</p>
+  <p style="margin:8px 0 2px"><b>2 · The equation</b>: total ≈ QPF × ratio · classic 10:1 · wet/warm 8:1 · fluffy cold 14:1+. The ratio is the biggest error bar.</p>
+  <p style="margin:8px 0 2px"><b>3 · WPC desks</b>: shades = chance of EXCEEDING (1 / 4 / 8 / 12 in; 0.25 ice). Composite = one-map threat scan.</p>
+  <p style="margin:8px 0 2px"><b>4 · Banding</b>: totals double INSIDE a persistent 30-40 dBZ corridor; trust hourly HRRR accumulation, not peak dBZ (bright band inflates returns).</p>
+  <p style="margin:8px 0 2px"><b>5 · Ice ladder</b>: 0.1 in breaks branches · 0.25 in Ice Storm Warning · 0.5 in infrastructure disaster. A 20-mile track shift decides everything.</p>
+  <p style="margin:8px 0 2px"><b>6 · Safety — non-negotiable</b>: refreeze beats the storm (bridges first) · deep cold multiplies outages (warm people, then pipes) · generators never indoors · check on neighbors before the cold lands.</p>
+  <p class="src" style="margin:8px 0 0;font-size:11.5px">Educational guidance only · official sources: weather.gov · wpc.ncep.noaa.gov · your local NWS office · Tennessee Weather Network</p>
+</div>
+{_print_js("wg-card")}
+
+{_quiz_block('🧠 Winter quiz — read the maps, 8 of 10 to pass',
+    'Ten winter-guidance scenarios straight off the Winter Center. Judge each answer like you would on the eve of the storm.',
+    wg_scenarios, 'tnwn.wg.quiz.v1', 8,
+    'you read the winter guidance like a pro. Snow-day ready')}
+
+<div class="card"><h2>⚠️ Winter safety — the part that actually matters</h2>
+  <div class="alert" style="border-left-color:#ff0000"><b>The refreeze is the trap.</b>
+  <span>Bridges and wet roads glaze an hour before anyone notices — the drive home after the storm disables more people than the storm itself.</span></div>
+  <div class="alert"><b>Cold + outages compound.</b><span>Deep cold turns a broken line into an evacuation decision. Charge devices, fill tubs, layer, and never run a generator or grill indoors or in the garage.</span></div>
+  <div class="alert"><b>Warnings win.</b><span>Guidance informs; a Winter Storm Warning is the thing to plan around. When an NWS headline moves for your county, act on it and argue with the models later.</span></div>
+  <p class="src">This guide is educational, not official forecasting guidance — the <a href="winter.html">Winter Center's NWS/SPC products</a> and local warnings are authoritative.</p>
+</div>
+"""
+    return _page("Winter Field Guide", "winterguide.html", body)
+
+
+def page_tropicalguide(d):
+    """Tropical field guide: reading NHC products, model fans & the inland
+    flood threat (same pattern as page_fieldguide: graded quiz + printable
+    card + safety). Live elements only from public assets: the Trop Models
+    intensity chart and the free NHC/GEFS track renders."""
+    trop = d.get("tropical") or {}
+    storms = trop.get("storms") or []
+    tms = (d.get("tropModels") or {}).get("storms") or []
+    sst = ((d.get("marine") or {}).get("sst") or {})
+
+    if storms:
+        names = ", ".join(
+            f"{html.escape(s.get('name') or 'Storm')} ({html.escape(s.get('classification') or '?')})"
+            for s in storms[:3])
+        live_alert = ("<div class='alert' style='border-left-color:#e1bee7'><b>Live right now:</b> "
+                      f"{len(storms)} active storm(s) — {names}. The "
+                      "<a href=\"tropical.html\">NHC Tropical</a> page tracks the cones and "
+                      "the <a href=\"tropmodels.html\">Trop Models</a> page carries every "
+                      "aid-deck track.</div>")
+    else:
+        live_alert = ("<div class='alert ok'>No active tropical storms right now — the "
+                      "guide below is storm reading you can learn in the quiet season, "
+                      "when there's no pressure to learn it live.</div>")
+
+    # newest storm's intensity chart (public render, same href the free
+    # Trop Models page uses) — first tropfig in the body feeds the shell teaser
+    chart = ""
+    for s in tms:
+        for c in (s.get("charts") or []):
+            if "intensity" in (c.get("name") or "").lower() and c.get("href"):
+                chart = (f'<figure class="tropfig"><img loading="lazy" '
+                         f'src="{html.escape(c["href"], quote=True)}" '
+                         f'alt="Model intensity forecast for {html.escape(s.get("name") or s.get("id") or "")}"/>'
+                         f'<figcaption>{html.escape(s.get("name") or s.get("id") or "")} '
+                         f'({html.escape(s.get("classification") or "")}) — intensity forecast, all models</figcaption></figure>')
+                break
+        if chart:
+            break
+
+    sst_date = html.escape(sst.get("latest") or "-")
+
+    tg_scenarios = [
+        (None, None, "Your town sits near the right edge of the forecast cone. What does that mean?",
+         ["Danger only exists inside the cone",
+          "The cone shows 2/3 of historical forecast ERROR for the center — impacts routinely extend well outside it",
+          "The storm will turn left",
+          "The cone is the evacuation zone"], 1,
+         "The cone is about the CENTER's uncertainty, not the hazard's size. hurricanes devastate far beyond the cone's edge — always read wind radii and rain shields alongside it."),
+        (None, None, "A storm is forecast 500 miles away in 72 hours. The “spaghetti” threads from different models scatter THE FAN widely across the whole Gulf.",
+         ["The storm will hit every line",
+          "Wide fan = low confidence — meaningfully different outcomes are still alive; narrow bundle = high confidence",
+          "Fan width never matters",
+          "One model can always be trusted over the rest"], 1,
+         "Spread measures confidence, not paths. Early wide fans are normal; NARROWING is the signal worth acting on."),
+        (None, None, "Satellite shows the storm's云 tops warming while it looks increasingly tilted with a big dry slot eating its southwest side.",
+         ["It will become a major hurricane",
+          "Shear + dry air are disrupting it — intensity may stall or weaken even over warm water",
+          "The satellite is broken",
+          "It must strengthen because SSTs are 30°C"], 1,
+         "Fuel alone doesn't decide: vertical shear tears the core; dry air entrainment chokes convection. Watch the outflow pattern and hardware erosion in imagery and recon."),
+        (None, None, "The 34-kt wind radius map shows a ring 180 miles wide. What do you do with that?",
+         ["Ignore it — the cone is enough",
+          "Tropical-storm-force wind reaches ~90 miles from center — count BACK from arrival: prep clock is half as long as the cone suggests",
+          "It means a Category 5",
+          "It means storm surge"], 1,
+         "Wind RADIUS is the practical arrival map: half the diameter in from each side is when conditions deteriorate. That's your real deadline."),
+        (None, None, "The storm is “only” a tropical storm heading 300 miles inland toward the Tennessee mountains.",
+         ["The threat dies at landfall",
+          "Remnant storms mount the Appalachians and dump catastrophic rain — Helene 2024's Watauga/Cartersville floods were exactly this, the deadliest element for us",
+          "Only coasts must prepare",
+          "Inland tropical storms never carry winds"], 1,
+         "East Tennessee's tropical story is almost always WATER, not wind: uplift + saturated ground + basin-sized rain. Watch the total and the timing of the shield."),
+        (None, None, "Category maps: a Cat 4 (130 mph) makes landfall at nighttime POST-sunset with the surge pinning in front.",
+         ["Ride it out in a basement",
+          "Surge + darkness are the signal to already be relocated — surge evacuations end BEFORE conditions deteriorate, not after warnings go out",
+          "Categories matter only to insurance",
+          "Basements are the safest place in surge"], 1,
+         "Never interpret the ladder by winds alone: surge + the TIMING of its arrival decide survival. Evacuation instructions precede the photograph-able conditions."),
+        (None, None, "The ensemble “member map” (GEFS fan): 31 members, 3 recurve to sea, 28 push into the Gulf. What does 28/31 buy you?",
+         ["A coin flip",
+          "A high-confidence signal to start serious prep — act as though the majority outcome is likely (90%)",
+          "Nothing until landfall",
+          "Nothing that NHC's cone lacks"], 1,
+         "Wait for a supermajority: members generally agree near landfall. When 28/31 say Gulf, your prep clock starts then — not at the NHC watch."),
+        (None, None, "A friend says “it weakened to Category 1 overnight — all clear now”.",
+         ["Correct — downgrade ends the threat",
+          "Wrong — wind grading doesn't grade water: a weakened landfall can carry record rain and surge (Katrina 2005's Mississippi surge occurred at Cat 3→2 decay)",
+          "You should trust the friend",
+          "Intensity only ever drops on approach"], 1,
+         "Weakening ranks wind, not the flood. The deadliest inland elements run on rain depth, not the Saffir-Simpson rung."),
+        (None, None, "Models show a PIVOT west of Key West then a jam into the Gulf's central basin over 5-6 days.",
+         ["Long-range tropical models are trustworthy to the hour",
+          "Day 5-6 guidance carries ± 250-mile errors — treat it as pattern tilt information, not a track to lock in",
+          "Only NHC allows models 5+ days",
+          "All models converge perfectly at F120"], 1,
+         "Lock-in is the classic far-range error. Longer range = pattern reading (the jet, the ridge, the trough-timing) and morning checks, not hour-by-hour bolts."),
+        (None, None, "Your local SST map shows 28°C off the coast with a big Warm eddy beneath the approaching track.",
+         ["It doesn't matter once the storm is named",
+          "Warm eddies are deep-layer fuel — storms crossing them (Opal 1995, Katrina 2005) can explosively deepen with hours of warning lost",
+          "Cold water still deepens",
+          "SST only matters in August"], 1,
+         "Warm eddies and the Loop Current are the Gulf's fuel pockets — the reason intensity forecasts carry their error bars and why recon deploys there."),
+    ]
+
+    body = f"""
+<div class="card"><h2>🌀 Tropical Field Guide — reading cones, fans, fuel &amp; the flood that matters most here</h2>
+  <p>This guide teaches one skill: opening the <a href="tropical.html">NHC Tropical</a> and <a href="tropmodels.html">Trop Models</a> pages during a storm and knowing what every map is telling you about wind, water and confidence — turning 31 spaghetti threads and a cone into a decision you can make with time to spare.</p>
+  {live_alert}
+</div>
+
+<div class="card"><h2>🧭 The cone — and what it never meant</h2>
+  <div class="kpi"><span>The truth about the cone</span><b>2/3 of historical center ERROR, nothing more</b></div>
+  <p>The cone says where the STORM CENTER might wander. It says nothing about the storm's SIZE, its wind radii, its rain sheet or the surge it pushes ashore — which routinely reach far outside the line. Reading the cone as a “safe/not safe” shield is the single most dangerous mistake in tropical weather.</p>
+  <table style="width:100%;border-collapse:collapse;font-size:13.5px">
+    <tr style="text-align:left;border-bottom:2px solid #444"><th style="padding:6px">Product</th><th>Means</th><th>Your move</th></tr>
+    <tr style="border-bottom:1px solid #333"><td style="padding:6px"><b>Tropical Storm / Hurricane Watch</b></td><td>Condition possible within 48 h</td><td>Start full prep; fuel + supplies + funnel communication</td></tr>
+    <tr style="border-bottom:1px solid #333"><td style="padding:6px"><b>Tropical Storm / Hurricane Warning</b></td><td>Expected within 36 h</td><td>Finish prep; evacuations are一般都是 issued with these</td></tr>
+    <tr style="border-bottom:1px solid #333"><td style="padding:6px"><b>Storm Surge Watch/Warning</b></td><td>Life-threatening surge possible/expected</td><td>THE instruction that matters in the lowlands — move before water, not wind</td></tr>
+    <tr><td style="padding:6px"><b>Extreme Wind Warning</b></td><td>Extremely dangerous eyewall winds imminent</td><td>Immediate shelter on the interior side</td></tr>
+  </table>
+</div>
+
+<div class="card"><h2>📊 The Saffir-Simpson ladder — and its on-the-ground reads</h2>
+  <table style="width:100%;border-collapse:collapse;font-size:13.5px">
+    <tr style="text-align:left;border-bottom:2px solid #444"><th style="padding:6px">Cat</th><th>Winds</th><th>Honest example</th></tr>
+    <tr style="border-bottom:1px solid #333"><td style="padding:6px"><b>TS</b></td><td>39-73 mph</td><td>don't shrug: 39 mph gusts still cut power (90% of named-storm deaths are WATER)</td></tr>
+    <tr style="border-bottom:1px solid #333"><td style="padding:6px"><b>1</b></td><td>74-95</td><td>roof edges and shingles on the market; long outages possible</td></tr>
+    <tr style="border-bottom:1px solid #333"><td style="padding:6px"><b>2</b></td><td>96-110</td><td>major roof/facade damage; trees snap; outages near-universal</td></tr>
+    <tr style="border-bottom:1px solid #333"><td style="padding:6px"><b>3</b></td><td>111-129</td><td>“major” begins: structural damage, weeks-long utilities</td></tr>
+    <tr style="border-bottom:1px solid #333"><td style="padding:6px"><b>4</b></td><td>130-156</td><td>roofs fail structurally; survivable only inland of the windfield</td></tr>
+    <tr><td style="padding:6px"><b>5</b></td><td>157+</td><td>the frame of the house speaks; complete structural failure zones</td></tr>
+  </table>
+  <p class="src">The ladder grades WIND only. Water is the deadliest element every single season — surge at the coast, industrial rain inland (and the two can pair in one system).</p>
+</div>
+
+<div class="card"><h2>🛰️ Fuel, shear & dry air — the three checks before a storm bets its outcome</h2>
+  <p><b>1 · Fuel:</b> sea-surface temps ≥ 26°C to depth (on <a href="tropical.html">the NHC page's SST map</a>, currently the MUR analysis runs {sst_date}). Warm EDDIES are fuel pockets worth extra respect.
+  <b>2 · Shear:</b> upper winds that can tear the circulation — on satellite, a sheared storm looks tilted, its convection sheared away from the exposed low-level center.
+  <b>3 · Dry air:</b> Saharan slots or continental dry punches eating a side of the disk; night imaging shows it best.</p>
+  {chart}
+  <p class="src">Where the three fields agree in the storm's path, intensity climbs fast — the warm-eddy deepeners (Opal 1995 over the Loop Current) show that a Gulf storm can gain a category in mere hours. Never “bank” a storm strengthening LESS than you'd plan for.</p>
+</div>
+
+<div class="card"><h2>🧩 Ensemble fans — reading 31 threads at once</h2>
+  <p>GEFS runs the storm 32 ways (control + 31 perturbed); the “fan” of member tracks is the model's own confidence interval. The practical bar:</p>
+  <div class="alert" style="border-left-color:#26a69a"><b>Tight bundle</b><span>members agree — act on the mean track with confidence; NHC's cone will be tight too</span></div>
+  <div class="alert" style="border-left-color:#ffa726"><b>Split fan</b><span>two distinct solutions (into the Gulf vs up the Atlantic) — the ridge, trough and vortex location are still fighting; check the next cycle instead of the next hour</span></div>
+  <div class="alert" style="border-left-color:#ef5350"><b>Narrowing fast at day 2-3</b><span>confidence arriving — this is when prep decisions crystallize</span></div>
+  <p class="src">Day-5+ fans are pattern tilts, not tracks — extreme-range single-line reading is where forever forecasts get busted; remember the ± 250-mile day-5 error budget.</p>
+</div>
+
+<div class="card"><h2>🌊 The East Tennessee tropical story — remnants, terrain, and WATER</h2>
+  <p>Our coast is 6 hours from the Gulf and the Atlantic by air — by the time storms reach us they are usually REMNANTS. What kills here isn't wind: it's the rain loaded onto our slopes. The 2024 Helene remnant dumped a foot-plus over the region and put <a href="rivers.html">rivers</a> past record stages, erasing towns along the Nolichucky and Swannanoa — this is the real regional playbook:</p>
+  <p><b>1.</b> Track the REMNANT path, not the coastline landfall — the rain shield rides 100-300 miles EAST of the low's track in our terrain.
+  <b>2.</b> Watch antecedent soil: rain on saturated ground repeats the 1977-style basin fills; the river page tracks stage the honest way.
+  <b>3.</b> The 48-72 h overlap between a tropical moisture plume and a stalled front is our highest-stakes radar watch — flash-flood timing beats wind lead times here.</p>
+</div>
+
+{_print_card_style("tg-card")}
+<div class="card" id="tg-card" style="border:2px solid #1d3557">
+  {_print_btn("tg-card", "🌀 TNWN Tropical Field Card", "one page — cone · ladder · fuel · fans · water · safety")}
+  <p style="margin:8px 0 4px"><b>1 · Cone</b>: 2/3 error of the CENTER — never a hazard boundary. Read wind radii + rain shield around it.</p>
+  <p style="margin:8px 0 4px"><b>2 · Ladder</b>: TS 39 · Category 1 74 · 2 96 · 3 111 (major) · 4 130 · 5 157. Wind only — water kills more.</p>
+  <p style="margin:8px 0 4px"><b>3 · Fuel checks</b>: SST ≥ 26°C (watch warm eddies) + low shear + no dry slot = deepening fast. Where they fight, trust the turbulence.</p>
+  <p style="margin:8px 0 4px"><b>4 · Fans</b>: tight bundle = act on the mean · split = wait a cycle, REALLY check (the trend, not the fix) · day-5 errors ± 250 miles.</p>
+  <p style="margin:8px 0 4px"><b>5 · Water story here</b>: remnant rain + terrain + saturated basin = the actual killer. Rivers page for stage; 48-72 h plume-over-front watch.</p>
+  <p style="margin:8px 0 4px"><b>6 · Safety</b>: surge evacuations end before conditions worsen · never drive through flooded roads (turn around, don't drown) · water rises AFTER the rain headline, so watches outlast the wind.</p>
+  <p class="src" style="margin:8px 0 0;font-size:11.5px">Educational guidance only · official sources: nhc.noaa.gov · weather.gov · your local NWS office · Tennessee Weather Network</p>
+</div>
+{_print_js("tg-card")}
+
+{_quiz_block('🧠 Tropical quiz — read the cone like a pro, 8 of 10 to pass',
+    'Ten tropical-guidance scenarios straight off the NHC/Trop Models pages. Judge each answer like you would with landfall four days out.',
+    tg_scenarios, 'tnwn.tg.quiz.v1', 8,
+    'you read the tropics like a hurricane-season pro. Storm-ready')}
+
+<div class="card"><h2>⚠️ Tropical safety — the part that actually matters</h2>
+  <div class="alert" style="border-left-color:#ff0000"><b>Water wins.</b><span>More than half of tropical deaths are drowning — surge, fresh rain or both. Never drive through a flooded roadway: 12 inches of moving water takes a car.</span></div>
+  <div class="alert"><b>Evacuation is a booking problem.</b><span>Surge evacuations are issued BEFORE conditions deteriorate — decide destinations ahead, and go when told, not when the sky explains itself.</span></div>
+  <div class="alert"><b>Warnings win.</b><span>The NHC cone, watches and warnings outrank every model fan on the Trop Models page — act on the official product first and argue with the models later.</span></div>
+  <p class="src">This guide is educational, not official forecasting guidance — the <a href="tropical.html">NHC Tropical page</a>'s official products and local NWS warnings are authoritative.</p>
+</div>
+"""
+    return _page("Tropical Field Guide", "tropicalguide.html", body)
 
 
 def page_winter(d):
@@ -14753,6 +15267,8 @@ def generate_site():
             "enso.html": page_enso(d),
             "severe.html": page_severe(d),
             "fieldguide.html": page_fieldguide(d),
+            "winterguide.html": page_winterguide(d),
+            "tropicalguide.html": page_tropicalguide(d),
             "winter.html": page_winter(d),
             "rivers.html": page_rivers(d),
             "dashboard.html": page_dashboard(d),

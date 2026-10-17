@@ -1095,7 +1095,8 @@ def main():
                 from github_deploy import rewrite as _gd_rewrite, _walk_json as _gd_walk
                 for _f in ("data.json", "index.html", "obs.html", "dashboard.html",
                            "meso.html", "radar.html", "satellite.html", "models.html",
-                           "severe.html", "fieldguide.html"):
+                           "severe.html", "fieldguide.html", "winterguide.html",
+                           "tropicalguide.html"):
                     _src = os.path.join("static", "site", _f)
                     _dst = os.path.join("docs", _f)
                     if not os.path.isfile(_src):

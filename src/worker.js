@@ -413,7 +413,7 @@ async function proxyPremium(env, req, path) {
    publish_site.py and served ONLY to live premium/admin sessions; the
    public site carries locked shells with no content, so this is real
    enforcement - view-source reveals nothing. Same access rule as /api/premium/*. */
-const PAGES_GATED = ["severe", "storms", "tropical", "winter", "education", "fieldguide"];
+const PAGES_GATED = ["severe", "storms", "tropical", "winter", "winterguide", "tropicalguide", "education", "fieldguide"];
 
 function htmlResp(body, status = 200) {
   return new Response(body, { status, headers: {

@@ -409,6 +409,7 @@ def _cfpages_due():
 PAGES_D1_DB = "tnwn-members"
 PAGES_STATE = os.path.join(".freebuff", "pages-uploaded.json")
 PAGES_FILES = ("severe.html", "storms.html", "tropical.html", "winter.html",
+               "winterguide.html", "tropicalguide.html",
                "education.html", "fieldguide.html")
 # plus every docs/storm_<id>.html detail page (globbed at upload time)
 
