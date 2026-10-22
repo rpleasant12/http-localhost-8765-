@@ -10727,7 +10727,9 @@ def page_education(d):
          "for temperature and wind. The hourly tables show dew point, wind and precip odds hour by hour."),
         ("winter.html", "❄️", "Winter Maps",
          "Snow maps differ: 6-hourly bars (NBM) show short bursts; storm-total fields (GFS/GEFS) accumulate. "
-         "Ensemble spread is the honesty meter - wide spread means the snow band's position is still uncertain."),
+         "Ensemble spread is the honesty meter - wide spread means the snow band's position is still uncertain. "
+         "The Ensemble snow-odds card takes that further: instead of one map, it shows the LADDER of answers - "
+         "any snow, 1\"+, 4\"+ - each as an actual percentage from the ensembles."),
         ("dashboard.html", "📊", "Dashboard",
          "One screen, whole county: station temperatures with 24-hour trends, river stages, and what changed "
          "since yesterday. Built for the morning glance before you head out."),
@@ -10762,6 +10764,10 @@ def page_education(d):
         ("NOAA SciJinks (for kids)",
          "Games and simple explanations of weather for younger learners.",
          "https://scijinks.gov/"),
+        ("WPC Probabilistic Precipitation Portal",
+         "NOAA's experimental ensemble-odds page: instead of one predicted amount it shows the CHANCES of beating "
+         "each threshold (0.1\", 1\", 4\"...). Our Winter page mirrors its snow rungs on the Ensemble snow-odds card.",
+         "https://www.wpc.ncep.noaa.gov/Prob_Precip/"),
         ("NWS Knoxville office (our home office)",
          "Local forecasts, spotter training schedules and East TN climatology.",
          "https://www.weather.gov/mrx/"),
@@ -10790,6 +10796,8 @@ def page_education(d):
         ("WBGT", "Wet-Bulb Globe Temperature - heat stress in the sun, used by schools and athletic programs."),
         ("Skew-T", "The atmospheric vertical profile chart - temperature, moisture and wind from ground to jet stream."),
         ("Ensemble", "Many model runs with tiny tweaks - the spread between members shows forecast confidence."),
+        ("Ensemble odds / exceedance", "The question \"will at least N inches fall?\" answered as a percent: the card says "
+         "how many ensemble members got past that rung in this area. Percentages beat a single-map forecast that can only paint one number."),
         ("SPC MCD", "Mesoscale Discussion - SPC's short-fuse technical note on where organized severe weather is about to develop."),
         ("Helicity", "Wind that turns with height - storms ingest it and rotate. 150+ m²/s² in a storm environment gets forecasters' attention."),
         ("Lapse rate", "How fast air cools with height - steep rates (8°C/km+) make air rise explosively and fuel storms."),
@@ -12997,6 +13005,17 @@ def page_winter(d):
   <div class="src">HRRR {wnt.get("cycle") or ""} - accumulated snowfall (ASNOW) and freezing rain (FROZR) through each window, decoded from NOAA's open-data bucket and rendered here. On warm days the maps are honestly empty; the first cold storm paints them automatically.</div>
 </div>
 
+<div class="card"><h2>🎲 Ensemble snow odds - WPC Probabilistic Precipitation Portal</h2>  <div class="src">The <a href="https://www.wpc.ncep.noaa.gov/Prob_Precip/" target="_blank" rel="noopener">Probabilistic Precipitation Portal</a> turns the ensemble members that deterministic forecasts average away into <b>odds lines</b>: the chance of at least 0.1", 1" or 4" of snow in the 24-hour window from the portal's latest run. Contours are probability bands - you are reading the far side of the envelope, not the model average. A rung with no contours this cycle is dropped; odds are never invented.</div>
+<div class="kpis" id="pppChips"></div>
+<div class="ctl" style="margin-top:8px">
+  <label>Portal field</label>
+  <select id="pppSel" title="Portal field"></select>
+  <label style="margin-left:10px"><input type="checkbox" id="pppOn" checked/> Overlay</label>
+</div>
+<div id="pppMap" class="map-dark" style="height:420px;margin-top:8px"></div>
+<div class="src" id="pppStamp" style="margin-top:6px"></div>
+</div>
+
 <div class="card"><h2>🌨️ Model snowfall forecasts - every model with a snow field</h2>
 <div class="src">Same maps the Models tab renders, overlaid on the winter map: <b>GFS</b> (day 1-10 accumulated snowfall), <b>GEFS ensemble mean + spread</b> (spread = where runs disagree - wide spread means low forecast confidence), and the <b>NBM 6-hour blend</b>. Tick <b>Model snowfall</b>, pick a model and hour. The rotation keeps these current every model cycle; hours appear as they render.</div>
 </div>
@@ -13140,6 +13159,44 @@ async function boot() {{
   fcHour.onchange = show;
   document.getElementById("ly_fc").onchange = show;
   show();
+
+  /* ---- 2026-10-20: WPC Probabilistic Precipitation Portal odds -
+     L.imageOverlay of the reassembled tile composite (payload carries
+     CONUS bounds); a rung with no contours this cycle shows as absent
+     rather than being invented. ---- */
+  const pppViews = (W.ppp && W.ppp.views) || [];
+  const pppChips = document.getElementById("pppChips");
+  const pppStamp = document.getElementById("pppStamp");
+  if (pppViews.length) {{
+    let PPP_MAP = L.map("pppMap", {{ zoomSnap: 0.5, maxZoom: 12 }}).setView([35.9, -84.2], 4);
+    addMapControls(PPP_MAP, [35.9, -84.2], 4);
+    L.circleMarker([35.9606, -83.9207], {{ radius: 5, color: "#fff", weight: 2, fillColor: "#4da3ff", fillOpacity: 1 }}).addTo(PPP_MAP).bindTooltip("Knoxville");
+    const pppSel = document.getElementById("pppSel");
+    const pppOn = document.getElementById("pppOn");
+    let PPP_LAYER = null;
+    const pppShow = () => {{
+      const v = pppViews.find(x => x.id === pppSel.value);
+      if (PPP_LAYER) {{ PPP_MAP.removeLayer(PPP_LAYER); PPP_LAYER = null; }}
+      if (!v || !pppOn.checked) return;
+      PPP_LAYER = L.imageOverlay(v.pngUrl,
+        [[v.bounds[0], v.bounds[1]], [v.bounds[2], v.bounds[3]]],
+        {{ opacity: 0.85, interactive: false }}).addTo(PPP_MAP);
+      PPP_MAP.fitBounds([[v.bounds[0], v.bounds[1]], [v.bounds[2], v.bounds[3]]], {{ padding: [8, 8] }});
+    }};
+    pppSel.innerHTML = pppViews.map(v => `<option value="${{v.id}}">${{v.label}}</option>`).join("");
+    pppChips.innerHTML =
+      pppViews.map(v =>
+        `<div class="kpi"><span>${{v.label.replace(" - 24 h odds", "").replace("\u2265 ", "")}}</span><b>${{v.odds != null ? Math.round(v.odds) + "%" : "see line"}}</b></div>`
+      ).join("") +
+      `<div class="kpi"><span>Portal run</span><b>${{(W.ppp && W.ppp.cycle) || "?"}}</b></div>`;
+    pppStamp.innerHTML = "Odds ladder 24 h: at least 0.1 inch (any snow), 1 inch, 4 inch - from the portal's latest run. A rung with NO drawn contour this cycle was blank nationwide and is dropped from the selectors - that is the portal itself saying the threshold has no honest odds. Dark = low odds; bright cores = higher odds. Toggle the overlay or pick another rung; drag/zoom freely.";
+    pppSel.onchange = pppShow;
+    pppOn.onchange = pppShow;
+    pppShow();
+  }} else {{
+    pppChips.innerHTML = '<div class="kpi"><span>Portal</span><b>no odds fields this run</b></div>';
+    pppStamp.innerHTML = "The portal published no winter fields this cycle (its warm-season quiet state); the card self-clears on the next winter run.";
+  }}
   /* ---- model-run stamp: answers "is this current?" at a glance (2026-10-04).
      Live age vs the HRRR init, color-state at the updater's own thresholds
      (<=2.5 h fresh, <=4 h holding for NOAA, >4 h upstream gap), and a

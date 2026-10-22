@@ -514,6 +514,12 @@ def winter_bundle():
         frames = _render_hrrr(cycle) if cycle else {"snow": [], "ice": []}
         if cycle:
             _prune_old(cycle)
+    try:
+        from data.ppp import build as _ppp_build
+        ppp = _ppp_build()
+    except Exception:                                # noqa: BLE001
+        ppp = {"ok": False, "views": [], "cycle": None}
+    with _lock:
         bundle = {
             "ok": bool(frames["snow"] or frames["ice"]),
             "cycle": (full(cycle) if cycle else None),
@@ -526,6 +532,7 @@ def winter_bundle():
             "cpc": _mirror_cpc(),
             "longRange": _mirror_long_range(),
             "modelSnow": _model_snow_frames(),
+            "ppp": ppp,
             "generated": time.strftime("%Y-%m-%d %H:%M"),
         }
         _cache["bundle"] = bundle
