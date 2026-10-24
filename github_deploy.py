@@ -174,6 +174,28 @@ def package():
         if os.path.isfile(pwa_src):
             shutil.copy2(pwa_src, os.path.join(staging, pwa_fn))
 
+    # WPC PPP composite imagery: data.json's winter.ppp.views and the
+    # member winter page's odds overlay reference static/winter/ppp/*.png,
+    # but no page HTML in the public tree links them (the member stash is
+    # not built here), so rewrite-based discovery never copies them and
+    # the packager's existence checks fell through: views dropped, overlay
+    # 404 on the public tree (2026-10-23).
+    # Ship every composite the current disk retains (only the newest few
+    # cycles; _prune bounds growth).
+    for _mir in ("ppp", "wssi"):
+        _src = os.path.join("static", "winter", _mir)
+        if not os.path.isdir(_src):
+            continue
+        _dst = os.path.join(staging, "winter", _mir)
+        try:
+            os.makedirs(_dst, exist_ok=True)
+            for fn in os.listdir(_src):
+                if fn.endswith(".png"):
+                    shutil.copy2(os.path.join(_src, fn),
+                                 os.path.join(_dst, fn))
+        except OSError as _e:
+            print(f"  ! {_mir} composites copy skipped: {_e}")
+
     # the stand-alone Facebook post page lives outside static/site
     fb_src = os.path.join("static", "fb_page.html")
     if os.path.isfile(fb_src):

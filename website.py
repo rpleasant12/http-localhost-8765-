@@ -12870,6 +12870,7 @@ def page_winter(d):
     msnow = wnt.get("modelSnow") or {}
     lr = wnt.get("longRange") or []
     season = d.get("season") or {}
+    wssi = wnt.get("wssi") or {}
 
     us_n = alerts.get("usCount", 0)
     if us_n:
@@ -12895,6 +12896,26 @@ def page_winter(d):
         f'<figure class="wpcfig"><img loading="lazy" src="../winter/cpc/{p["file"]}" alt="{html.escape(p["label"])}"/>'
         f'<figcaption>{html.escape(p["label"])}</figcaption></figure>'
         for p in cpc)
+
+    # WPC Winter Storm Severity Index (data/winter._mirror_wssi): NWS's
+    # societal-impact grid. The card keeps the OFFICIAL caveat verbatim and
+    # shows the mirrored official legend when WPC serves the png - colors
+    # are never invented client-side.
+    wssi_pics = wssi.get("images") or []
+    _wssi_effic = html.escape(str(wssi.get("effective") or "-"))
+    _wssi_issued = html.escape(str(wssi.get("lastUpdated") or "-"))
+    OFFICIAL_CAVEAT = (
+        '<b>WSSI does not depict official warnings</b> - always use it in '
+        'context with official NWS forecasts and warnings.')
+    WSSI_LEGEND_HTML = (
+        '<img loading="lazy" src="../winter/wssi/wssi_legend.png" '
+        'alt="Official WSSI severity legend" '
+        'style="max-width:520px;width:100%;height:auto;border-radius:8px"/>'
+        if wssi.get("legendUrl") else
+        '<div class="src">The official legend image is not mirroring right '
+        'now - the text ladder below stands in.</div>')
+    WSSI_STAMP = (f"Valid window: {_wssi_effic}. "
+                  f"Algorithm issued {_wssi_issued} (runs hourly)." )
 
     # 2026-27 seasonal outlooks: CPC long-lead + WPC days 4-8 (winter.html
     # lives one level deep, so ../static/... mirrors the ../winter/... and
@@ -13012,10 +13033,21 @@ def page_winter(d):
   <select id="pppSel" title="Portal field"></select>
   <label style="margin-left:10px"><input type="checkbox" id="pppOn" checked/> Overlay</label>
 </div>
-<div id="pppMap" class="map-dark" style="height:420px;margin-top:8px"></div>
-<div class="src" id="pppStamp" style="margin-top:6px"></div>
+<div id="pppMap" class="map-dark" style="height:420px;margin-top:8px"></div><div class="src" id="pppStamp" style="margin-top:6px"></div>
 </div>
 
+<div class="card"><h2>🚨 WSSI - Winter Storm Severity Index (NWS impacts)</h2>
+<div class="src">The WPC <a href="https://www.wpc.ncep.noaa.gov/wwd/wssi/wssi.php" target="_blank" rel="noopener">Winter Storm Severity Index</a> translates the forecast itself into <b>societal impact levels</b>: how much the storm will disrupt travel, infrastructure and daily life, from <b>None</b> through <b>Marginal &rarr; Slight &rarr; Moderate &rarr; Severe &rarr; Extreme</b>. Where snow maps answer "how much?", WSSI answers "how bad is that here?" - a modest snow can score high where it is rare. Pick an element below; the colored relief is the WSSI category at each point. {OFFICIAL_CAVEAT}</div>
+<div class="kpis" id="wssiChips"></div>
+<div class="ctl" style="margin-top:8px">
+  <label>Severity element</label>
+  <select id="wssiSel" title="WSSI element"></select>
+  <label style="margin-left:10px"><input type="checkbox" id="wssiOn" checked/> Overlay</label>
+</div>
+<div id="wssiMap" class="map-dark" style="height:420px;margin-top:8px"></div>
+<div style="margin-top:8px">{WSSI_LEGEND_HTML}</div>
+<div class="src">Category ladder: <b>None</b> &middot; <b>Marginal</b> &middot; <b>Slight</b> &middot; <b>Moderate</b> &middot; <b>Severe</b> &middot; <b>Extreme</b> - the official legend is mirrored above when WPC serves it. {WSSI_STAMP}</div>
+</div>
 <div class="card"><h2>🌨️ Model snowfall forecasts - every model with a snow field</h2>
 <div class="src">Same maps the Models tab renders, overlaid on the winter map: <b>GFS</b> (day 1-10 accumulated snowfall), <b>GEFS ensemble mean + spread</b> (spread = where runs disagree - wide spread means low forecast confidence), and the <b>NBM 6-hour blend</b>. Tick <b>Model snowfall</b>, pick a model and hour. The rotation keeps these current every model cycle; hours appear as they render.</div>
 </div>
@@ -13196,6 +13228,39 @@ async function boot() {{
   }} else {{
     pppChips.innerHTML = '<div class="kpi"><span>Portal</span><b>no odds fields this run</b></div>';
     pppStamp.innerHTML = "The portal published no winter fields this cycle (its warm-season quiet state); the card self-clears on the next winter run.";
+  }}
+
+  /* ---- 2026-10-23: WPC Winter Storm Severity Index - NWS's 0-5 societal-
+     impact grid, mirrored flat pngs georeferenced by wssi.php's own
+     ImageElement extent (CONUS). Selector switches element / rolling day;
+     blank when the mirror is empty rather than invented. ---- */
+  const wssiImgs = (W.wssi && W.wssi.images) || [];
+  const wssiChips = document.getElementById("wssiChips");
+  if (wssiImgs.length) {{
+    let WSSI_MAP = L.map("wssiMap", {{ zoomSnap: 0.5, maxZoom: 12 }}).setView([38.8, -96.0], 4);
+    addMapControls(WSSI_MAP, [38.8, -96.0], 4);
+    L.circleMarker([35.9606, -83.9207], {{ radius: 5, color: "#fff", weight: 2, fillColor: "#4da3ff", fillOpacity: 1 }}).addTo(WSSI_MAP).bindTooltip("Knoxville");
+    const wssiB = [[24.714103649, -125.811668332], [57.560767331, -64.964629385]];
+    const wssiSel = document.getElementById("wssiSel");
+    const wssiOn = document.getElementById("wssiOn");
+    let WSSI_LAYER = null;
+    const wssiShow = () => {{
+      if (WSSI_LAYER) {{ WSSI_MAP.removeLayer(WSSI_LAYER); WSSI_LAYER = null; }}
+      if (!wssiOn.checked) return;
+      const img = wssiImgs.find(x => x.id === wssiSel.value);
+      if (!img) return;
+      WSSI_LAYER = L.imageOverlay(img.url, wssiB, {{ opacity: 0.88, interactive: false }}).addTo(WSSI_MAP);
+    }};
+    wssiSel.innerHTML = wssiImgs.map(x => `<option value="${{x.id}}">${{x.label}}</option>`).join("");
+    wssiChips.innerHTML = wssiImgs.slice(0, 5).map(x =>
+      `<div class="kpi"><span>${{x.label.split(" - ")[0]}}</span><b>see map</b></div>`
+    ).join("") + `<div class="kpi"><span>Issued</span><b>${{(W.wssi && W.wssi.lastUpdated) || "?"}}</b></div>`;
+    wssiSel.onchange = wssiShow;
+    wssiOn.onchange = wssiShow;
+    wssiShow();
+  }} else {{
+    wssiChips.innerHTML = '<div class="kpi"><span>WSSI</span><b>unreachable this cycle</b></div>';
+    document.getElementById("wssiMap").outerHTML = '<div class="alert">The WSSI mirror is unreachable right now - the official <a href="https://www.wpc.ncep.noaa.gov/wwd/wssi/wssi.php" target="_blank" rel="noopener">WSSI display</a> still has the live maps.</div>';
   }}
   /* ---- model-run stamp: answers "is this current?" at a glance (2026-10-04).
      Live age vs the HRRR init, color-state at the updater's own thresholds

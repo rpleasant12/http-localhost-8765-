@@ -29,6 +29,12 @@ import requests
 from data._tz import full as _full
 
 OUT_DIR = os.path.join("static", "winter", "ppp")
+# gh-pages packaging existence-checks ppp.views refs minutes AFTER the next
+# hourly build already pruned the referenced cycle (2026-10-23: views were
+# silently emptied on the public copy). Keep this many recent cycles of
+# composites: a 4-product set is ~1 MB, so depth 3 is trivially cheap
+# and bridges the prune-vs-package race.
+_KEEP_CYCLE_DEPTH = 3
 UA = {"User-Agent": "tennessee-weather-network/1.0 (local demo)"}
 HOST = "https://www.wpc.ncep.noaa.gov/Prob_Precip"
 
@@ -166,12 +172,26 @@ def _composite(slugs, cycle, fh=24):
 
 
 def _prune(slug, cycle):
-    """Keep only the newest cycle on disk per product slug."""
-    keep = f"{cycle:%Y%m%d%H}.png"
+    """Keep the newest few cycles on disk per product slug.
+
+    Depth 3: the gh-pages packager existence-checks every ppp.views ref
+    when it runs (often minutes AFTER the next hourly build already
+    pruned the prior cycle - 2026-10-23: views were silently emptied
+    when the referenced composite was gone). A small buffer bridges
+    that race; a 4-tile composite is ~300 KB so 3 cycles stay cheap.
+    """
+    depth = _KEEP_CYCLE_DEPTH      # cycles (~h) whose composites stay on disk
     try:
         for fn in os.listdir(OUT_DIR):
             m = re.match(rf"^{re.escape(slug)}_(\d{{10}})\.png$", fn)
-            if m and fn != f"{slug}_{keep}":
+            if not m:
+                continue
+            try:
+                stamp = dt.datetime.strptime(m.group(1), "%Y%m%d%H").replace(
+                    tzinfo=dt.timezone.utc)
+            except ValueError:
+                continue
+            if cycle - stamp >= dt.timedelta(hours=depth):
                 try:
                     os.remove(os.path.join(OUT_DIR, fn))
                 except OSError:

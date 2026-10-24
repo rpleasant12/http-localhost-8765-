@@ -30,6 +30,7 @@ from data._tz import full
 
 OUT_DIR = os.path.join("static", "winter")
 WPC_DIR = os.path.join(OUT_DIR, "wpc")
+WSSI_DIR = os.path.join(OUT_DIR, "wssi")
 
 UA = {"User-Agent": "tennessee-weather-network/1.0 (local demo)"}
 HRRR_BUCKET = "https://noaa-hrrr-bdp-pds.s3.amazonaws.com"
@@ -344,6 +345,130 @@ def _mirror_wpc():
     return out
 
 
+# ------------------------------------------------------------ WPC WSSI
+# CONUS image bounds lifted verbatim from wssi.php's own ImageElement
+# georeference (ExtentAndRotationGeoreference in the page's inline JS) -
+# Leaflet wants [south+west, north+east] pairs.
+WSSI_BOUNDS = [[24.714103649, -125.811668332], [57.560767331, -64.964629385]]
+WSSI_BASE = "https://www.wpc.ncep.noaa.gov/wwd/wssi/images/"
+
+# Flat, in-place filenames confirmed from wssi.php's own loadWssiImage
+# refs (2026-10-23). "Maximum" pngs are the Days 1-3 max per element;
+# the r24/r24h pngs are rolling-24 h frames for Day 1/2/3 (f24/f48/f72).
+# Note the Overall rolling name differs from the others (r24_WSSI vs r24h_).
+WSSI_PRODUCTS = (
+    ("overall",      "web_CONUS_WSSI_Maximum_Overall.png",
+     "Overall - Days 1-3 max impact"),
+    ("snow",         "web_CONUS_WSSI_Maximum_Snow_Amount.png",
+     "Snow amount - Days 1-3 max"),
+    ("snowload",     "web_CONUS_WSSI_Maximum_Snow_Load.png",
+     "Snow load (weight on structures) - Days 1-3 max"),
+    ("ice",          "web_CONUS_WSSI_Maximum_Ice_Accumulation.png",
+     "Ice accumulation - Days 1-3 max"),
+    ("blowingsnow",  "web_CONUS_WSSI_Maximum_Blowing_Snow.png",
+     "Blowing snow - Days 1-3 max"),
+    ("overall_d1",   "web_CONUS_r24_WSSI_Overall_f24.png",
+     "Overall - rolling 24 h, Day 1"),
+    ("overall_d2",   "web_CONUS_r24_WSSI_Overall_f48.png",
+     "Overall - rolling 24 h, Day 2"),
+    ("overall_d3",   "web_CONUS_r24_WSSI_Overall_f72.png",
+     "Overall - rolling 24 h, Day 3"),
+    ("snow_d1",      "web_CONUS_r24h_SnowAmount_f24.png",
+     "Snow amount - rolling 24 h, Day 1"),
+    ("snow_d2",      "web_CONUS_r24h_SnowAmount_f48.png",
+     "Snow amount - rolling 24 h, Day 2"),
+    ("snow_d3",      "web_CONUS_r24h_SnowAmount_f72.png",
+     "Snow amount - rolling 24 h, Day 3"),
+    ("ice_d1",       "web_CONUS_r24h_IceAccumulation_f24.png",
+     "Ice accumulation - rolling 24 h, Day 1"),
+    ("ice_d2",       "web_CONUS_r24h_IceAccumulation_f48.png",
+     "Ice accumulation - rolling 24 h, Day 2"),
+    ("ice_d3",       "web_CONUS_r24h_IceAccumulation_f72.png",
+     "Ice accumulation - rolling 24 h, Day 3"),
+    ("blowingsnow_d1", "web_CONUS_r24h_BlowingSnow_f24.png",
+     "Blowing snow - rolling 24 h, Day 1"),
+    ("blowingsnow_d2", "web_CONUS_r24h_BlowingSnow_f48.png",
+     "Blowing snow - rolling 24 h, Day 2"),
+    ("blowingsnow_d3", "web_CONUS_r24h_BlowingSnow_f72.png",
+     "Blowing snow - rolling 24 h, Day 3"),
+)
+
+
+def _mirror_wssi():
+    """WPC Winter Storm Severity Index - NWS's own 0-5 societal-impact grid.
+
+    The interactive display (wssi.php) georeferences flat, no-date PNGs
+    (web_CONUS_*): elements are overwritten in place as each hourly run
+    issues, so mirroring = re-downloading the same name; nothing prunes.
+    Category ladder (per the WSSI users guide): None, Marginal, Slight,
+    Moderate, Severe, Extreme. The card also mirrors the official legend
+    when reachable so colors are never invented client-side.
+    """
+    os.makedirs(WSSI_DIR, exist_ok=True)
+    out = []
+    for fid, fn, label in WSSI_PRODUCTS:
+        dest = os.path.join(WSSI_DIR, fn)
+        try:
+            if not (os.path.exists(dest) and os.path.getsize(dest) > 5_000
+                    and time.time() - os.stat(dest).st_mtime < 3600):
+                r = requests.get(WSSI_BASE + fn, headers=UA, timeout=25)
+                if r.ok and r.content[:3] in (b"\xff\xd8\xff", b"\x89PN"):
+                    tmp = dest + ".part"
+                    with open(tmp, "wb") as f:
+                        f.write(r.content)
+                    os.replace(tmp, dest)
+            if os.path.exists(dest) and os.path.getsize(dest) > 5_000:
+                # app-absolute url: the Pages packager rewrites these and
+                # copies the file (same pattern as the wpc/cpc mirrors)
+                out.append({"id": fid, "file": fn, "label": label,
+                            "url": f"/app/static/winter/wssi/{fn}",
+                            "bounds": WSSI_BOUNDS})
+        except Exception:                          # noqa: BLE001
+            continue
+    if not out:
+        return {"ok": False, "images": [], "effective": None,
+                "lastUpdated": None, "legendUrl": None}
+
+    # Issuance/validity stamps + official legend (best-effort)
+    effective = last_updated = None
+    try:
+        r = requests.get(WSSI_BASE + "xmlswssiXmlLastMod.txt", headers=UA,
+                         timeout=15)
+        if r.ok:
+            last_updated = " ".join(r.text.split("Last Updated:")[-1].split())
+        r = requests.get(WSSI_BASE + "wssi_fp_xml.txt", headers=UA, timeout=15)
+        if r.ok:
+            effective = " ".join(r.text.split())
+    except Exception:                              # noqa: BLE001
+        pass
+    legend_dest = os.path.join(WSSI_DIR, "wssi_legend.png")
+    legend_ok = False
+    try:
+        if not (os.path.exists(legend_dest) and os.path.getsize(legend_dest) > 5_000
+                and time.time() - os.stat(legend_dest).st_mtime < 259_200):
+            for cand in ("images/WSSI_legend_rs.png", "WSSI_legend_rs.png"):
+                r = requests.get(WSSI_BASE + cand, headers=UA, timeout=15)
+                if r.ok and r.content[:4] == b"\x89PNG":
+                    with open(legend_dest + ".part", "wb") as f:
+                        f.write(r.content)
+                    os.replace(legend_dest + ".part", legend_dest)
+                    break
+        legend_ok = (os.path.exists(legend_dest)
+                     and os.path.getsize(legend_dest) > 5_000)
+    except Exception:                              # noqa: BLE001
+        pass
+    return {
+        "ok": True,
+        "images": out,
+        "effective": effective,
+        "lastUpdated": last_updated,
+        "legendUrl": ("/app/static/winter/wssi/wssi_legend.png"
+                      if legend_ok else None),
+        "bounds": WSSI_BOUNDS,
+        "source": "noaa wpc winter storm severity index (no key, mirrored)",
+    }
+
+
 # ------------------------------------------------------------ CPC outlooks
 def _mirror_cpc():
     """CPC 6-10 day and 8-14 day temperature/precipitation outlooks.
@@ -519,6 +644,11 @@ def winter_bundle():
         ppp = _ppp_build()
     except Exception:                                # noqa: BLE001
         ppp = {"ok": False, "views": [], "cycle": None}
+    try:
+        wssi = _mirror_wssi()
+    except Exception:                                # noqa: BLE001
+        wssi = {"ok": False, "images": [], "effective": None,
+                "lastUpdated": None, "legendUrl": None}
     with _lock:
         bundle = {
             "ok": bool(frames["snow"] or frames["ice"]),
@@ -532,6 +662,7 @@ def winter_bundle():
             "cpc": _mirror_cpc(),
             "longRange": _mirror_long_range(),
             "modelSnow": _model_snow_frames(),
+            "wssi": wssi,
             "ppp": ppp,
             "generated": time.strftime("%Y-%m-%d %H:%M"),
         }
