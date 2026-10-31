@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Polar Vortex - Tennessee Weather Network</title>
+<meta property="og:title" content="Polar Vortex - Tennessee Weather Network"/>
+<meta property="og:type" content="website"/>
+<meta property="og:description" content="Live radar, future cast, satellite, forecast models and East Tennessee forecasts - free, no keys, always updating."/>
+<meta property="og:url" content="https://rpleasant12.github.io/http-localhost-8765-/"/>
+<meta property="og:image" content="https://rpleasant12.github.io/http-localhost-8765-/og.png"/>
+<meta property="og:site_name" content="Tennessee Weather Network"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="https://rpleasant12.github.io/http-localhost-8765-/og.png"/>
+<meta name="description" content="Live East Tennessee weather: radar, future cast, satellite, all forecast models, severe weather, and city forecasts. Updated continuously."/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="manifest" href="manifest.webmanifest"/>
+<meta name="theme-color" content="#0e1117"/>
+<link rel="apple-touch-icon" href="icon-192.png"/>
+
+<!-- member.js in the HEAD: every page's inline member scripts (auth card,
+     strip, teasers) run before the footer, so loading it here is the only
+     way window.TWN exists when they run (was loaded in the footer and all
+     consumers silently bailed on if(!window.TWN) - member UI dead in every
+     real browser, found by the 2026-10-02 browser auth-lifecycle test) -->
+<script>window.TWN_WORKER="https://tnwn-members.nbasportstalk53.workers.dev";</script>
+<script src="member.js"></script>
+
+<style>
+  :root { color-scheme: dark; --bg:#0e1117; --card:#161b26; --line:rgba(255,255,255,.08); --dim:#9aa4b2; --acc:#4da3ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:var(--bg); color:#e8edf4; }
+  a { color:var(--acc); text-decoration:none; }
+  .wrap { max-width:1100px; margin:0 auto; padding:14px; }
+  nav { position:sticky; top:0; z-index:50; background:rgba(14,17,23,.95); backdrop-filter:blur(6px);
+        border-bottom:1px solid var(--line); }
+  nav .wrap { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; padding:10px 14px; }
+  nav .brand { font-weight:800; font-size:18px; margin-right:auto; }
+  nav .brand span { color:var(--acc); }
+  nav a.pg { color:#cdd7e4; font-size:14px; padding:4px 8px; border-radius:6px; }
+  nav a.pg:hover, nav a.pg.on { background:#1d2432; color:#fff; }
+  header.hero { text-align:center; padding:20px 8px 8px; }
+  header.hero h1 { margin:0; font-size:clamp(22px,5vw,36px); }
+  header.hero .sub { color:var(--dim); margin-top:6px; font-size:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin:14px 0; }
+  h2 { font-size:17px; margin:0 0 10px; color:#cdd7e4; }
+  .grid { display:grid; gap:10px; }
+  .cards7 { grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); }
+  .day { background:#10151f; border:1px solid var(--line); border-radius:12px; padding:12px; text-align:center; }
+  .day .hi { font-size:24px; font-weight:800; }
+  .day .tx { color:var(--dim); font-size:12.5px; min-height:30px; }
+  .now { display:flex; flex-wrap:wrap; gap:16px; align-items:center; }
+  .now .big { font-size:clamp(42px,10vw,64px); font-weight:800; }
+  .now .meta { color:var(--dim); font-size:14px; line-height:1.7; }
+  .chip { display:inline-block; padding:8px 18px; border-radius:12px; font-weight:900; color:#102015; }
+  .alerts { display:grid; gap:8px; }
+  .alert { background:#10151f; border-radius:10px; padding:10px 12px; border-left:6px solid #888; }
+  .alert b { color:#fff; } .alert span { color:var(--dim); font-size:13px; display:block; }
+  .alert.ok { border-left-color:#2e7d32; color:#a5d6a7; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; }
+  .kpi { background:#10151f; border:1px solid var(--line); border-radius:12px; padding:10px; text-align:center; }
+  .kpi b { display:block; font-size:22px; } .kpi span { color:var(--dim); font-size:12px; }
+  .ltg-row { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; margin-top:10px; }
+  .wpcfig { flex:1 1 300px; max-width:49%; min-width:260px; margin:0; }
+  .wpcfig img { width:100%; height:auto; display:block; border-radius:10px; }
+  .wpcfig figcaption { font-size:12px; opacity:.75; margin-top:4px; }
+  .wbtn { background:#1d2432; color:#cdd7e4; border:1px solid var(--line); border-radius:8px;
+          padding:6px 11px; font-size:12.5px; cursor:pointer; }
+  .wbtn.on { background:#2a3a55; color:#fff; font-weight:700; }
+  .npTab { background:#1d2432; color:#cdd7e4; border:1px solid var(--line); border-radius:8px;
+           padding:6px 11px; font-size:12.5px; cursor:pointer; }
+  .npTab.on { background:#2a3a55; color:#fff; font-weight:700; }
+  .ltg-cell { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px 10px; min-width:130px; flex:0 0 auto; }
+  .ltg-cell b { display:block; font-size:15px; }
+  .ltg-cell .h { color:var(--dim); font-size:11px; }
+  .ltg-bars { display:flex; align-items:flex-end; gap:2px; height:34px; margin-top:6px; }
+  .ltg-bars i { flex:1 1 0; min-width:4px; background:#ffeb3b; border-radius:2px 2px 0 0; opacity:.9; }
+  .ltg-badge { font-size:11px; font-weight:800; padding:2px 8px; border-radius:8px; color:#102015; }
+  #map { height:clamp(340px,56vh,580px); border-radius:12px; z-index:0; }
+  .ctl { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:10px; }
+  .ctl button { background:#2b80ff; color:#fff; border:none; border-radius:8px; padding:9px 20px; font-size:16px; cursor:pointer; }
+  .ctl button:active { transform:scale(.97); }
+  .ctl select { background:#1b1f27; color:#eee; border:1px solid rgba(255,255,255,.2); border-radius:6px; padding:8px; font-size:14px; max-width:100%; }
+  .stack { position:relative; width:100%; aspect-ratio:4/3; background:#0a0d13; border-radius:10px; overflow:hidden; }
+  .stack .layer { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+  .frame { font-family:ui-monospace,monospace; color:#ffd54f; }
+  .ctl input[type=range] { flex:1; min-width:110px; accent-color:#2b80ff; height:26px; }
+  .frame { min-width:84px; text-align:center; font-weight:700; color:#ffd54f; font-size:16px; }
+  .src { color:var(--dim); font-size:12px; margin-top:8px; }
+  .legend { display:flex; flex-wrap:wrap; gap:8px 14px; font-size:12.5px; color:var(--dim); margin-top:8px; }
+  .legend i { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+  table.cells { width:100%; border-collapse:collapse; font-size:14px; }
+  table.cells th { text-align:left; color:var(--dim); font-weight:600; font-size:12px; padding:6px; }
+  table.cells th.srt { cursor:pointer; user-select:none; white-space:nowrap; }
+  table.cells th.srt:hover { color:var(--ink); }
+  table.cells th.srt .dir { font-size:10px; margin-left:2px; color:var(--accent); }
+  .trend { font-size:11px; font-weight:700; margin-left:3px; }
+  .trend.up { color:#66bb6a; } .trend.dn { color:#ef5350; } .trend.fl { color:var(--dim); font-weight:400; }
+  table.cells td { border-top:1px solid var(--line); padding:7px 6px; }
+  .dbz { font-weight:800; } .sev { color:#ff5252; } .mod { color:#ffb74d; } .lit { color:#aed581; }
+  .gal { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }
+  .gal img { width:100%; border-radius:10px; border:1px solid var(--line); }
+  .gal .cap { color:var(--dim); font-size:12.5px; margin-top:4px; }
+  .stepper { display:flex; align-items:center; gap:8px; margin-top:8px; }
+  .stepper button { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:14px; }
+  .cmp4 { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+  .cmp4 .pane { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px; }
+  .cmp4 .pane h3 { margin:0 0 6px; font-size:13.5px; color:#cdd7e4; display:flex; align-items:center; gap:8px; }
+  .cmp4 .pane h3 .cap { color:var(--dim); font-weight:400; }
+  .cmp4 .pane select { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:3px 6px; font-size:13px; }
+  .cmp4 img { width:100%; border-radius:8px; }
+  .cmp4 .miss { color:var(--dim); font-size:12.5px; padding:22px 6px; text-align:center; }
+  @media (max-width:820px){ .cmp4 { grid-template-columns:1fr; } }
+  .hourly { display:flex; gap:8px; overflow-x:auto; padding-bottom:6px; }
+  .hr { background:#10151f; border:1px solid var(--line); border-radius:10px; padding:8px 10px; text-align:center; min-width:72px; }
+  .hr b { display:block; } .hr span { color:var(--dim); font-size:11.5px; }
+  .natimg { width:100%; max-width:860px; display:block; margin:0 auto; border-radius:10px; border:1px solid var(--line); background:#fff; }
+  .pre { white-space:pre-wrap; font-size:12.5px; color:#cdd7e4; background:#10151f; border:1px solid var(--line); border-radius:10px; padding:12px; max-height:260px; overflow:auto; }
+  footer { text-align:center; color:var(--dim); font-size:12.5px; padding:18px 8px 26px; line-height:1.8; }
+  .navctl { display:flex; align-items:center; gap:6px; }
+  .navctl button { background:#1d2432; color:#eee; border:1px solid var(--line); border-radius:6px; padding:4px 10px; cursor:pointer; font-size:14px; }
+  .autolbl { color:var(--dim); font-size:12px; display:flex; align-items:center; gap:4px; }
+  .map-dark .leaflet-tile-pane { filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(1.05); }
+  /* radar load-state badge (set by the player: ok / loading / empty) */
+  #map { position: relative; }
+  #map::after {
+    content: "";
+    position: absolute; top: 8px; left: 8px; z-index: 800;
+    background: rgba(10, 14, 20, .75); color: #9fe199; border: 1px solid rgba(255,255,255,.15);
+    border-radius: 6px; padding: 2px 9px; font-size: 11.5px; pointer-events: none;
+  }
+  #map[data-radar-state="loading"]::after { content: "radar loading…"; color: #ffd54f; }
+  #map[data-radar-state="empty"]::after { content: "radar unavailable - retrying"; color: #ff8a80; }
+  #map[data-radar-state="ok"]::after { content: "radar live"; color: #9fe199; }
+  /* hide Leaflet's default home marker (the player draws its own) */
+  .leaflet-marker-icon.home-marker { display: none; }
+  .leaflet-control-attribution { background:rgba(14,17,23,.8) !important; color:var(--dim) !important; }
+  .mapctlbtn { background:#1d2432; border:1px solid var(--line); border-radius:6px; color:#eee;
+    padding:5px 9px; font-size:15px; cursor:pointer; margin-bottom:6px; box-shadow:0 1px 4px rgba(0,0,0,.4); text-align:center; }
+  .mapcoord { background:rgba(14,17,23,.85); color:#cdd7e4; border:1px solid var(--line); border-radius:6px;
+    font-size:11.5px; padding:3px 8px; }
+  /* ---------- mobile nav drawer (2026-09-28) ----------
+     phones get a hamburger that opens a grouped, sectioned menu instead
+     of hunting through the flat strip; desktop shows neither */
+  #navBtn { display:none; }
+  #navDrawer { display:none; }
+  @media (max-width:640px){
+    #navBtn { display:block; }
+    #navDrawer { display:block; position:fixed; inset:0; z-index:9999;
+                 background:rgba(5,8,12,.6); backdrop-filter:blur(2px); }
+    #navDrawer[hidden] { display:none; }   /* beats the display above */
+    #navDrawer > .dHead, #navDrawer .dGroup {
+      background:var(--card); border-bottom:1px solid var(--line); }
+    #navDrawer .dHead { position:sticky; top:0; font-weight:800;
+      padding:14px 16px; display:flex; justify-content:space-between;
+      align-items:center; }
+    #navDrawer .dHead button { background:none; border:none;
+      color:var(--dim); font-size:26px; line-height:1; cursor:pointer;
+      padding:2px 8px; }
+    #navDrawer .dGroup { padding:6px 12px; }
+    #navDrawer .dGroup b { display:block; color:var(--dim);
+      font-size:11.5px; text-transform:uppercase; letter-spacing:.08em;
+      margin:10px 4px 4px; }
+    #navDrawer .dGroup a.pg { display:block; padding:11px 10px;
+      font-size:15px; color:#cdd7e4; border-radius:8px; }
+    #navDrawer .dGroup a.pg.on { background:#1d2432; color:#fff;
+      font-weight:700; }
+    #navBtn { background:#1d2432; color:#e8edf4; border:1px solid var(--line);
+      border-radius:8px; font-size:18px; padding:6px 12px; cursor:pointer;
+      order:-1; }
+  }
+  /* ---------- mobile friendliness (2026-09-28) ----------
+     26 nav links wrap into a tall block on phones; wide alert tables
+     (min-width 420-520px) overflow the screen; .wpcfig min-width forces
+     one image per row. Consolidated responsive fixes below. */
+  @media (max-width:900px){
+    /* tighter nav rows before the phone strip kicks in at 640 */
+    nav .wrap { gap:4px 10px; padding:8px 10px; }
+    nav a.pg { font-size:13px; padding:4px 7px; }
+  }
+  @media (max-width:640px){
+    .wrap{padding:10px;} .card{padding:12px;} nav .brand{font-size:16px;}
+    /* nav = one thumb-swipeable strip instead of a 26-link tall block */
+    nav .wrap { flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch;
+                padding:8px; scrollbar-width:none; }
+    nav .wrap::-webkit-scrollbar { display:none; }
+    nav .brand { white-space:nowrap; }
+    nav a.pg { padding:8px 10px; font-size:13.5px; white-space:nowrap;
+               flex:0 0 auto; }
+    nav .navctl { flex:0 0 auto; }
+    /* 2-up KPI cards read better than 4-up squished */
+    .kpis { grid-template-columns:repeat(2,1fr); }
+    .kpi b { font-size:18px; }
+    .gal { grid-template-columns:1fr; }
+    .wpcfig { max-width:100%; flex-basis:100%; }
+    .ltg-cell { flex:1 1 100%; min-width:0; }
+    /* wide tables scroll inside their card instead of breaking the page */
+    .card { overflow-x:auto; }
+    .minitable, table.cells { display:block; overflow-x:auto;
+                              -webkit-overflow-scrolling:touch; }
+    .minitable { min-width:420px; }
+    /* 16px+ controls avoid the iOS Safari focus zoom */
+    select, button { font-size:16px; }
+    .ctl select { font-size:16px; }
+    #baseSel { max-width:110px; }
+    .mapcoord { display:none; }   /* mouse-only lat/lon readout */
+    footer { font-size:12px; }
+  }
+  @media (max-width:400px){ .kpis { grid-template-columns:1fr; } }
+</style>
+</head><body>
+<nav><div class="wrap">
+  <a class="brand" href="weather.html">🌧️ <span>Tennessee Weather Network</span></a>
+  <a class="pg" href="weather.html">Weather</a><a class="pg" href="radar.html">Radar</a><a class="pg" href="satellite.html">Satellite</a><a class="pg" href="forecast.html">Forecast</a><a class="pg" href="dashboard.html">Dashboard</a><a class="pg" href="national.html">National</a><a class="pg" href="models.html">Models</a><a class="pg" href="gefs.html">GEFS</a><a class="pg" href="hrrr.html">HRRR · RRFS</a><a class="pg" href="tropmodels.html">Trop Models</a><a class="pg" href="cfsv2.html">CFSv2 · Long Range</a><a class="pg" href="meso.html">Mesoanalysis</a><a class="pg" href="charts.html">Charts & MOS</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/severe.html">Severe ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/storms.html">Storms ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/tropical.html">NHC ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/winter.html">Winter Forecast ⭐</a><a class="pg" href="fronts.html">Fronts</a><a class="pg" href="fire.html">Fire</a><a class="pg" href="rivers.html">Rivers</a><a class="pg" href="history.html">History</a><a class="pg" href="climate.html">Climate</a><a class="pg" href="enso.html">El Niño</a><a class="pg on" href="polar.html">Polar Vortex</a><a class="pg" href="obs.html">Obs & Skew-T</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/education.html">Education ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/fieldguide.html">Field Guide ⭐</a><a class="pg" href="traffic.html">Traffic</a><a class="pg" href="pricing.html">⭐ Premium</a><a class="pg" href="member.html">Account</a><a class="pg" href="admin.html">Admin</a>
+  <div class="navctl">
+    <select id="baseSel" title="Basemap" style="max-width:110px"></select>
+    <button id="refreshBtn" title="Refresh this page now">⟳ Refresh</button>
+    <label class="autolbl"><input type="checkbox" id="autoChk" checked/> auto <span id="autoCnt">90</span>s</label>
+    <a id="fbShare" title="Share this page on Facebook" target="_blank" rel="noopener"
+       style="text-decoration:none;background:#1877f2;color:#fff;padding:4px 10px;border-radius:8px;font-size:12.5px;font-weight:600;display:inline-block">📘 Share</a>
+  </div>
+</div></nav>
+
+<button id="navBtn" aria-label="Menu" aria-expanded="false" aria-controls="navDrawer">☰</button>
+<div id="navDrawer" hidden>
+  <div class="dHead">Tennessee Weather Network<button id="navClose" aria-label="Close menu">×</button></div>
+  <div class="dGroup"><b>Live & Forecast</b><a class="pg" href="weather.html">Weather</a><a class="pg" href="radar.html">Radar</a><a class="pg" href="satellite.html">Satellite</a><a class="pg" href="forecast.html">Forecast</a><a class="pg" href="dashboard.html">Dashboard</a><a class="pg" href="national.html">National</a></div><div class="dGroup"><b>Models</b><a class="pg" href="models.html">Models</a><a class="pg" href="gefs.html">GEFS</a><a class="pg" href="hrrr.html">HRRR · RRFS</a><a class="pg" href="tropmodels.html">Trop Models</a><a class="pg" href="cfsv2.html">CFSv2 · Long Range</a><a class="pg" href="meso.html">Mesoanalysis</a><a class="pg" href="charts.html">Charts & MOS</a></div><div class="dGroup"><b>Storms & Seasons</b><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/severe.html">Severe ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/storms.html">Storms ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/tropical.html">NHC ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/winter.html">Winter Forecast ⭐</a><a class="pg" href="fronts.html">Fronts</a><a class="pg" href="fire.html">Fire</a><a class="pg" href="rivers.html">Rivers</a><a class="pg" href="history.html">History</a></div><div class="dGroup"><b>Climate & Learn</b><a class="pg" href="climate.html">Climate</a><a class="pg" href="enso.html">El Niño</a><a class="pg on" href="polar.html">Polar Vortex</a><a class="pg" href="obs.html">Obs & Skew-T</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/education.html">Education ⭐</a><a class="pg" href="https://tnwn-members.nbasportstalk53.workers.dev/p/fieldguide.html">Field Guide ⭐</a><a class="pg" href="traffic.html">Traffic</a></div><div class="dGroup"><b>Support</b><a class="pg" href="pricing.html">⭐ Premium</a><a class="pg" href="member.html">Account</a><a class="pg" href="admin.html">Admin</a></div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const SITE_DATA_URL = "data.json";
+/* footer member strip: logged-in members see their status + premium link;
+   everyone else sees a quiet upgrade nudge. Dormant when TWN_WORKER empty.
+   member.js loads in <head> but #memStrip is in the footer BELOW this
+   script, so paint on DOMContentLoaded (pre-fix this IIFE ran here, before
+   both TWN and the strip div existed, and silently did nothing). */
+document.addEventListener("DOMContentLoaded", function () {
+  if (!window.TWN || !window.TWN.member || !window.TWN_WORKER) return;
+  const el = document.getElementById("memStrip");
+  if (!el) return;
+  TWN.member.refreshMe().then(function (me) {
+    if (me && me.premiumActive) {
+      /* ad-free perk: hide every free-tier slot for active subscribers */
+      document.querySelectorAll(".adSlot").forEach(a => a.style.display = "none");
+    }
+    if (me && me.member) {
+      el.innerHTML = "<span class='src' style='color:#8ab4f8'>★ " + TWN.member.esc(me.email)
+        + (me.premiumActive ? " · ⭐ Premium active" : " · free account")
+        + " · <a href='member.html'>account</a>"
+        + (me.admin ? " · <a href='admin.html'>admin</a>" : "") + "</span><br/>";
+    } else {
+      el.innerHTML = "<span class='src'>⭐ <a href='pricing.html'>Go premium: weather centers, AI model maps, ad-free - $4.99/mo</a></span><br/>";
+    }
+  }).catch(function () {});
+});
+/* GitHub Pages caches data.json up to 10 min (max-age=600); the timestamp
+   query makes the browser fetch a fresh copy from the Pages CDN instead of
+   reusing a stale cached one. Public data publishes ~every 10 min, so the
+   footer age normally reads 0-10 min - that is the honest cadence. */
+function dataUrl() {
+  try { return SITE_DATA_URL + "?t=" + Date.now(); } catch (_e) { return SITE_DATA_URL; }
+}
+/* live-update watchdog: re-fetch data.json every 3 min and show its age.
+   The footer age is computed from dataEpochMs (server epoch), NOT from the
+   human-readable 'generated' string (now "... 12:17 AM ET" - unparseable). */
+let SITE_DATA = null;
+function fmtAge(mins) {
+  if (mins < 1) return "just now";
+  if (mins < 60) return mins + " min ago";
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return h + " h " + (m ? m + " min " : "") + "ago";
+}
+function updTick() {
+  if (!SITE_DATA) return;
+  const el = document.getElementById("upd");
+  if (!el) return;
+  const ms = Date.now() - (SITE_DATA.dataEpochMs || 0);
+  if (!SITE_DATA.dataEpochMs || ms < 0) { el.textContent = "\u2705 Live data"; return; }
+  const mins = Math.floor(ms / 60000);
+  /* Public site: GitHub publishes ~every 10 min, so age up to ~12 min is the
+     normal cadence - warn only past that. Pages' own max-age=600 means the
+     fetch itself can lag a couple minutes behind the publish. */
+  const took = (function () {
+    const lu = SITE_DATA.lastUpdate;
+    if (!lu || !(lu.lastDurationS > 0)) return "";
+    const s = lu.lastDurationS, m = Math.floor(s / 60);
+    let t = " \u00b7 last update took " + (m ? m + " min " + (s % 60) + " s" : s + " s");
+    if (lu.cycles > 1 && lu.avgDurationS > 0) {
+      const am = Math.floor(lu.avgDurationS / 60);
+      t += " \u00b7 avg " + (am ? am + " min " + (lu.avgDurationS % 60) + " s" : lu.avgDurationS + " s");
+    }
+    return t;
+  })();
+  const maxAge = (location.hostname === "localhost" || location.hostname === "127.0.0.1") ? 2 : 12;
+  const grew = SITE_DATA._lastAge != null && mins > SITE_DATA._lastAge + 2 && mins > maxAge;
+  SITE_DATA._lastAge = mins;
+  if (mins <= maxAge) el.textContent = "\u2705 Live data \u00b7 refreshed " + fmtAge(mins) + took;
+  else if (mins <= 30) el.textContent = "\u23f3 Data " + fmtAge(mins) + " old \u00b7 next publish soon" + took;
+  else if (grew) el.textContent = "\u23f3 Data " + fmtAge(mins) + " old \u00b7 waking the weather center - catching up now";
+  else el.textContent = "\u26a0\ufe0f Data " + fmtAge(mins) + " old \u00b7 PC asleep or offline - updates pause until it wakes";
+}
+async function siteRefresh() {
+  try {
+    SITE_DATA = await (await fetch(dataUrl(), {cache: "no-store"})).json();
+    if (typeof onDataRefresh === "function") onDataRefresh(SITE_DATA);
+    updTick();
+    /* winter/product maps: the WPC/CPC GIFs render once at page load and
+       nothing re-requested them, so a long-open tab served its own cached
+       copy forever while fresh files sat on the CDN (found 2026-10-04: the
+       winter map looked frozen all afternoon). Radar pages refresh their
+       own maps through onDataRefresh; the winter center's imgs have no such
+       hook, so re-request them here with a cache-buster on every tick.
+       loading="lazy" keeps the cost down - off-screen imgs don't re-fetch. */
+    try {
+      document.querySelectorAll("img[src*='/winter/']").forEach(function (im) {
+        im.src = im.getAttribute("src").split("?")[0] + "?t=" + Date.now();
+      });
+    } catch (_e) {}
+    try { syncAutoPref(); } catch (_e) {}   /* version now known: apply/wipe stale auto pref */
+    /* auto-heal: if the served copy is still 30+ min old on two consecutive
+       polls (6 min apart), force a cache-busted reload once - recovers from
+       a stuck CDN copy or a missed publish without looping. */
+    if (SITE_DATA.dataEpochMs && Date.now() - SITE_DATA.dataEpochMs > 30 * 60000) {
+      siteRefresh._stale = (siteRefresh._stale || 0) + 1;
+      if (siteRefresh._stale >= 2 && !sessionStorage.getItem("tnwxHealed")) {
+        sessionStorage.setItem("tnwxHealed", "1");
+        const u = new URL(location.href); u.searchParams.set("t", Date.now());
+        location.replace(u); return;
+      }
+    } else siteRefresh._stale = 0;
+  } catch (e) { /* offline: keep last data */ }
+}
+siteRefresh();
+setInterval(updTick, 30000);
+setInterval(siteRefresh, 180000);
+/* paused-banner: the STOP shortcut writes PAUSED.json, so any page that
+   still loads while updates are paused tells the truth instead of showing
+   a stale timestamp that looks like normal lag. START removes the marker. */
+(async function () {
+  try {
+    const pr = await fetch("PAUSED.json?t=" + Date.now(), { cache: "no-store" });
+    if (!pr.ok) return;   /* 404 = running normally */
+    const p = await pr.json();
+    const pb = document.createElement("div");
+    pb.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:99999;"
+      + "background:#b3261e;color:#fff;text-align:center;font-weight:700;"
+      + "padding:8px 12px;font-size:14px;font-family:inherit;";
+    pb.textContent = "\u23f8 Weather updates are PAUSED - press the START shortcut "
+      + "to resume. Data on this page is frozen"
+      + (p && p.since ? " (paused " + String(p.since).replace(/^paused\s*/, "") + ")" : "") + ".";
+    document.body.appendChild(pb);
+    document.body.style.paddingTop = "38px";
+    if (autoCnt) autoCnt.textContent = "\u221e";   /* freeze the auto-reload countdown too */
+  } catch (_e) { /* marker unreadable: treat as running */ }
+})();
+/* page auto-refresh: soft (map pages define onDataRefresh) or hard reload.
+   Hard reloads MUST cache-bust: GitHub Pages sends max-age=600, so a plain
+   location.reload() can serve the same stale HTML for up to 10 minutes. */
+function hardReload() {
+  try {
+    const u = new URL(location.href);
+    u.searchParams.set("t", Date.now());
+    location.replace(u);
+  } catch (_e) { location.reload(); }
+}
+let AUTO_LEFT = 90;
+const autoCnt = document.getElementById("autoCnt"), autoChk = document.getElementById("autoChk");
+document.getElementById("refreshBtn").onclick = () => {
+  const b = document.getElementById("refreshBtn");
+  if (b) { b.textContent = "…"; }
+  hardReload();
+};
+/* auto-refresh preference is remembered per siteVersion (a fingerprint of
+   the site code, served in data.json). A saved "off" therefore cannot
+   survive a site update: after new code pushes, the flag belongs to an old
+   version, is wiped, and auto-refresh resumes - an update always re-opens
+   the refresh tap. Before the first data pull resolves the version is
+   unknown, so the checkbox defaults ON and re-syncs the moment data lands. */
+function autoPrefKey() {
+  /* SITE_DATA is a script-level let - reachable by name in this scope but
+     never as window.SITE_DATA, so the bare (guarded) reference is required */
+  let v = "";
+  try { v = (typeof SITE_DATA !== "undefined" && SITE_DATA && SITE_DATA.siteVersion) || ""; } catch (_e) {}
+  return v ? "tnwxAuto." + v : "";
+}
+function syncAutoPref() {
+  const k = autoPrefKey();
+  if (!k) return;
+  try {
+    /* wipe the legacy flag and flags saved under other versions */
+    Object.keys(localStorage)
+      .filter(x => x === "tnwxAuto" || (x.indexOf("tnwxAuto.") === 0 && x !== k))
+      .forEach(x => localStorage.removeItem(x));
+    autoChk.checked = localStorage.getItem(k) !== "off";
+  } catch (_e) {}
+}
+syncAutoPref();
+autoChk.onchange = () => {
+  AUTO_LEFT = 90;
+  const k = autoPrefKey();
+  try { if (k) localStorage.setItem(k, autoChk.checked ? "on" : "off"); } catch (_e) {}
+};
+/* interacting with the page postpones the auto cycle: a hard reload in the
+   middle of a zoom/pinch/scrub reads as "the map won't zoom" (2026-09-18) */
+["pointerdown", "wheel", "touchstart"].forEach(function (ev) {
+  document.addEventListener(ev, function () { AUTO_LEFT = 90; }, { passive: true, capture: true });
+});
+setInterval(() => {
+  if (!autoChk.checked) { if (autoCnt) autoCnt.textContent = "\u221e"; return; }
+  AUTO_LEFT -= 1;
+  if (autoCnt) autoCnt.textContent = AUTO_LEFT;
+  if (AUTO_LEFT <= 0) {
+    AUTO_LEFT = 90;
+    if (typeof onDataRefresh === "function") siteRefresh(); else hardReload();
+  }
+}, 1000);
+
+const BASEMAPS = {
+  dark:  { label: "Dark", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", invert: true },
+  light: { label: "Light", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", invert: false },
+  sat:   { label: "Satellite", url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", invert: false },
+  topo:  { label: "Terrain", url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}", invert: false }
+};
+let _baseLayer = null, _baseKey = null;
+function setBase(key, map) {
+  if (key === "mapbox" && !BASEMAPS.mapbox && typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN)
+    BASEMAPS.mapbox = { label: "Mapbox", style: "mapbox://styles/mapbox/light-v11" };
+  const b = BASEMAPS[key] || BASEMAPS.dark;
+  if (_baseKey === key && _baseLayer) return;
+  if (_baseLayer) map.removeLayer(_baseLayer);
+  if (b.style) _baseLayer = L.mapboxGL({ accessToken: MAPBOX_TOKEN, style: b.style, attribution: "&copy; Mapbox" }).addTo(map);
+  else _baseLayer = L.tileLayer(b.url, { maxNativeZoom: 19, maxZoom: 21, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
+  map.getContainer().classList.toggle("map-dark", !!b.invert);
+  _baseKey = key;
+  try { localStorage.setItem("tnwxBase", key); } catch (_e) {}
+  const sel = document.getElementById("baseSel"); if (sel && sel.value !== key) sel.value = key;
+}
+function addMapControls(map, home, homeZoom) {
+  const btn = (txt, title, fn) => {
+    const c = L.control({ position: "topleft" });
+    c.onAdd = () => { const d = L.DomUtil.create("div", "mapctlbtn"); d.textContent = txt; d.title = title;
+      L.DomEvent.disableClickPropagation(d); d.onclick = fn; return d; };
+    c.addTo(map);
+  };
+  btn("⛶", "Fullscreen map", () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else map.getContainer().requestFullscreen();
+  });
+  btn("⌂", "Home view", () => map.setView(home, homeZoom));
+  btn("◎", "My location", () => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(p => {
+      map.setView([p.coords.latitude, p.coords.longitude], 10);
+      L.circleMarker([p.coords.latitude, p.coords.longitude], { radius: 7, color: "#fff", weight: 2, fillColor: "#4da3ff", fillOpacity: 1 })
+        .addTo(map).bindTooltip("You are here").openTooltip();
+    }, () => {}, { timeout: 8000 });
+  });
+  L.control.scale({ imperial: true, metric: false }).addTo(map);
+  document.addEventListener("fullscreenchange", () => setTimeout(() => map.invalidateSize(), 200));
+  const coord = L.control({ position: "bottomright" });
+  coord.onAdd = () => L.DomUtil.create("div", "mapcoord");
+  coord.addTo(map);
+  const el = document.querySelector(".mapcoord");
+  map.on("mousemove", e => { if (el) el.textContent = e.latlng.lat.toFixed(3) + ", " + e.latlng.lng.toFixed(3); });
+  map.on("mouseout", () => { if (el) el.textContent = ""; });
+  const sel = document.getElementById("baseSel");
+  if (sel) {
+    sel.innerHTML = Object.entries(BASEMAPS).map(([k, b]) => `<option value="${k}">${b.label}</option>`).join("");
+    let saved = null; try { saved = localStorage.getItem("tnwxBase"); } catch (_e) {}
+    setBase(saved && BASEMAPS[saved] ? saved : ((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark"), map);
+    sel.onchange = e => setBase(e.target.value, map);
+  } else setBase((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark", map);
+  if (typeof drawHomeMarker === "function") drawHomeMarker(map, home);
+}
+function drawHomeMarker(map, home) {
+  if (map._tnwxHome) return;
+  map._tnwxHome = L.circleMarker(home, { radius: 7, color: "#fff", weight: 2,
+    fillColor: "#ff5252", fillOpacity: 1 }).addTo(map).bindTooltip((typeof DATA_PLACE !== "undefined" && DATA_PLACE) || "Home");
+}
+
+
+setTimeout(function () {
+  /* mobile drawer: hamburger opens the grouped nav; scrim click, X,
+     Escape and link taps all close it */
+  var nb = document.getElementById("navBtn"),
+      nd = document.getElementById("navDrawer");
+  if (nb && nd) {
+    var setDrawer = function (open) {
+      nd.hidden = !open;
+      nb.setAttribute("aria-expanded", open ? "true" : "false");
+      document.body.style.overflow = open ? "hidden" : "";
+    };
+    nb.addEventListener("click", function () { setDrawer(nd.hidden); });
+    var xc = document.getElementById("navClose");
+    if (xc) xc.addEventListener("click", function () { setDrawer(false); });
+    nd.addEventListener("click", function (e) {
+      if (e.target === nd) setDrawer(false);   /* scrim tap, not a link */
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") setDrawer(false);
+    });
+    nd.addEventListener("click", function (e) {
+      if (e.target && e.target.closest && e.target.closest("a")) setDrawer(false);
+    });
+    setDrawer(false);
+  }
+  if (typeof map === "undefined" || !map) return;
+  const sel = document.getElementById("baseSel");
+  if (typeof addMapControls === "function" && (typeof _baseLayer === "undefined" || !_baseLayer)) {
+    const la = (typeof DATA_LAT !== "undefined") ? DATA_LAT : 36.2;
+    const lo = (typeof DATA_LON !== "undefined") ? DATA_LON : -83.0;
+    addMapControls(map, [la, lo], 6);
+  } else if (typeof setBase === "function") {
+    if (!_baseLayer) setBase((typeof MAPBOX_TOKEN === "string" && MAPBOX_TOKEN) ? "mapbox" : "dark", map);
+    if (sel) sel.onchange = function (e) { setBase(e.target.value, map); };
+  }
+}, 600);
+
+</script>
+<div class="wrap">
+
+<header class="hero"><h1>🌀 Polar Vortex Tracker</h1>
+<div class="sub">Arctic Oscillation index · 10 hPa vortex strength · sudden stratospheric warming watch
+· NOAA CPC · updated 2026-10-31 1:08 PM ET</div></header>
+
+<div class="card">
+  <h2>📡 Current state</h2>
+  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <span style="background:#9e9e9e;color:#0b0f14;font-weight:800;border-radius:20px;padding:6px 18px;font-size:16px">AO +0.85 · NEUTRAL</span>
+    <span class="src">latest daily value 2026-10-29</span>
+  </div>
+  <p style="margin:8px 0">The vortex is near its climatological strength - no strong signal either way for cold-air delivery.</p>
+  <div class="kpis">
+    <div class="kpi"><span>AO now</span><b style="color:#9e9e9e">+0.85</b></div>
+    <div class="kpi"><span>7-day mean</span><b>+0.92</b></div>
+    <div class="kpi"><span>30-day mean</span><b>+1.22</b></div>
+    <div class="kpi"><span>GEFS 14-day mean</span><b>-0.41</b></div>
+  </div>
+  <div class="src" style="margin-top:8px">Season 2026-27 to date: mean <b>+1.27</b> over 29 days (since 2026-10-01). Negative days (AO at or below -1) in the last 90: <b>1</b>; strongly negative days (-2 or below): <b>0</b>. Trending ▼ -0.82 versus the previous week.</div>
+  <p style="margin:10px 0 0">The 31-member GEFS ensemble takes the AO to a mean of <b>-0.09</b> across the next week and <b>-0.41</b> across the next 14 days (final-day 10th-90th percentile -2.8 to +0.8) - leaning toward little net change. Ensemble spread is the honest uncertainty here: a widening fan means the forecast is not settled, and the AO is one of the harder indices to take literally beyond a week.</p>
+  <table style="margin-top:8px;min-width:360px"><tr><th>Lead</th><th>Valid</th><th>Ensemble mean</th><th>10-90%</th></tr><tr><td>Today</td><td>2026-10-31</td><td style="font-weight:700">+0.96</td><td class="src">+0.9 to +1.0</td></tr><tr><td>Day +2</td><td>2026-11-02</td><td style="font-weight:700">-0.29</td><td class="src">-0.5 to -0.1</td></tr><tr><td>Day +6</td><td>2026-11-06</td><td style="font-weight:700">-0.62</td><td class="src">-1.3 to -0.2</td></tr><tr><td>Day +9</td><td>2026-11-09</td><td style="font-weight:700">-0.74</td><td class="src">-1.6 to +0.1</td></tr><tr><td>Day +13</td><td>2026-11-13</td><td style="font-weight:700">-1.03</td><td class="src">-3.2 to +0.5</td></tr></table>
+  <div class="src" style="margin-top:8px">AO is the surface expression of the same hemispheric pressure pattern the stratospheric vortex rides on. It is not the vortex itself - the 10 hPa panels below show the vortex directly. Use them together.</div>
+</div>
+
+
+<div class="card">
+  <h2>📉 Arctic Oscillation - last 140 days + 16-day GEFS forecast</h2>
+  <svg viewBox="0 0 960 300" style="width:100%;background:#0d1117;border-radius:10px" role="img" aria-label="Daily Arctic Oscillation index with GEFS forecast"><line x1="42" x2="948" y1="203.7" y2="203.7" stroke="#455a6488" stroke-dasharray="4 4"/><text x="36" y="206.7" font-size="9" fill="#78909c" text-anchor="end">-3</text><line x1="42" x2="948" y1="183.1" y2="183.1" stroke="#455a6488" stroke-dasharray="4 4"/><text x="36" y="186.1" font-size="9" fill="#78909c" text-anchor="end">-2</text><line x1="42" x2="948" y1="162.6" y2="162.6" stroke="#455a6488" stroke-dasharray="4 4"/><text x="36" y="165.6" font-size="9" fill="#78909c" text-anchor="end">-1</text><line x1="42" x2="948" y1="142.0" y2="142.0" stroke="#546e7a"/><text x="36" y="145.0" font-size="9" fill="#78909c" text-anchor="end">+0</text><line x1="42" x2="948" y1="121.4" y2="121.4" stroke="#455a6488" stroke-dasharray="4 4"/><text x="36" y="124.4" font-size="9" fill="#78909c" text-anchor="end">+1</text><line x1="42" x2="948" y1="100.9" y2="100.9" stroke="#455a6488" stroke-dasharray="4 4"/><text x="36" y="103.9" font-size="9" fill="#78909c" text-anchor="end">+2</text><line x1="42" x2="948" y1="80.3" y2="80.3" stroke="#455a6488" stroke-dasharray="4 4"/><text x="36" y="83.3" font-size="9" fill="#78909c" text-anchor="end">+3</text><defs><clipPath id="aoPos"><rect x="0" y="0" width="960" height="142.0"/></clipPath><clipPath id="aoNeg"><rect x="0" y="142.0" width="960" height="158.0"/></clipPath></defs><path d="M42.0,139.1L47.8,153.1L53.7,155.2L59.5,143.0L65.4,134.2L71.2,132.3L77.1,138.1L82.9,140.6L88.8,138.9L94.6,140.6L100.5,138.5L106.3,132.9L112.1,133.8L118.0,130.9L123.8,123.7L129.7,120.6L135.5,115.9L141.4,115.7L147.2,116.9L153.1,111.3L158.9,110.3L164.7,118.1L170.6,126.2L176.4,125.1L182.3,120.4L188.1,121.4L194.0,123.7L199.8,128.8L205.7,142.6L211.5,151.3L217.4,151.3L223.2,148.2L229.0,141.4L234.9,143.2L240.7,152.9L246.6,157.8L252.4,158.9L258.3,160.1L264.1,159.5L270.0,153.3L275.8,139.5L281.7,122.0L287.5,107.6L293.3,108.9L299.2,117.3L305.0,130.3L310.9,142.0L316.7,145.7L322.6,146.5L328.4,149.2L334.3,149.6L340.1,146.3L345.9,142.6L351.8,136.9L357.6,137.3L363.5,141.4L369.3,138.3L375.2,134.8L381.0,135.4L386.9,143.2L392.7,152.7L398.6,162.2L404.4,164.8L410.2,155.6L416.1,151.3L421.9,147.6L427.8,137.7L433.6,133.8L439.5,139.3L445.3,139.3L451.2,135.2L457.0,134.4L462.9,136.7L468.7,146.7L474.5,152.5L480.4,154.1L486.2,149.6L492.1,142.2L497.9,134.6L503.8,129.7L509.6,131.1L515.5,136.0L521.3,138.1L527.1,138.7L533.0,133.2L538.8,128.0L544.7,122.9L550.5,111.6L556.4,101.5L562.2,94.5L568.1,99.0L573.9,104.8L579.8,106.0L585.6,107.6L591.4,117.3L597.3,113.2L603.1,87.7L609.0,81.7L614.8,88.3L620.7,101.5L626.5,110.1L632.4,113.0L638.2,120.6L644.1,129.0L649.9,133.2L655.7,134.8L661.6,138.3L667.4,141.4L673.3,141.8L679.1,151.1L685.0,147.3L690.8,138.5L696.7,131.5L702.5,121.2L708.3,109.7L714.2,96.1L720.0,104.8L725.9,123.7L731.7,123.9L737.6,126.0L743.4,130.5L749.3,130.7L755.1,120.2L761.0,103.5L766.8,91.2L772.6,104.1L778.5,119.2L784.3,103.7L790.2,86.3L796.0,84.8L801.9,102.7L807.7,114.8L813.6,132.7L819.4,137.9L825.3,127.4L831.1,118.1L836.9,117.3L842.8,114.0L848.6,122.7L854.5,124.5L854.5,142.0L42.0,142.0Z" fill="#ef535033" clip-path="url(#aoPos)"/><path d="M42.0,139.1L47.8,153.1L53.7,155.2L59.5,143.0L65.4,134.2L71.2,132.3L77.1,138.1L82.9,140.6L88.8,138.9L94.6,140.6L100.5,138.5L106.3,132.9L112.1,133.8L118.0,130.9L123.8,123.7L129.7,120.6L135.5,115.9L141.4,115.7L147.2,116.9L153.1,111.3L158.9,110.3L164.7,118.1L170.6,126.2L176.4,125.1L182.3,120.4L188.1,121.4L194.0,123.7L199.8,128.8L205.7,142.6L211.5,151.3L217.4,151.3L223.2,148.2L229.0,141.4L234.9,143.2L240.7,152.9L246.6,157.8L252.4,158.9L258.3,160.1L264.1,159.5L270.0,153.3L275.8,139.5L281.7,122.0L287.5,107.6L293.3,108.9L299.2,117.3L305.0,130.3L310.9,142.0L316.7,145.7L322.6,146.5L328.4,149.2L334.3,149.6L340.1,146.3L345.9,142.6L351.8,136.9L357.6,137.3L363.5,141.4L369.3,138.3L375.2,134.8L381.0,135.4L386.9,143.2L392.7,152.7L398.6,162.2L404.4,164.8L410.2,155.6L416.1,151.3L421.9,147.6L427.8,137.7L433.6,133.8L439.5,139.3L445.3,139.3L451.2,135.2L457.0,134.4L462.9,136.7L468.7,146.7L474.5,152.5L480.4,154.1L486.2,149.6L492.1,142.2L497.9,134.6L503.8,129.7L509.6,131.1L515.5,136.0L521.3,138.1L527.1,138.7L533.0,133.2L538.8,128.0L544.7,122.9L550.5,111.6L556.4,101.5L562.2,94.5L568.1,99.0L573.9,104.8L579.8,106.0L585.6,107.6L591.4,117.3L597.3,113.2L603.1,87.7L609.0,81.7L614.8,88.3L620.7,101.5L626.5,110.1L632.4,113.0L638.2,120.6L644.1,129.0L649.9,133.2L655.7,134.8L661.6,138.3L667.4,141.4L673.3,141.8L679.1,151.1L685.0,147.3L690.8,138.5L696.7,131.5L702.5,121.2L708.3,109.7L714.2,96.1L720.0,104.8L725.9,123.7L731.7,123.9L737.6,126.0L743.4,130.5L749.3,130.7L755.1,120.2L761.0,103.5L766.8,91.2L772.6,104.1L778.5,119.2L784.3,103.7L790.2,86.3L796.0,84.8L801.9,102.7L807.7,114.8L813.6,132.7L819.4,137.9L825.3,127.4L831.1,118.1L836.9,117.3L842.8,114.0L848.6,122.7L854.5,124.5L854.5,142.0L42.0,142.0Z" fill="#42a5f533" clip-path="url(#aoNeg)"/><path d="M42.0,139.1L47.8,153.1L53.7,155.2L59.5,143.0L65.4,134.2L71.2,132.3L77.1,138.1L82.9,140.6L88.8,138.9L94.6,140.6L100.5,138.5L106.3,132.9L112.1,133.8L118.0,130.9L123.8,123.7L129.7,120.6L135.5,115.9L141.4,115.7L147.2,116.9L153.1,111.3L158.9,110.3L164.7,118.1L170.6,126.2L176.4,125.1L182.3,120.4L188.1,121.4L194.0,123.7L199.8,128.8L205.7,142.6L211.5,151.3L217.4,151.3L223.2,148.2L229.0,141.4L234.9,143.2L240.7,152.9L246.6,157.8L252.4,158.9L258.3,160.1L264.1,159.5L270.0,153.3L275.8,139.5L281.7,122.0L287.5,107.6L293.3,108.9L299.2,117.3L305.0,130.3L310.9,142.0L316.7,145.7L322.6,146.5L328.4,149.2L334.3,149.6L340.1,146.3L345.9,142.6L351.8,136.9L357.6,137.3L363.5,141.4L369.3,138.3L375.2,134.8L381.0,135.4L386.9,143.2L392.7,152.7L398.6,162.2L404.4,164.8L410.2,155.6L416.1,151.3L421.9,147.6L427.8,137.7L433.6,133.8L439.5,139.3L445.3,139.3L451.2,135.2L457.0,134.4L462.9,136.7L468.7,146.7L474.5,152.5L480.4,154.1L486.2,149.6L492.1,142.2L497.9,134.6L503.8,129.7L509.6,131.1L515.5,136.0L521.3,138.1L527.1,138.7L533.0,133.2L538.8,128.0L544.7,122.9L550.5,111.6L556.4,101.5L562.2,94.5L568.1,99.0L573.9,104.8L579.8,106.0L585.6,107.6L591.4,117.3L597.3,113.2L603.1,87.7L609.0,81.7L614.8,88.3L620.7,101.5L626.5,110.1L632.4,113.0L638.2,120.6L644.1,129.0L649.9,133.2L655.7,134.8L661.6,138.3L667.4,141.4L673.3,141.8L679.1,151.1L685.0,147.3L690.8,138.5L696.7,131.5L702.5,121.2L708.3,109.7L714.2,96.1L720.0,104.8L725.9,123.7L731.7,123.9L737.6,126.0L743.4,130.5L749.3,130.7L755.1,120.2L761.0,103.5L766.8,91.2L772.6,104.1L778.5,119.2L784.3,103.7L790.2,86.3L796.0,84.8L801.9,102.7L807.7,114.8L813.6,132.7L819.4,137.9L825.3,127.4L831.1,118.1L836.9,117.3L842.8,114.0L848.6,122.7L854.5,124.5" fill="none" stroke="#eceff1" stroke-width="1.8"/><polygon points="860.3,121.6 866.2,133.8 872.0,144.3 877.9,140.1 883.7,140.1 889.5,142.8 895.4,145.5 901.2,137.5 907.1,138.5 912.9,139.7 918.8,141.6 924.6,130.3 930.5,127.0 936.3,132.1 942.2,126.6 948.0,125.3 948.0,198.8 942.2,203.5 936.3,207.6 930.5,194.3 924.6,186.2 918.8,182.5 912.9,175.1 907.1,172.4 901.2,167.1 895.4,169.6 889.5,166.5 883.7,155.2 877.9,152.1 872.0,152.9 866.2,137.7 860.3,122.9" fill="#ffd54f22" stroke="#ffd54f44"/><path d="M860.3,122.3L866.2,135.2L872.0,148.0L877.9,146.3L883.7,147.8L889.5,152.7L895.4,154.8L901.2,150.8L907.1,151.9L912.9,157.2L918.8,159.3L924.6,158.3L930.5,159.7L936.3,163.2L942.2,163.0L948.0,161.7" fill="none" stroke="#ffd54f" stroke-width="1.8" stroke-dasharray="5 4"/><line x1="854.5" x2="854.5" y1="16" y2="268" stroke="#ffd54f55" stroke-dasharray="3 4"/><text x="42.0" y="288" font-size="9" fill="#78909c" text-anchor="middle">Jun</text><text x="153.1" y="288" font-size="9" fill="#78909c" text-anchor="middle">Jul</text><text x="334.3" y="288" font-size="9" fill="#78909c" text-anchor="middle">Aug</text><text x="515.5" y="288" font-size="9" fill="#78909c" text-anchor="middle">Sep</text><text x="690.8" y="288" font-size="9" fill="#78909c" text-anchor="middle">Oct</text><circle cx="42.0" cy="139.1" r="2.2" fill="#ef5350"><title>2026-06-12: AO +0.14</title></circle><circle cx="82.9" cy="140.6" r="2.2" fill="#ef5350"><title>2026-06-19: AO +0.07</title></circle><circle cx="123.8" cy="123.7" r="2.2" fill="#ef5350"><title>2026-06-26: AO +0.89</title></circle><circle cx="164.7" cy="118.1" r="2.2" fill="#ef5350"><title>2026-07-03: AO +1.16</title></circle><circle cx="205.7" cy="142.6" r="2.2" fill="#42a5f5"><title>2026-07-10: AO -0.03</title></circle><circle cx="246.6" cy="157.8" r="2.2" fill="#42a5f5"><title>2026-07-17: AO -0.77</title></circle><circle cx="287.5" cy="107.6" r="2.2" fill="#ef5350"><title>2026-07-24: AO +1.67</title></circle><circle cx="328.4" cy="149.2" r="2.2" fill="#42a5f5"><title>2026-07-31: AO -0.35</title></circle><circle cx="369.3" cy="138.3" r="2.2" fill="#ef5350"><title>2026-08-07: AO +0.18</title></circle><circle cx="410.2" cy="155.6" r="2.2" fill="#42a5f5"><title>2026-08-14: AO -0.66</title></circle><circle cx="451.2" cy="135.2" r="2.2" fill="#ef5350"><title>2026-08-21: AO +0.33</title></circle><circle cx="492.1" cy="142.2" r="2.2" fill="#42a5f5"><title>2026-08-28: AO -0.01</title></circle><circle cx="533.0" cy="133.2" r="2.2" fill="#ef5350"><title>2026-09-04: AO +0.43</title></circle><circle cx="573.9" cy="104.8" r="2.2" fill="#ef5350"><title>2026-09-11: AO +1.81</title></circle><circle cx="614.8" cy="88.3" r="2.2" fill="#ef5350"><title>2026-09-18: AO +2.61</title></circle><circle cx="655.7" cy="134.8" r="2.2" fill="#ef5350"><title>2026-09-25: AO +0.35</title></circle><circle cx="696.7" cy="131.5" r="2.2" fill="#ef5350"><title>2026-10-02: AO +0.51</title></circle><circle cx="737.6" cy="126.0" r="2.2" fill="#ef5350"><title>2026-10-09: AO +0.78</title></circle><circle cx="778.5" cy="119.2" r="2.2" fill="#ef5350"><title>2026-10-16: AO +1.11</title></circle><circle cx="819.4" cy="137.9" r="2.2" fill="#ef5350"><title>2026-10-23: AO +0.20</title></circle><circle cx="854.5" cy="124.5" r="2.2" fill="#ef5350"><title>2026-10-29: AO +0.85</title></circle><circle cx="860.3" cy="122.3" r="2" fill="#ffd54f"><title>2026-10-31: GEFS mean +0.96 (10-90%: +0.9 to +1.0)</title></circle><circle cx="866.2" cy="135.2" r="2" fill="#ffd54f"><title>2026-11-01: GEFS mean +0.33 (10-90%: +0.2 to +0.4)</title></circle><circle cx="872.0" cy="148.0" r="2" fill="#ffd54f"><title>2026-11-02: GEFS mean -0.29 (10-90%: -0.5 to -0.1)</title></circle><circle cx="877.9" cy="146.3" r="2" fill="#ffd54f"><title>2026-11-03: GEFS mean -0.21 (10-90%: -0.5 to +0.1)</title></circle><circle cx="883.7" cy="147.8" r="2" fill="#ffd54f"><title>2026-11-04: GEFS mean -0.28 (10-90%: -0.6 to +0.1)</title></circle><circle cx="889.5" cy="152.7" r="2" fill="#ffd54f"><title>2026-11-05: GEFS mean -0.52 (10-90%: -1.2 to -0.0)</title></circle><circle cx="895.4" cy="154.8" r="2" fill="#ffd54f"><title>2026-11-06: GEFS mean -0.62 (10-90%: -1.3 to -0.2)</title></circle><circle cx="901.2" cy="150.8" r="2" fill="#ffd54f"><title>2026-11-07: GEFS mean -0.43 (10-90%: -1.2 to +0.2)</title></circle><circle cx="907.1" cy="151.9" r="2" fill="#ffd54f"><title>2026-11-08: GEFS mean -0.48 (10-90%: -1.5 to +0.2)</title></circle><circle cx="912.9" cy="157.2" r="2" fill="#ffd54f"><title>2026-11-09: GEFS mean -0.74 (10-90%: -1.6 to +0.1)</title></circle><circle cx="918.8" cy="159.3" r="2" fill="#ffd54f"><title>2026-11-10: GEFS mean -0.84 (10-90%: -2.0 to +0.0)</title></circle><circle cx="924.6" cy="158.3" r="2" fill="#ffd54f"><title>2026-11-11: GEFS mean -0.79 (10-90%: -2.1 to +0.6)</title></circle><circle cx="930.5" cy="159.7" r="2" fill="#ffd54f"><title>2026-11-12: GEFS mean -0.86 (10-90%: -2.5 to +0.7)</title></circle><circle cx="936.3" cy="163.2" r="2" fill="#ffd54f"><title>2026-11-13: GEFS mean -1.03 (10-90%: -3.2 to +0.5)</title></circle><circle cx="942.2" cy="163.0" r="2" fill="#ffd54f"><title>2026-11-14: GEFS mean -1.02 (10-90%: -3.0 to +0.8)</title></circle><circle cx="948.0" cy="161.7" r="2" fill="#ffd54f"><title>2026-11-15: GEFS mean -0.96 (10-90%: -2.8 to +0.8)</title></circle><circle cx="854.5" cy="124.5" r="3.6" fill="#fff"><title>latest 2026-10-29: AO +0.85</title></circle></svg>
+  <div class="src" style="margin-top:6px">White line: observed daily AO from 2026-06-12 to 2026-10-29. Blue shading = negative phase (weak/perturbed vortex), red = positive (strong/locked vortex). The dashed yellow line is the 31-member GEFS ensemble mean from its 2026-10-31 run; the pale band is the 10th-90th percentile spread. Hover any mark for the exact value.</div>
+</div>
+
+<div class="card">
+  <h2>🛰️ The vortex itself - CPC stratosphere monitoring <span class="src">(2026-2027 season)</span></h2>
+  <div class="src" style="margin-bottom:8px">10 hPa is roughly 100,000 ft up, the level where sudden stratospheric warmings are defined. These are observations, not a model: the current vortex strength, temperature, and wave driving. Click any image to enlarge it.</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;align-items:start"><figure style="margin:0"><img src="polar/ssw_u10.png" alt="10 hPa zonal wind at 60°N - observed" loading="lazy" onclick="pvZoomOpen(this)" title="Click to enlarge" style="width:100%;border-radius:10px;background:#0d1117;cursor:zoom-in"/><figcaption class="src" style="margin-top:4px"><b>10 hPa zonal wind at 60°N - observed</b> - The vortex strength itself: the average west-to-east wind around the 60°N circle at 16 miles up. Strongly positive and steady = a tight, undisturbed vortex. A sustained drop toward zero - or a reversal to easterly - is the signature of a sudden stratospheric warming.</figcaption></figure><figure style="margin:0"><img src="polar/ssw_t10.png" alt="10 hPa temperature, 60-90°N - observed" loading="lazy" onclick="pvZoomOpen(this)" title="Click to enlarge" style="width:100%;border-radius:10px;background:#0d1117;cursor:zoom-in"/><figcaption class="src" style="margin-top:4px"><b>10 hPa temperature, 60-90°N - observed</b> - Polar-cap temperature: how cold the air inside the vortex is. A jump of 25-30°F in a few days is the warming in &quot;sudden stratospheric warming&quot;.</figcaption></figure><figure style="margin:0"><img src="polar/ssw_vt10.png" alt="10 hPa eddy heat flux, 45-75°N - observed" loading="lazy" onclick="pvZoomOpen(this)" title="Click to enlarge" style="width:100%;border-radius:10px;background:#0d1117;cursor:zoom-in"/><figcaption class="src" style="margin-top:4px"><b>10 hPa eddy heat flux, 45-75°N - observed</b> - Wave driving - how hard the troposphere&#x27;s storm track is pushing energy upward. Spikes here usually come first; the vortex weakens a few days to a week later.</figcaption></figure></div>
+</div>
+
+<div class="card">
+  <h2>🔮 16-day stratospheric outlook - GEFS ensemble</h2>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;align-items:start"><figure style="margin:0"><img src="polar/ssw_u10_fcst.png" alt="10 hPa zonal wind at 60°N - GEFS 16-day forecast" loading="lazy" onclick="pvZoomOpen(this)" title="Click to enlarge" style="width:100%;border-radius:10px;background:#0d1117;cursor:zoom-in"/><figcaption class="src" style="margin-top:4px"><b>10 hPa zonal wind at 60°N - GEFS 16-day forecast</b> - Where the ensemble takes the vortex strength from here. Forecasters watch for the ensemble mean bending toward zero.</figcaption></figure><figure style="margin:0"><img src="polar/ssw_t10_fcst.png" alt="10 hPa temperature, 60-90°N - GEFS 16-day forecast" loading="lazy" onclick="pvZoomOpen(this)" title="Click to enlarge" style="width:100%;border-radius:10px;background:#0d1117;cursor:zoom-in"/><figcaption class="src" style="margin-top:4px"><b>10 hPa temperature, 60-90°N - GEFS 16-day forecast</b> - The forecast polar-cap temperature. A forecast climb toward the climatological (black) line is a warming event in the making.</figcaption></figure><figure style="margin:0"><img src="polar/ssw_vt10_fcst.png" alt="10 hPa eddy heat flux, 45-75°N - GEFS 16-day forecast" loading="lazy" onclick="pvZoomOpen(this)" title="Click to enlarge" style="width:100%;border-radius:10px;background:#0d1117;cursor:zoom-in"/><figcaption class="src" style="margin-top:4px"><b>10 hPa eddy heat flux, 45-75°N - GEFS 16-day forecast</b> - Forecast wave driving: the model&#x27;s own view of whether the vortex is about to get hit.</figcaption></figure></div>
+  <div class="src" style="margin-top:6px">The same three diagnostics as a 16-day forecast. A forecast 10 hPa wind drop toward zero, a polar-cap temperature climb, and a heat-flux spike appearing together is the classic sudden-stratospheric-warming recipe - and even then, the surface response usually lags by 1-3 weeks.</div>
+</div>
+
+<div class="card">
+  <h2>🗺️ 10 hPa height &amp; temperature - GFS analysis and forecast</h2>
+  <div class="src" style="margin-bottom:8px">The shape of the vortex, not just its strength. A tight, circular ring over the pole is a healthy vortex; a stretched oval, a split into two lobes, or a center displaced toward Eurasia or Canada is a disturbed one. The forecast panels show where the models take that shape - click any map to enlarge it.</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;align-items:start"><figure style="margin:0"><img src="polar/map_z10_f00.png" alt="10 hPa height - GFS analysis" loading="lazy" onclick="pvZoomOpen(this)" title="Click to enlarge" style="width:100%;border-radius:10px;background:#0d1117;cursor:zoom-in"/><figcaption class="src" style="margin-top:4px"><b>10 hPa height - GFS analysis</b></figcaption></figure><figure style="margin:0"><img src="polar/map_z10_f48.png" alt="10 hPa height - +48 h forecast" loading="lazy" onclick="pvZoomOpen(this)" title="Click to enlarge" style="width:100%;border-radius:10px;background:#0d1117;cursor:zoom-in"/><figcaption class="src" style="margin-top:4px"><b>10 hPa height - +48 h forecast</b></figcaption></figure><figure style="margin:0"><img src="polar/map_z10_f120.png" alt="10 hPa height - +120 h forecast" loading="lazy" onclick="pvZoomOpen(this)" title="Click to enlarge" style="width:100%;border-radius:10px;background:#0d1117;cursor:zoom-in"/><figcaption class="src" style="margin-top:4px"><b>10 hPa height - +120 h forecast</b></figcaption></figure><figure style="margin:0"><img src="polar/map_t10_f00.png" alt="10 hPa temperature - GFS analysis" loading="lazy" onclick="pvZoomOpen(this)" title="Click to enlarge" style="width:100%;border-radius:10px;background:#0d1117;cursor:zoom-in"/><figcaption class="src" style="margin-top:4px"><b>10 hPa temperature - GFS analysis</b></figcaption></figure></div>
+</div>
+
+<div class="card">
+  <h2>❄️ The last 20 winters - DJF Arctic Oscillation</h2>
+  <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13.5px;min-width:560px">
+  <thead><tr style="color:#9fb0c0;text-align:left;border-bottom:1px solid #2b3441">
+  <th style="padding:6px 8px">Winter</th><th style="padding:6px 8px">DJF mean</th>
+  <th style="padding:6px 8px">Phase</th><th style="padding:6px 8px">Daily range</th>
+  <th style="padding:6px 8px">Data</th></tr></thead>
+  <tbody><tr><td style="font-weight:700">2025-26</td><td style="color:#42a5f5;font-weight:700">-0.97</td><td>negative</td><td class="src">-4.9 to +2.9</td><td class="src">90 days</td></tr><tr><td style="font-weight:700">2024-25</td><td style="color:#b0bec5;font-weight:700">-0.39</td><td>neutral</td><td class="src">-5.3 to +3.4</td><td class="src">90 days</td></tr><tr><td style="font-weight:700">2023-24</td><td style="color:#b0bec5;font-weight:700">+0.05</td><td>neutral</td><td class="src">-3.0 to +3.5</td><td class="src">91 days</td></tr><tr><td style="font-weight:700">2022-23</td><td style="color:#42a5f5;font-weight:700">-0.65</td><td>negative</td><td class="src">-4.2 to +3.2</td><td class="src">90 days</td></tr><tr><td style="font-weight:700">2021-22</td><td style="color:#ef5350;font-weight:700">+0.81</td><td>positive</td><td class="src">-2.4 to +3.1</td><td class="src">90 days</td></tr><tr><td style="font-weight:700">2020-21</td><td style="color:#42a5f5;font-weight:700">-1.76</td><td>negative</td><td class="src">-5.3 to +2.7</td><td class="src">90 days</td></tr><tr><td style="font-weight:700">2019-20</td><td style="color:#ef5350;font-weight:700">+1.96</td><td>positive</td><td class="src">-2.8 to +6.1</td><td class="src">91 days</td></tr><tr><td style="font-weight:700">2018-19</td><td style="color:#b0bec5;font-weight:700">+0.14</td><td>neutral</td><td class="src">-3.3 to +3.4</td><td class="src">90 days</td></tr><tr><td style="font-weight:700">2017-18</td><td style="color:#b0bec5;font-weight:700">-0.08</td><td>neutral</td><td class="src">-3.6 to +2.6</td><td class="src">90 days</td></tr><tr><td style="font-weight:700">2016-17</td><td style="color:#ef5350;font-weight:700">+1.01</td><td>positive</td><td class="src">-2.2 to +4.7</td><td class="src">90 days</td></tr><tr><td style="font-weight:700">2015-16</td><td style="color:#b0bec5;font-weight:700">-0.01</td><td>neutral</td><td class="src">-4.9 to +4.5</td><td class="src">91 days</td></tr><tr><td style="font-weight:700">2014-15</td><td style="color:#ef5350;font-weight:700">+0.81</td><td>positive</td><td class="src">-1.5 to +3.5</td><td class="src">90 days</td></tr><tr><td style="font-weight:700">2013-14</td><td style="color:#b0bec5;font-weight:700">+0.18</td><td>neutral</td><td class="src">-2.6 to +4.3</td><td class="src">90 days</td></tr><tr><td style="font-weight:700">2012-13</td><td style="color:#42a5f5;font-weight:700">-1.13</td><td>negative</td><td class="src">-3.9 to +1.8</td><td class="src">90 days</td></tr><tr><td style="font-weight:700">2011-12</td><td style="color:#ef5350;font-weight:700">+0.66</td><td>positive</td><td class="src">-3.5 to +4.3</td><td class="src">91 days</td></tr><tr><td style="font-weight:700">2010-11</td><td style="color:#42a5f5;font-weight:700">-0.96</td><td>negative</td><td class="src">-5.3 to +3.9</td><td class="src">90 days</td></tr><tr><td style="font-weight:700">2009-10</td><td style="color:#42a5f5;font-weight:700">-3.27</td><td>negative</td><td class="src">-5.8 to +0.5</td><td class="src">90 days</td></tr><tr><td style="font-weight:700">2008-09</td><td style="color:#b0bec5;font-weight:700">+0.28</td><td>neutral</td><td class="src">-3.2 to +3.3</td><td class="src">90 days</td></tr><tr><td style="font-weight:700">2007-08</td><td style="color:#ef5350;font-weight:700">+0.83</td><td>positive</td><td class="src">-2.5 to +4.6</td><td class="src">91 days</td></tr><tr><td style="font-weight:700">2006-07</td><td style="color:#ef5350;font-weight:700">+1.04</td><td>positive</td><td class="src">-2.2 to +4.0</td><td class="src">90 days</td></tr></tbody></table></div>
+  <div class="src" style="margin-top:6px">Dec-Feb mean of CPC's daily AO index, computed from the same 1950-present record as the chart. Phase tags: + beyond +0.5, - beyond -0.5, ~ neutral in between. A single season can still swing hard: the DJF mean hides cold outbreaks and mild spells in the same winter.</div>
+</div>
+
+
+<div class="card">
+  <h2>❄️ Negative-AO winters vs what Tennessee actually got</h2>
+  <div class="src" style="margin-bottom:8px">Every winter with a DJF AO mean at or below -0.5, paired with Tennessee's temperature and snowfall for the same December-February. The state value is the mean of three station records - Memphis, Nashville and Knoxville - and the 1991-2020 normals are computed from those same records, so the comparison can never drift from the history it describes. The right-hand columns repeat the snow-vs-normal test for each grand division separately, so a weak vortex that buried the west but missed the east does not average out into a misleading statewide number. n/a means that winter's station records were too incomplete to trust.</div>
+  <div class="kpis">
+    <div class="kpi"><span>Negative-AO winters</span><b>31</b></div>
+    <div class="kpi"><span>Colder than normal</span><b>25 of 31 (80%)</b></div>
+    <div class="kpi"><span>Snowier than normal</span><b>25 of 31 (80%)</b></div>
+    <div class="kpi"><span>Average outcome</span><b>-2.4 °F · 8.5 in snow</b></div>
+  </div>
+  <div style="overflow-x:auto;margin-top:10px"><table style="width:100%;border-collapse:collapse;font-size:13.5px;min-width:760px">
+  <thead><tr style="color:#9fb0c0;text-align:left;border-bottom:1px solid #2b3441">
+  <th style="padding:6px 8px">Winter</th><th style="padding:6px 8px">DJF AO</th>
+  <th style="padding:6px 8px">TN temp vs normal</th><th style="padding:6px 8px">TN snowfall</th>
+  <th style="padding:6px 8px">Snow vs normal</th><th style="padding:6px 8px" title="West Tennessee - Memphis, normal 2.2 in">West</th><th style="padding:6px 8px" title="Middle Tennessee - Nashville, normal 3.8 in">Middle</th><th style="padding:6px 8px" title="East Tennessee - Knoxville, normal 3.4 in">East</th></tr></thead>
+  <tbody><tr><td style="padding:4px 8px;font-weight:700">2025-26</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-0.97</td><td style="padding:4px 8px;color:#ef9a9a">+0.5 °F</td><td style="padding:4px 8px">2.8 in</td><td style="padding:4px 8px;color:#ef9a9a">86% of normal</td><td style="padding:4px 8px;color:#4da3ff" title="163% of normal (3.6 in)">163%</td><td style="padding:4px 8px;color:#ef9a9a" title="37% of normal (1.4 in)">37%</td><td style="padding:4px 8px;color:#4da3ff" title="101% of normal (3.4 in)">101%</td></tr><tr><td style="padding:4px 8px;font-weight:700">2022-23</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-0.65</td><td style="padding:4px 8px;color:#ef9a9a">+4.5 °F</td><td style="padding:4px 8px">1.2 in</td><td style="padding:4px 8px;color:#ef9a9a">36% of normal</td><td style="padding:4px 8px;color:#ef9a9a" title="32% of normal (0.7 in)">32%</td><td style="padding:4px 8px;color:#ef9a9a" title="31% of normal (1.2 in)">31%</td><td style="padding:4px 8px;color:#ef9a9a" title="47% of normal (1.6 in)">47%</td></tr><tr><td style="padding:4px 8px;font-weight:700">2020-21</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-1.76</td><td style="padding:4px 8px;color:#42a5f5">-1.3 °F</td><td style="padding:4px 8px">6.7 in</td><td style="padding:4px 8px;color:#4da3ff">207% of normal</td><td style="padding:4px 8px;color:#4da3ff" title="466% of normal (10.3 in)">466%</td><td style="padding:4px 8px;color:#4da3ff" title="136% of normal (5.2 in)">136%</td><td style="padding:4px 8px;color:#4da3ff" title="136% of normal (4.6 in)">136%</td></tr><tr><td style="padding:4px 8px;font-weight:700">2012-13</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-1.13</td><td style="padding:4px 8px;color:#ef9a9a">+2.4 °F</td><td style="padding:4px 8px">1.5 in</td><td style="padding:4px 8px;color:#ef9a9a">46% of normal</td><td style="padding:4px 8px;color:#ef9a9a" title="41% of normal (0.9 in)">41%</td><td style="padding:4px 8px;color:#ef9a9a" title="26% of normal (1.0 in)">26%</td><td style="padding:4px 8px;color:#ef9a9a" title="77% of normal (2.6 in)">77%</td></tr><tr><td style="padding:4px 8px;font-weight:700">2010-11</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-0.96</td><td style="padding:4px 8px;color:#42a5f5">-3.3 °F</td><td style="padding:4px 8px">11.5 in</td><td style="padding:4px 8px;color:#4da3ff">355% of normal</td><td style="padding:4px 8px;color:#4da3ff" title="439% of normal (9.7 in)">439%</td><td style="padding:4px 8px;color:#4da3ff" title="327% of normal (12.5 in)">327%</td><td style="padding:4px 8px;color:#4da3ff" title="365% of normal (12.3 in)">365%</td></tr><tr><td style="padding:4px 8px;font-weight:700">2009-10</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-3.27</td><td style="padding:4px 8px;color:#42a5f5">-5.6 °F</td><td style="padding:4px 8px">6.3 in</td><td style="padding:4px 8px;color:#4da3ff">195% of normal</td><td style="padding:4px 8px;color:#4da3ff" title="308% of normal (6.8 in)">308%</td><td style="padding:4px 8px;color:#4da3ff" title="186% of normal (7.1 in)">186%</td><td style="padding:4px 8px;color:#4da3ff" title="151% of normal (5.1 in)">151%</td></tr><tr><td style="padding:4px 8px;font-weight:700">2005-06</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-0.80</td><td style="padding:4px 8px;color:#ef9a9a">+0.1 °F</td><td style="padding:4px 8px">2.5 in</td><td style="padding:4px 8px;color:#ef9a9a">78% of normal</td><td style="padding:4px 8px;color:#4da3ff" title="145% of normal (3.2 in)">145%</td><td style="padding:4px 8px;color:#ef9a9a" title="45% of normal (1.7 in)">45%</td><td style="padding:4px 8px;color:#ef9a9a" title="80% of normal (2.7 in)">80%</td></tr><tr><td style="padding:4px 8px;font-weight:700">2003-04</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-0.94</td><td style="padding:4px 8px;color:#42a5f5">-1.9 °F</td><td style="padding:4px 8px">0.8 in</td><td style="padding:4px 8px;color:#ef9a9a">23% of normal</td><td style="padding:4px 8px;color:#ef9a9a" title="9% of normal (0.2 in)">9%</td><td style="padding:4px 8px;color:#ef9a9a" title="34% of normal (1.3 in)">34%</td><td style="padding:4px 8px;color:#90a4ae" title="no usable record this winter">n/a</td></tr><tr><td style="padding:4px 8px;font-weight:700">2002-03</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-0.65</td><td style="padding:4px 8px;color:#42a5f5">-3.5 °F</td><td style="padding:4px 8px">9.1 in</td><td style="padding:4px 8px;color:#4da3ff">281% of normal</td><td style="padding:4px 8px;color:#4da3ff" title="140% of normal (3.1 in)">140%</td><td style="padding:4px 8px;color:#4da3ff" title="395% of normal (15.1 in)">395%</td><td style="padding:4px 8px;color:#90a4ae" title="no usable record this winter">n/a</td></tr><tr><td style="padding:4px 8px;font-weight:700">2000-01</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-1.29</td><td style="padding:4px 8px;color:#42a5f5">-4.4 °F</td><td style="padding:4px 8px">3.2 in</td><td style="padding:4px 8px;color:#ef9a9a">99% of normal</td><td style="padding:4px 8px;color:#4da3ff" title="104% of normal (2.3 in)">104%</td><td style="padding:4px 8px;color:#4da3ff" title="107% of normal (4.1 in)">107%</td><td style="padding:4px 8px;color:#90a4ae" title="no usable record this winter">n/a</td></tr><tr><td style="padding:4px 8px;font-weight:700">1997-98</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-0.77</td><td style="padding:4px 8px;color:#ef9a9a">+1.4 °F</td><td style="padding:4px 8px">3.5 in</td><td style="padding:4px 8px;color:#4da3ff">109% of normal</td><td style="padding:4px 8px;color:#4da3ff" title="136% of normal (3.0 in)">136%</td><td style="padding:4px 8px;color:#ef9a9a" title="99% of normal (3.8 in)">99%</td><td style="padding:4px 8px;color:#4da3ff" title="113% of normal (3.8 in)">113%</td></tr><tr><td style="padding:4px 8px;font-weight:700">1995-96</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-1.04</td><td style="padding:4px 8px;color:#42a5f5">-2.8 °F</td><td style="padding:4px 8px">7.5 in</td><td style="padding:4px 8px;color:#4da3ff">231% of normal</td><td style="padding:4px 8px;color:#ef9a9a" title="27% of normal (0.6 in)">27%</td><td style="padding:4px 8px;color:#4da3ff" title="377% of normal (14.4 in)">377%</td><td style="padding:4px 8px;color:#90a4ae" title="no usable record this winter">n/a</td></tr><tr><td style="padding:4px 8px;font-weight:700">1986-87</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-0.80</td><td style="padding:4px 8px;color:#42a5f5">-1.8 °F</td><td style="padding:4px 8px">3.4 in</td><td style="padding:4px 8px;color:#4da3ff">105% of normal</td><td style="padding:4px 8px;color:#ef9a9a" title="0% of normal (0.0 in)">0%</td><td style="padding:4px 8px;color:#ef9a9a" title="71% of normal (2.7 in)">71%</td><td style="padding:4px 8px;color:#4da3ff" title="223% of normal (7.5 in)">223%</td></tr><tr><td style="padding:4px 8px;font-weight:700">1985-86</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-1.71</td><td style="padding:4px 8px;color:#42a5f5">-3.0 °F</td><td style="padding:4px 8px">4.7 in</td><td style="padding:4px 8px;color:#4da3ff">144% of normal</td><td style="padding:4px 8px;color:#ef9a9a" title="90% of normal (2.0 in)">90%</td><td style="padding:4px 8px;color:#ef9a9a" title="79% of normal (3.0 in)">79%</td><td style="padding:4px 8px;color:#4da3ff" title="267% of normal (9.0 in)">267%</td></tr><tr><td style="padding:4px 8px;font-weight:700">1984-85</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-1.22</td><td style="padding:4px 8px;color:#42a5f5">-2.9 °F</td><td style="padding:4px 8px">20.6 in</td><td style="padding:4px 8px;color:#4da3ff">636% of normal</td><td style="padding:4px 8px;color:#4da3ff" title="937% of normal (20.7 in)">937%</td><td style="padding:4px 8px;color:#4da3ff" title="487% of normal (18.6 in)">487%</td><td style="padding:4px 8px;color:#4da3ff" title="668% of normal (22.5 in)">668%</td></tr><tr><td style="padding:4px 8px;font-weight:700">1979-80</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-0.54</td><td style="padding:4px 8px;color:#42a5f5">-1.7 °F</td><td style="padding:4px 8px">7.1 in</td><td style="padding:4px 8px;color:#4da3ff">218% of normal</td><td style="padding:4px 8px;color:#4da3ff" title="127% of normal (2.8 in)">127%</td><td style="padding:4px 8px;color:#4da3ff" title="181% of normal (6.9 in)">181%</td><td style="padding:4px 8px;color:#4da3ff" title="341% of normal (11.5 in)">341%</td></tr><tr><td style="padding:4px 8px;font-weight:700">1978-79</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-1.28</td><td style="padding:4px 8px;color:#42a5f5">-5.5 °F</td><td style="padding:4px 8px">20.1 in</td><td style="padding:4px 8px;color:#4da3ff">621% of normal</td><td style="padding:4px 8px;color:#4da3ff" title="471% of normal (10.4 in)">471%</td><td style="padding:4px 8px;color:#4da3ff" title="704% of normal (26.9 in)">704%</td><td style="padding:4px 8px;color:#4da3ff" title="685% of normal (23.1 in)">685%</td></tr><tr><td style="padding:4px 8px;font-weight:700">1977-78</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-1.10</td><td style="padding:4px 8px;color:#42a5f5">-7.8 °F</td><td style="padding:4px 8px">15.9 in</td><td style="padding:4px 8px;color:#4da3ff">491% of normal</td><td style="padding:4px 8px;color:#4da3ff" title="339% of normal (7.5 in)">339%</td><td style="padding:4px 8px;color:#4da3ff" title="597% of normal (22.8 in)">597%</td><td style="padding:4px 8px;color:#4da3ff" title="516% of normal (17.4 in)">516%</td></tr><tr><td style="padding:4px 8px;font-weight:700">1976-77</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-2.54</td><td style="padding:4px 8px;color:#42a5f5">-6.4 °F</td><td style="padding:4px 8px">11.4 in</td><td style="padding:4px 8px;color:#4da3ff">353% of normal</td><td style="padding:4px 8px;color:#4da3ff" title="172% of normal (3.8 in)">172%</td><td style="padding:4px 8px;color:#4da3ff" title="531% of normal (20.3 in)">531%</td><td style="padding:4px 8px;color:#4da3ff" title="303% of normal (10.2 in)">303%</td></tr><tr><td style="padding:4px 8px;font-weight:700">1969-70</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-1.82</td><td style="padding:4px 8px;color:#42a5f5">-5.5 °F</td><td style="padding:4px 8px">14.0 in</td><td style="padding:4px 8px;color:#4da3ff">433% of normal</td><td style="padding:4px 8px;color:#4da3ff" title="163% of normal (3.6 in)">163%</td><td style="padding:4px 8px;color:#4da3ff" title="317% of normal (12.1 in)">317%</td><td style="padding:4px 8px;color:#4da3ff" title="783% of normal (26.4 in)">783%</td></tr></tbody></table></div>
+  <div class="src" style="margin-top:6px">Most recent 20 of 31 negative-AO winters shown. Snowfall "normal" is the mean DJF total at those stations, so a normal winter is roughly 3.2 in - small numbers, and one big storm can double a season. Hover a division column for that winter's inches.</div>
+  
+  <div style="overflow-x:auto;margin-top:12px"><table style="width:100%;border-collapse:collapse;font-size:13.5px;min-width:560px">
+  <thead><tr style="color:#9fb0c0;text-align:left;border-bottom:1px solid #2b3441">
+  <th style="padding:6px 8px">Grand division</th>
+  <th style="padding:6px 8px">Snowier than normal</th>
+  <th style="padding:6px 8px">Avg snow</th>
+  <th style="padding:6px 8px">Avg snow vs normal</th>
+  <th style="padding:6px 8px">Avg temp vs normal</th></tr></thead>
+  <tbody><tr><td style="padding:4px 8px"><b>West</b> <span class="src">Memphis, normal 2.2 in</span></td><td style="padding:4px 8px">22 of 31</td><td style="padding:4px 8px">5.0 in</td><td style="padding:4px 8px;color:#4da3ff">225% of normal</td><td style="padding:4px 8px;color:#42a5f5">-2.4 °F</td></tr><tr><td style="padding:4px 8px"><b>Middle</b> <span class="src">Nashville, normal 3.8 in</span></td><td style="padding:4px 8px">22 of 31</td><td style="padding:4px 8px">10.0 in</td><td style="padding:4px 8px;color:#4da3ff">262% of normal</td><td style="padding:4px 8px;color:#42a5f5">-2.6 °F</td></tr><tr><td style="padding:4px 8px"><b>East</b> <span class="src">Knoxville, normal 3.4 in</span></td><td style="padding:4px 8px">24 of 27</td><td style="padding:4px 8px">11.2 in</td><td style="padding:4px 8px;color:#4da3ff">333% of normal</td><td style="padding:4px 8px;color:#42a5f5">-2.2 °F</td></tr></tbody></table></div>
+  <div class="src" style="margin-top:6px">Same 31 negative-AO winters, split by grand division. Each division is a single long-record station, not a gridded regional mean - Memphis (west), Nashville (middle), Knoxville (east) - so the snow numbers are small and one storm can swing a season. The split matters most in a winter like 2020-21: west Tennessee ran 466% of its normal while the east came in at 136%.</div>
+  <div class="src" style="margin-top:8px"><b>For contrast:</b> the 17 positive-AO winters (DJF mean at or above +0.5) averaged <b>+1.1 °F</b> in Tennessee and <b>2.5 in</b> of snow (78% of normal), with 5 of 17 snowier than normal. That gap between the two groups is the whole point of the index - and it is a shift in odds, not a guarantee.</div>
+  <div class="src" style="margin-top:8px">NOAA ACIS daily station records (Memphis, Nashville, Knoxville) - winter temperature and snowfall, with 1991-2020 normals derived from the same records</div>
+</div>
+
+
+<div class="card">
+  <h2>🔎 Analog winters - who this winter looks like so far</h2>
+  <div class="src" style="margin-bottom:8px">The six past winters closest to this one in <b>both</b> indices at once - Arctic Oscillation and ENSO, each measured in its own standard deviation so neither index wins on scale alone - with what Tennessee recorded in each. This winter is matched on what is known so far: the season-to-date AO and the latest published three-month ONI.</div>
+  <div class="kpis">
+    <div class="kpi"><span>This winter's AO</span><b>+1.27</b><div class="src">2026-27, 29 days - an unusually strong, locked vortex so far</div></div>
+    <div class="kpi"><span>This winter's ENSO</span><b>+2.16</b><div class="src">JAS 2026 - El Nino</div></div>
+    <div class="kpi"><span>Analogs averaged</span><b>+1.0 °F</b></div><div class="kpi"><span>Analogs averaged</span><b>4.3 in snow</b></div><div class="kpi"><span>Colder / snowier</span><b>1 and 4 of 6</b></div>
+  </div>
+  <div style="overflow-x:auto;margin-top:10px"><table style="width:100%;border-collapse:collapse;font-size:13.5px;min-width:520px">
+  <thead><tr style="color:#9fb0c0;text-align:left;border-bottom:1px solid #2b3441">
+  <th style="padding:6px 8px">Winter</th><th style="padding:6px 8px">DJF AO</th>
+  <th style="padding:6px 8px">DJF ONI</th><th style="padding:6px 8px">TN temp vs normal</th>
+  <th style="padding:6px 8px">TN snowfall</th><th style="padding:6px 8px">Vs normal</th></tr></thead>
+  <tbody><tr><td style="padding:4px 8px;font-weight:700">1972-73</td><td style="padding:4px 8px">+1.06</td><td style="padding:4px 8px;color:#ef5350">+1.55</td><td style="padding:4px 8px;color:#42a5f5">-2.1 °F</td><td style="padding:4px 8px">5.3 in</td><td style="padding:4px 8px;color:#4da3ff">163%</td></tr><tr><td style="padding:4px 8px;font-weight:700">1991-92</td><td style="padding:4px 8px">+1.06</td><td style="padding:4px 8px;color:#ef5350">+1.54</td><td style="padding:4px 8px;color:#ef9a9a">+1.9 °F</td><td style="padding:4px 8px">0.0 in</td><td style="padding:4px 8px;color:#ef9a9a">0%</td></tr><tr><td style="padding:4px 8px;font-weight:700">1982-83</td><td style="padding:4px 8px">+0.23</td><td style="padding:4px 8px;color:#ef5350">+2.14</td><td style="padding:4px 8px;color:#ef9a9a">+1.0 °F</td><td style="padding:4px 8px">5.4 in</td><td style="padding:4px 8px;color:#4da3ff">168%</td></tr><tr><td style="padding:4px 8px;font-weight:700">2023-24</td><td style="padding:4px 8px">+0.05</td><td style="padding:4px 8px;color:#ef5350">+1.84</td><td style="padding:4px 8px;color:#ef9a9a">+2.1 °F</td><td style="padding:4px 8px">6.5 in</td><td style="padding:4px 8px;color:#4da3ff">201%</td></tr><tr><td style="padding:4px 8px;font-weight:700">2015-16</td><td style="padding:4px 8px">-0.01</td><td style="padding:4px 8px;color:#ef5350">+2.50</td><td style="padding:4px 8px;color:#ef9a9a">+3.1 °F</td><td style="padding:4px 8px">5.6 in</td><td style="padding:4px 8px;color:#4da3ff">173%</td></tr><tr><td style="padding:4px 8px;font-weight:700">1994-95</td><td style="padding:4px 8px">+0.67</td><td style="padding:4px 8px;color:#ef5350">+0.88</td><td style="padding:4px 8px;color:#ef9a9a">+0.0 °F</td><td style="padding:4px 8px">3.0 in</td><td style="padding:4px 8px;color:#ef9a9a">92%</td></tr></tbody></table></div>
+  <div class="src" style="margin-top:8px">Analog years are context, not a forecast: six winters are a small sample, the AO half of the match is a partial season, and the surface response to a given vortex state depends on the Pacific jet, the MJO and plain timing. What the analogs do show is the range Tennessee has actually lived through in similar setups - which is more useful than a single number.</div>
+</div>
+
+<div class="card">
+  <h2>🏆 The record book - DJF AO since 1950</h2>
+  <div style="display:flex;gap:18px;flex-wrap:wrap">
+    <div style="flex:1;min-width:260px">
+      <b class="src">Most negative - weakest vortex winters</b>
+      <table style="width:100%;border-collapse:collapse;font-size:13.5px;margin-top:4px">
+      <tr style="color:#9fb0c0;text-align:left"><th style="padding:4px 8px">#</th><th style="padding:4px 8px">Winter</th><th style="padding:4px 8px">DJF AO</th></tr>
+      <tr><td class="src" style="padding:4px 8px">1</td><td style="padding:4px 8px;font-weight:700">2009-10</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-3.27</td></tr><tr><td class="src" style="padding:4px 8px">2</td><td style="padding:4px 8px;font-weight:700">1976-77</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-2.54</td></tr><tr><td class="src" style="padding:4px 8px">3</td><td style="padding:4px 8px;font-weight:700">1968-69</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-2.18</td></tr><tr><td class="src" style="padding:4px 8px">4</td><td style="padding:4px 8px;font-weight:700">1962-63</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-1.85</td></tr><tr><td class="src" style="padding:4px 8px">5</td><td style="padding:4px 8px;font-weight:700">1969-70</td><td style="padding:4px 8px;color:#42a5f5;font-weight:700">-1.82</td></tr></table>
+    </div>
+    <div style="flex:1;min-width:260px">
+      <b class="src">Most positive - locked-vortex winters</b>
+      <table style="width:100%;border-collapse:collapse;font-size:13.5px;margin-top:4px">
+      <tr style="color:#9fb0c0;text-align:left"><th style="padding:4px 8px">#</th><th style="padding:4px 8px">Winter</th><th style="padding:4px 8px">DJF AO</th></tr>
+      <tr><td class="src" style="padding:4px 8px">1</td><td style="padding:4px 8px;font-weight:700">1988-89</td><td style="padding:4px 8px;color:#ef5350;font-weight:700">+2.57</td></tr><tr><td class="src" style="padding:4px 8px">2</td><td style="padding:4px 8px;font-weight:700">2019-20</td><td style="padding:4px 8px;color:#ef5350;font-weight:700">+1.96</td></tr><tr><td class="src" style="padding:4px 8px">3</td><td style="padding:4px 8px;font-weight:700">1992-93</td><td style="padding:4px 8px;color:#ef5350;font-weight:700">+1.76</td></tr><tr><td class="src" style="padding:4px 8px">4</td><td style="padding:4px 8px;font-weight:700">1989-90</td><td style="padding:4px 8px;color:#ef5350;font-weight:700">+1.14</td></tr><tr><td class="src" style="padding:4px 8px">5</td><td style="padding:4px 8px;font-weight:700">1999-00</td><td style="padding:4px 8px;color:#ef5350;font-weight:700">+1.09</td></tr></table>
+    </div>
+  </div>
+  <div class="src" style="margin-top:6px">2009-10 is the benchmark negative winter of the modern record: a record-strong negative AO paired with an El Nino, and the Mid-Atlantic's Snowmageddon. Its opposite - 1988-89 and 2019-20 - kept the cold bottled up north for most of the winter.</div>
+</div>
+
+<div class="card">
+  <h2>🧠 What the polar vortex is - and is not</h2>
+  <p style="margin:6px 0"><b>The vortex.</b> Every autumn, as the Arctic loses sunlight, the stratosphere (roughly 10-30 miles up) cools and a ring of strong westerly winds forms around the pole. That is the stratospheric polar vortex. A strong vortex keeps the coldest air bottled up; a weak one stretches, wobbles, or splits into lobes that can sag far south.</p>
+  <p style="margin:6px 0"><b>The AO.</b> The Arctic Oscillation is the down-at-the-surface signature of the same hemispheric pressure see-saw between the Arctic and the mid-latitudes. It is computed daily from 1000 mb height anomalies and is what this page tracks quantitatively. AO negative = weaker vortex, more cold air able to spill; AO positive = strong, locked vortex. The two usually agree, though not perfectly - the stratosphere can be disturbed for days while the surface AO stays positive.</p>
+  <p style="margin:6px 0"><b>Sudden stratospheric warming (SSW).</b> When planetary waves punch upward, the vortex can warm by tens of degrees in days and the 10 hPa winds at 60&deg;N can reverse from westerly to easterly. Forecasters watch three things together: a falling or reversing 10 hPa wind, a spike in polar-cap temperature, and a surge in eddy heat flux. The surface effects usually take 1-3 weeks to arrive - and they are never guaranteed.</p>
+</div>
+
+<div class="card">
+  <h2>🏘️ What it means for Tennessee</h2>
+  <p style="margin:6px 0"><b>Cold-air delivery.</b> A sustained negative AO tilts the odds toward Arctic air reaching the Southeast - usually as repeated shallow cold pushes rather than one dramatic blast - and toward a more active East Coast storm track when moisture lines up. The lag matters: watch the 1-3 weeks after a sharp negative swing or an SSW. A one-day dip means little; persistence is the signal.</p>
+  <p style="margin:6px 0"><b>What it does not do.</b> The AO does not schedule a snowstorm. It sets the background state, and the storm still needs moisture and timing. Pair this page with the <a href="https://tnwn-members.nbasportstalk53.workers.dev/p/winter.html">Winter center</a>'s snow forecasts and the <a href="climate.html">Climate page</a>'s CPC outlooks before making a winter call.</p>
+  <p style="margin:6px 0"><b>Forecast honesty.</b> The AO is a useful but noisy index. Models often forecast a negative turn that never verifies; use the ensemble spread above and the CPC panels, not a single day's value, to judge whether the vortex is really breaking down.</p>
+</div>
+
+<div class="card"><span class="src">Sources: NOAA CPC Arctic Oscillation index (daily, CDAS 1000 mb heights, 1950-present) and GEFS ensemble AO forecast; NOAA CPC Stratosphere / Sudden Stratospheric Warming monitoring (10 hPa temperature, zonal wind, eddy heat flux - observed analyses and 16-day GEFS forecasts); NCEP GFS 10 hPa height and temperature analyses and forecasts. Graphics mirrored locally for speed; text and indices refresh on the site update cycle. AO is standardized relative to 1950-2000.</span></div>
+
+
+<div id="pvZoom" style="position:fixed;inset:0;z-index:99999;background:#000000ee;display:none;align-items:center;justify-content:center;padding:10px;cursor:zoom-out" onclick="pvZoomClose()">
+  <img id="pvZoomImg" src="" alt="" onclick="event.stopPropagation()" style="max-width:100%;max-height:94vh;border-radius:10px;box-shadow:0 0 40px #000;background:#0d1117"/>
+  <div style="position:fixed;right:16px;top:12px;color:#cfd8dc;font:600 13px system-ui,sans-serif">click backdrop or press Esc to close &#10005;</div>
+</div>
+<script>
+function pvZoomOpen(img) {
+  var box = document.getElementById('pvZoom');
+  var big = document.getElementById('pvZoomImg');
+  big.src = img.currentSrc || img.src;
+  big.alt = img.alt || '';
+  box.style.display = 'flex';
+}
+function pvZoomClose() {
+  var box = document.getElementById('pvZoom');
+  if (box) box.style.display = 'none';
+}
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') pvZoomClose();
+});
+</script>
+
+<script>
+async function boot() {
+  try {
+    DATA = await (await fetch(dataUrl(), {cache: "no-store"})).json();
+    document.title = DATA.pageName + " - Polar Vortex";
+  } catch (_e) {}
+}
+boot();
+</script>
+
+</div>
+<footer>
+  <div id="upd" style="color:#7d8794">checking data age…</div>
+  <div id="memStrip"></div>
+  Data: National Weather Service · NOAA · RainViewer · SPC — all free, no keys.<br/>
+  Page generated Oct 31 2026 17:01 UTC · auto-updated every few minutes by the Tennessee Weather Network weather center ·
+  <a href="https://www.facebook.com/tennesseeweathernetwork" target="_blank">Facebook page</a> ·
+  <a id="fbShareFt" href="#" target="_blank" rel="noopener">📘 Post this page to Facebook</a> ·
+  <a href="fb_page.html" target="_blank">📱 Facebook post page (stand-alone)</a>
+</footer>
+<script>
+/* Facebook share: use the canonical public URL when served from it,
+   otherwise share the page's public home (localhost shares are useless) */
+(function () {
+  var pub = "https://rpleasant12.github.io/http-localhost-8765-/";
+  window.TNWN_PUBLIC_URL = pub; /* reusable share target (certificate, etc.) */
+  var here = location.origin + location.pathname;
+  var target = (location.hostname === "localhost" || location.hostname === "127.0.0.1") && pub ? pub : here;
+  var u = "https://www.facebook.com/sharer/sharer.php?u=" + encodeURIComponent(target);
+  ["fbShare", "fbShareFt"].forEach(function (id) {
+    var a = document.getElementById(id); if (a) a.href = u;
+  });
+})();
+/* PWA: register the service worker (shell precache + offline fallback for
+   pages and data.json; tiles/gifs/CDN pass through untouched). Relative
+   scope so it covers every page under the GitHub Pages subpath. */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("sw.js").catch(function (_e) {
+      /* SW is an enhancement - offline support silently absent on failure */
+    });
+  });
+}
+</script>
+</body></html>
