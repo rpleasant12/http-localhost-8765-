@@ -1242,6 +1242,8 @@ def collect_data():
         "mos": mos,
         "meso": meso,
         "lightning": lightning,
+        "polarVortex": _polar_safe(),
+        "tnWinter": _tn_winter_safe(),
     }
 
 
@@ -3682,6 +3684,69 @@ def _enso_safe():
         return {"oni": [], "sst": [], "chips": [], "figures": []}
 
 
+_POLAR_LAST_GOOD = {"t": 0.0, "v": None}
+_TN_WINTER_LAST_GOOD = {"t": 0.0, "v": None}
+
+
+def _polar_safe():
+    """Polar vortex bundle - refreshes ~3 h, never regresses to empty."""
+    try:
+        from data.polar_vortex import bundle as _pv_bundle
+        v = _pv_bundle(max_age=_CLIMATE_REFRESH)
+        if not (v and ((v.get("ao") or {}).get("daily")
+                       or (v.get("strat") or {}).get("observed"))):
+            raise RuntimeError("bundle came back empty")
+        _POLAR_LAST_GOOD.update(t=time.time(), v=v)
+        return v
+    except Exception as exc:                       # noqa: BLE001
+        last = _POLAR_LAST_GOOD.get("v")
+        if last and time.time() - _POLAR_LAST_GOOD["t"] < _CLIMATE_GOOD_TTL:
+            age = int((time.time() - _POLAR_LAST_GOOD["t"]) / 60)
+            print(f"polar vortex bundle failed ({type(exc).__name__}: {exc}); "
+                  f"carrying forward last good ({age} min old)", flush=True)
+            return last
+        try:
+            from data.polar_vortex import disk_fallback
+            disk = disk_fallback()
+            if disk:
+                _POLAR_LAST_GOOD.update(t=time.time(), v=disk)
+                print(f"polar vortex bundle failed ({type(exc).__name__}: {exc}); "
+                      "using last good from disk", flush=True)
+                return disk
+        except Exception:                          # noqa: BLE001
+            pass
+        return {"ok": False, "ao": {}, "strat": {}}
+
+
+def _tn_winter_safe():
+    """Tennessee winter outcomes - weekly refresh, never regresses to empty."""
+    try:
+        from data.tn_winter import bundle as _tn_bundle
+        v = _tn_bundle()
+        if not (v and v.get("winters")):
+            raise RuntimeError("bundle came back empty")
+        _TN_WINTER_LAST_GOOD.update(t=time.time(), v=v)
+        return v
+    except Exception as exc:                       # noqa: BLE001
+        last = _TN_WINTER_LAST_GOOD.get("v")
+        if last and time.time() - _TN_WINTER_LAST_GOOD["t"] < _CLIMATE_GOOD_TTL:
+            age = int((time.time() - _TN_WINTER_LAST_GOOD["t"]) / 60)
+            print(f"tn winter bundle failed ({type(exc).__name__}: {exc}); "
+                  f"carrying forward last good ({age} min old)", flush=True)
+            return last
+        try:
+            from data.tn_winter import disk_fallback
+            disk = disk_fallback()
+            if disk:
+                _TN_WINTER_LAST_GOOD.update(t=time.time(), v=disk)
+                print(f"tn winter bundle failed ({type(exc).__name__}: {exc}); "
+                      "using last good from disk", flush=True)
+                return disk
+        except Exception:                          # noqa: BLE001
+            pass
+        return {"ok": False, "winters": []}
+
+
 def _climate_safe():
     """CPC long-range outlooks + ENSO - refreshes ~3 h, never regresses."""
     try:
@@ -4945,6 +5010,7 @@ def _page(title, active, body, extra_head="", feed_strip=False):
             ("rivers.html", "Rivers"), ("history.html", "History"))),
         ("Climate & Learn", (
             ("climate.html", "Climate"), ("enso.html", "El Niño"),
+            ("polar.html", "Polar Vortex"),
             ("obs.html", "Obs & Skew-T"), ("education.html", "Education ⭐"),
             ("fieldguide.html", "Field Guide ⭐"), ("traffic.html", "Traffic"))),
         ("Support", (
@@ -10450,6 +10516,763 @@ boot();
     return _page("El Niño", "enso.html", body)
 
 
+# Click-to-zoom overlay for the polar page: the CPC panels are dense 864px
+# charts and the 10 hPa maps carry labels unreadable at card width. One shared
+# overlay, no library - click an image to open, Esc or click the backdrop to
+# close (clicking the enlarged image itself does nothing, so it stays still).
+_POLAR_ZOOM_HTML = """
+<div id="pvZoom" style="position:fixed;inset:0;z-index:99999;background:#000000ee;display:none;align-items:center;justify-content:center;padding:10px;cursor:zoom-out" onclick="pvZoomClose()">
+  <img id="pvZoomImg" src="" alt="" onclick="event.stopPropagation()" style="max-width:100%;max-height:94vh;border-radius:10px;box-shadow:0 0 40px #000;background:#0d1117"/>
+  <div style="position:fixed;right:16px;top:12px;color:#cfd8dc;font:600 13px system-ui,sans-serif">click backdrop or press Esc to close &#10005;</div>
+</div>
+<script>
+function pvZoomOpen(img) {
+  var box = document.getElementById('pvZoom');
+  var big = document.getElementById('pvZoomImg');
+  big.src = img.currentSrc || img.src;
+  big.alt = img.alt || '';
+  box.style.display = 'flex';
+}
+function pvZoomClose() {
+  var box = document.getElementById('pvZoom');
+  if (box) box.style.display = 'none';
+}
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') pvZoomClose();
+});
+</script>
+"""
+
+
+def _mean_or_none(vals):
+    """Arithmetic mean of the real numbers in `vals`, or None when none."""
+    vals = [v for v in vals if v is not None]
+    return sum(vals) / len(vals) if vals else None
+
+
+_MONTH_ABBR = {"01": "Jan", "02": "Feb", "03": "Mar", "04": "Apr",
+               "05": "May", "06": "Jun", "07": "Jul", "08": "Aug",
+               "09": "Sep", "10": "Oct", "11": "Nov", "12": "Dec"}
+
+
+def _polar_card(d):
+    """Compact polar vortex / AO status card, shared by the Winter center and
+    the Dashboard: current index, trend, season-to-date and the GEFS lean.
+
+    Returns "" when the AO payload is missing, so a dead CPC feed never
+    leaves a half-built card on either page - the full tracker already
+    reports its own outage. Kept to one screen-line of numbers on purpose:
+    both hosts are busy pages and this is a status strip, not a report.
+    """
+    ao = ((d or {}).get("polarVortex") or {}).get("ao") or {}
+    cur = ao.get("current") or {}
+    v = cur.get("value")
+    if v is None:
+        return ""
+    fc = ao.get("forecast") or {}
+    season = ao.get("season") or {}
+    color = cur.get("color") or "#9e9e9e"
+    label = (cur.get("label") or "unknown").upper()
+
+    def _f(x):
+        return "n/a" if x is None else f"{x:+.2f}"
+
+    trend = cur.get("trend")
+    if trend is None:
+        trend_txt = "no week-to-week trend available"
+    else:
+        arrow = "\u25b2" if trend > 0.15 else "\u25bc" if trend < -0.15 else "\u2192"
+        trend_txt = f"{arrow} {trend:+.2f} versus last week"
+
+    def _lean(x):
+        if x is None:
+            return "GEFS AO forecast unavailable this cycle"
+        if x <= -2.0:
+            return "badly disturbed vortex - Arctic outbreaks more likely"
+        if x <= -1.0:
+            return "weaker, wavier vortex - the cold-air door is ajar"
+        if x < 1.0:
+            return "near-climatology vortex - no strong cold signal either way"
+        if x < 2.0:
+            return "strong, tight vortex - cold air locked up north"
+        return "unusually locked vortex - a mild pattern is favored"
+
+    season_lbl = html.escape(str(season.get("label") or "season"))
+    season_word = "to date" if season.get("inProgress") else "final"
+    as_of = html.escape(str(cur.get("date") or "unknown"))
+    neg = cur.get("daysNeg90") or 0
+    strong = cur.get("daysStrong90") or 0
+    rng = (f"90-day range {_f(cur.get('min90'))} to {_f(cur.get('max90'))}"
+           f" &middot; {neg} day{'' if neg == 1 else 's'} at or below -1"
+           + (f" ({strong} at or below -2)" if strong else ""))
+    return f"""
+<div class="card" id="aoCard">
+  <h2>🌀 Polar vortex &middot; Arctic Oscillation <span class="src" style="font-weight:400">as of {as_of}</span></h2>
+  <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
+    <div style="font-size:2.5rem;font-weight:800;line-height:1;color:{color}">{_f(v)}</div>
+    <div style="min-width:220px">
+      <span style="display:inline-block;padding:2px 9px;border-radius:5px;background:{color};color:#0d1117;font-size:.74rem;font-weight:800;letter-spacing:.04em">{label}</span>
+      <div class="src" style="margin-top:5px">{_lean(v)} &middot; {trend_txt}</div>
+    </div>
+  </div>
+  <div class="kpis" style="margin-top:11px">
+    <div class="kpi"><span>7-day AO mean</span><b>{_f(cur.get("mean7"))}</b></div>
+    <div class="kpi"><span>Season {season_lbl} {season_word}</span><b>{_f(season.get("mean"))}</b></div>
+    <div class="kpi"><span>GEFS next 7 days</span><b>{_f(fc.get("mean7"))}</b></div>
+    <div class="kpi"><span>GEFS next 14 days</span><b>{_f(fc.get("mean14"))}</b></div>
+  </div>
+  <div class="src" style="margin-top:9px">{rng}. GEFS values are the 31-member ensemble mean - a negative AO tilts the odds toward cold in the East, it does not promise a snowstorm.</div>
+  <p style="margin:9px 0 0"><a href="polar.html">Open the full polar vortex tracker &rarr;</a></p>
+</div>
+"""
+
+
+def _tn_outcomes_card(d):
+    """Negative-AO winters joined to what Tennessee actually recorded.
+
+    AO alone is a hemispheric index; this is the honest local test of it.
+    Rendered on BOTH the polar tracker and the winter page from this one
+    helper, so the two pages can never quote different odds. Empty when
+    either half of the join is missing, so a page never shows a table of
+    dashes.
+    """
+    tn = d.get("tnWinter") or {}
+    tn_by_winter = {r.get("winter"): r for r in (tn.get("winters") or [])}
+    ao = (d.get("polarVortex") or {}).get("ao") or {}
+    allw = ao.get("wintersAll") or list(reversed(ao.get("winters") or []))
+    if not (tn_by_winter and allw):
+        return ""
+
+    def _joined(pool):
+        return [(w, tn_by_winter[w["years"]]) for w in pool
+                if w.get("years") in tn_by_winter]
+
+    def _stats(pairs):
+        temp = [r["tempAnom"] for _, r in pairs
+                if r.get("tempAnom") is not None]
+        pct = [r["snowPct"] for _, r in pairs
+               if r.get("snowPct") is not None]
+        snow = [r["snow"] for _, r in pairs if r.get("snow") is not None]
+        return {
+            "n": len(pairs),
+            "nTemp": len(temp), "nSnow": len(pct),
+            "cold": sum(1 for t in temp if t < 0),
+            "snowy": sum(1 for p in pct if p > 100),
+            "avgTemp": _mean_or_none(temp),
+            "avgPct": _mean_or_none(pct),
+            "avgSnow": _mean_or_none(snow),
+        }
+
+    neg = [w for w in allw if w.get("ao") is not None and w["ao"] <= -0.5]
+    pos = [w for w in allw if w.get("ao") is not None and w["ao"] >= 0.5]
+    neg_j, pos_j = _joined(neg), _joined(pos)
+    if not neg_j:
+        return ""
+    sn, sp = _stats(neg_j), _stats(pos_j)
+
+    # Grand-division split: Memphis is west Tennessee, Nashville middle,
+    # Knoxville east - one station per division, so each is scored against
+    # its OWN normal (2.2 / 3.8 / 3.4 in) rather than the statewide figure.
+    divs = [dv for dv in (tn.get("divisions") or []) if dv.get("name")]
+    div_names = [dv["name"] for dv in divs]
+
+    def _div_of(r, name):
+        return (r.get("div") or {}).get(name) or {}
+
+    rows_html = ""
+    for w, r in list(reversed(neg_j))[:20]:
+        t, p = r.get("tempAnom"), r.get("snowPct")
+        snow = r.get("snow")
+        t_txt = "n/a" if t is None else f"{t:+.1f} \u00b0F"
+        t_col = "#42a5f5" if (t is not None and t < 0) else (
+            "#ef9a9a" if t is not None else "#90a4ae")
+        snow_txt = "n/a" if snow is None else f"{snow:.1f} in"
+        p_txt = "n/a" if p is None else f"{p}% of normal"
+        p_col = "#4da3ff" if (p is not None and p > 100) else (
+            "#ef9a9a" if p is not None else "#90a4ae")
+        div_cells = ""
+        for name in div_names:
+            dv = _div_of(r, name)
+            q, inches = dv.get("snowPct"), dv.get("snow")
+            if q is None:
+                div_cells += ('<td style="padding:4px 8px;color:#90a4ae" '
+                              'title="no usable record this winter">n/a</td>')
+                continue
+            q_col = "#4da3ff" if q > 100 else "#ef9a9a"
+            tip = (f'{q}% of normal ({inches:.1f} in)'
+                   if inches is not None else f'{q}% of normal')
+            div_cells += (f'<td style="padding:4px 8px;color:{q_col}" '
+                          f'title="{html.escape(tip)}">{q}%</td>')
+        rows_html += (
+            '<tr>'
+            f'<td style="padding:4px 8px;font-weight:700">{html.escape(str(w.get("years")))}</td>'
+            f'<td style="padding:4px 8px;color:#42a5f5;font-weight:700">{w["ao"]:+.2f}</td>'
+            f'<td style="padding:4px 8px;color:{t_col}">{t_txt}</td>'
+            f'<td style="padding:4px 8px">{snow_txt}</td>'
+            f'<td style="padding:4px 8px;color:{p_col}">{p_txt}</td>'
+            f'{div_cells}</tr>')
+
+    cold_pct = (f" ({100 * sn['cold'] // sn['nTemp']}%)"
+                if sn["nTemp"] else "")
+    snowy_pct = (f" ({100 * sn['snowy'] // sn['nSnow']}%)"
+                 if sn["nSnow"] else "")
+    avg_t = (f"{sn['avgTemp']:+.1f} \u00b0F"
+             if sn["avgTemp"] is not None else "n/a")
+    # inches, not percent: one 20-inch winter swings a percent mean of a
+    # 3-inch normal hard enough to read as a headline rather than a stat
+    avg_s = (f"{sn['avgSnow']:.1f} in"
+             if sn["avgSnow"] is not None else "n/a")
+    contrast = ""
+    if sp["n"] and sp["avgTemp"] is not None and sp["avgPct"] is not None:
+        contrast = (
+            f'<div class="src" style="margin-top:8px"><b>For contrast:</b> the '
+            f'{sp["n"]} positive-AO winters (DJF mean at or above +0.5) '
+            f'averaged <b>{sp["avgTemp"]:+.1f} \u00b0F</b> in Tennessee and '
+            f'<b>{sp["avgSnow"]:.1f} in</b> of snow '
+            f'({sp["avgPct"]:.0f}% of normal), with '
+            f'{sp["snowy"]} of {sp["nSnow"]} snowier than normal. That gap '
+            'between the two groups is the whole point of the index - and '
+            'it is a shift in odds, not a guarantee.</div>')
+    src = html.escape(str(tn.get("source") or ""))
+    baseline = html.escape(str(tn.get("baseline") or "1991-2020"))
+    shown = min(20, len(neg_j))
+
+    div_heads = "".join(
+        f'<th style="padding:6px 8px" title="{html.escape(dv["name"])} '
+        f'Tennessee - {html.escape(str(dv.get("station") or ""))}, normal '
+        f'{(dv.get("snowNormal") or 0):.1f} in">{html.escape(dv["name"])}</th>'
+        for dv in divs)
+    div_rows = ""
+    for dv in divs:
+        name = dv["name"]
+        pct = [_div_of(r, name)["snowPct"] for _, r in neg_j
+               if _div_of(r, name).get("snowPct") is not None]
+        snow = [_div_of(r, name)["snow"] for _, r in neg_j
+                if _div_of(r, name).get("snow") is not None]
+        temp = [_div_of(r, name)["tempAnom"] for _, r in neg_j
+                if _div_of(r, name).get("tempAnom") is not None]
+        if not pct and not temp:
+            continue
+        a_snow, a_pct = _mean_or_none(snow), _mean_or_none(pct)
+        a_temp = _mean_or_none(temp)
+        pct_cell = ('<td style="padding:4px 8px;color:#90a4ae">n/a</td>'
+                    if a_pct is None else
+                    f'<td style="padding:4px 8px;color:'
+                    f'{"#4da3ff" if a_pct > 100 else "#ef9a9a"}">'
+                    f'{a_pct:.0f}% of normal</td>')
+        temp_cell = ('<td style="padding:4px 8px;color:#90a4ae">n/a</td>'
+                     if a_temp is None else
+                     f'<td style="padding:4px 8px;color:'
+                     f'{"#42a5f5" if a_temp < 0 else "#ef9a9a"}">'
+                     f'{a_temp:+.1f} \u00b0F</td>')
+        snow_cell = ('<td style="padding:4px 8px;color:#90a4ae">n/a</td>'
+                     if a_snow is None else
+                     f'<td style="padding:4px 8px">{a_snow:.1f} in</td>')
+        div_rows += (
+            '<tr>'
+            f'<td style="padding:4px 8px"><b>{html.escape(name)}</b> '
+            f'<span class="src">{html.escape(str(dv.get("station") or ""))}, '
+            f'normal {(dv.get("snowNormal") or 0):.1f} in</span></td>'
+            f'<td style="padding:4px 8px">{sum(1 for q in pct if q > 100)}'
+            f' of {len(pct)}</td>'
+            f'{snow_cell}{pct_cell}{temp_cell}</tr>')
+    div_table = ""
+    if div_rows:
+        div_table = f"""
+  <div style="overflow-x:auto;margin-top:12px"><table style="width:100%;border-collapse:collapse;font-size:13.5px;min-width:560px">
+  <thead><tr style="color:#9fb0c0;text-align:left;border-bottom:1px solid #2b3441">
+  <th style="padding:6px 8px">Grand division</th>
+  <th style="padding:6px 8px">Snowier than normal</th>
+  <th style="padding:6px 8px">Avg snow</th>
+  <th style="padding:6px 8px">Avg snow vs normal</th>
+  <th style="padding:6px 8px">Avg temp vs normal</th></tr></thead>
+  <tbody>{div_rows}</tbody></table></div>
+  <div class="src" style="margin-top:6px">Same {sn["n"]} negative-AO winters, split by grand division. Each division is a single long-record station, not a gridded regional mean - Memphis (west), Nashville (middle), Knoxville (east) - so the snow numbers are small and one storm can swing a season. The split matters most in a winter like 2020-21: west Tennessee ran 466% of its normal while the east came in at 136%.</div>"""
+    return f"""
+<div class="card">
+  <h2>\u2744\ufe0f Negative-AO winters vs what Tennessee actually got</h2>
+  <div class="src" style="margin-bottom:8px">Every winter with a DJF AO mean at or below -0.5, paired with Tennessee's temperature and snowfall for the same December-February. The state value is the mean of three station records - Memphis, Nashville and Knoxville - and the {baseline} normals are computed from those same records, so the comparison can never drift from the history it describes. The right-hand columns repeat the snow-vs-normal test for each grand division separately, so a weak vortex that buried the west but missed the east does not average out into a misleading statewide number. n/a means that winter's station records were too incomplete to trust.</div>
+  <div class="kpis">
+    <div class="kpi"><span>Negative-AO winters</span><b>{sn["n"]}</b></div>
+    <div class="kpi"><span>Colder than normal</span><b>{sn["cold"]} of {sn["nTemp"]}{cold_pct}</b></div>
+    <div class="kpi"><span>Snowier than normal</span><b>{sn["snowy"]} of {sn["nSnow"]}{snowy_pct}</b></div>
+    <div class="kpi"><span>Average outcome</span><b>{avg_t} \u00b7 {avg_s} snow</b></div>
+  </div>
+  <div style="overflow-x:auto;margin-top:10px"><table style="width:100%;border-collapse:collapse;font-size:13.5px;min-width:{760 if div_names else 560}px">
+  <thead><tr style="color:#9fb0c0;text-align:left;border-bottom:1px solid #2b3441">
+  <th style="padding:6px 8px">Winter</th><th style="padding:6px 8px">DJF AO</th>
+  <th style="padding:6px 8px">TN temp vs normal</th><th style="padding:6px 8px">TN snowfall</th>
+  <th style="padding:6px 8px">Snow vs normal</th>{div_heads}</tr></thead>
+  <tbody>{rows_html}</tbody></table></div>
+  <div class="src" style="margin-top:6px">Most recent {shown} of {len(neg_j)} negative-AO winters shown. Snowfall "normal" is the mean DJF total at those stations, so a normal winter is roughly {tn.get("snowNormal") or 0:.1f} in - small numbers, and one big storm can double a season.{" Hover a division column for that winter's inches." if div_names else ""}</div>
+  {div_table}
+  {contrast}
+  <div class="src" style="margin-top:8px">{src}</div>
+</div>"""
+
+
+def _analog_card(d):
+    """Past winters that most resemble this one's AO + ENSO, and what TN got.
+
+    AO drives the vortex; ENSO sets the Pacific moisture supply. Matching on
+    both - each measured in its own standard deviation, so neither index can
+    dominate just because its numbers are bigger - is what keeps the answer
+    honest: a neutral-AO El Nino winter is not an analog for a strongly
+    negative-AO La Nina one, however tempting the single-column sort is.
+
+    This winter is matched on what is known SO FAR (the season-to-date AO and
+    the latest published 3-month ONI), which is stated on the card rather
+    than glossed over. Empty until both indices and the Tennessee record
+    exist, so the page never shows a table of guesses.
+    """
+    ao = (d.get("polarVortex") or {}).get("ao") or {}
+    tn = d.get("tnWinter") or {}
+    season = ao.get("season") or {}
+    cur_ao = season.get("mean")
+    latest = ao.get("oniLatest") or {}
+    cur_oni = latest.get("anom")
+    if cur_ao is None or cur_oni is None:
+        return ""
+    by_winter = {r.get("winter"): r for r in (tn.get("winters") or [])}
+    cands = []
+    for w in ao.get("wintersAll") or []:
+        rec = by_winter.get(w.get("years"))
+        if not rec or w.get("ao") is None or w.get("oni") is None:
+            continue
+        if rec.get("tempAnom") is None and rec.get("snowPct") is None:
+            continue
+        # 1.0 and 0.7 are the rough spreads of DJF AO and ONI, so both gaps
+        # are compared in comparable units instead of raw index points
+        dist = ((w["ao"] - cur_ao) / 1.0) ** 2 + ((w["oni"] - cur_oni) / 0.7) ** 2
+        cands.append((dist, w, rec))
+    if len(cands) < 3:
+        return ""
+    cands.sort(key=lambda t: t[0])
+    top = cands[:6]
+
+    rows_html = ""
+    for _dist, w, r in top:
+        t, p, s = r.get("tempAnom"), r.get("snowPct"), r.get("snow")
+        t_txt = "n/a" if t is None else f"{t:+.1f} \u00b0F"
+        p_txt = "n/a" if p is None else f"{p}%"
+        s_txt = "n/a" if s is None else f"{s:.1f} in"
+        oni = w["oni"]
+        oni_col = "#ef5350" if oni >= 0.5 else "#42a5f5" if oni <= -0.5 else "#b0bec5"
+        rows_html += (
+            '<tr>'
+            f'<td style="padding:4px 8px;font-weight:700">{html.escape(str(w["years"]))}</td>'
+            f'<td style="padding:4px 8px">{w["ao"]:+.2f}</td>'
+            f'<td style="padding:4px 8px;color:{oni_col}">{oni:+.2f}</td>'
+            f'<td style="padding:4px 8px;color:{"#42a5f5" if (t is not None and t < 0) else "#ef9a9a"}">{t_txt}</td>'
+            f'<td style="padding:4px 8px">{s_txt}</td>'
+            f'<td style="padding:4px 8px;color:{"#4da3ff" if (p is not None and p > 100) else "#ef9a9a"}">{p_txt}</td>'
+            '</tr>')
+
+    temp = [r["tempAnom"] for _, _, r in top if r.get("tempAnom") is not None]
+    pct = [r["snowPct"] for _, _, r in top if r.get("snowPct") is not None]
+    snow = [r["snow"] for _, _, r in top if r.get("snow") is not None]
+    a_t, a_p, a_s = (_mean_or_none(temp), _mean_or_none(pct),
+                     _mean_or_none(snow))
+    colder = sum(1 for t in temp if t < 0)
+    snowier = sum(1 for p in pct if p > 100)
+    ao_word = ("an unusually weak vortex so far" if cur_ao <= -0.5 else
+               "an unusually strong, locked vortex so far" if cur_ao >= 0.5 else
+               "a near-neutral vortex so far")
+    oni_word = ("El Nino" if cur_oni >= 0.5 else
+                "La Nina" if cur_oni <= -0.5 else "ENSO-neutral")
+    kpis = ""
+    if a_t is not None:
+        kpis += (f'<div class="kpi"><span>Analogs averaged</span><b>{a_t:+.1f} '
+                 f'\u00b0F</b></div>')
+    if a_s is not None:
+        kpis += (f'<div class="kpi"><span>Analogs averaged</span>'
+                 f'<b>{a_s:.1f} in snow</b></div>')
+    if pct:
+        kpis += (f'<div class="kpi"><span>Colder / snowier</span>'
+                 f'<b>{colder} and {snowier} of {len(top)}</b></div>')
+    return f"""
+<div class="card">
+  <h2>\U0001f50e Analog winters - who this winter looks like so far</h2>
+  <div class="src" style="margin-bottom:8px">The six past winters closest to this one in <b>both</b> indices at once - Arctic Oscillation and ENSO, each measured in its own standard deviation so neither index wins on scale alone - with what Tennessee recorded in each. This winter is matched on what is known so far: the season-to-date AO and the latest published three-month ONI.</div>
+  <div class="kpis">
+    <div class="kpi"><span>This winter's AO</span><b>{cur_ao:+.2f}</b><div class="src">{html.escape(str(season.get("label") or ""))}, {season.get("days", 0)} days - {ao_word}</div></div>
+    <div class="kpi"><span>This winter's ENSO</span><b>{cur_oni:+.2f}</b><div class="src">{html.escape(str(latest.get("season") or ""))} {latest.get("year", "")} - {oni_word}</div></div>
+    {kpis}
+  </div>
+  <div style="overflow-x:auto;margin-top:10px"><table style="width:100%;border-collapse:collapse;font-size:13.5px;min-width:520px">
+  <thead><tr style="color:#9fb0c0;text-align:left;border-bottom:1px solid #2b3441">
+  <th style="padding:6px 8px">Winter</th><th style="padding:6px 8px">DJF AO</th>
+  <th style="padding:6px 8px">DJF ONI</th><th style="padding:6px 8px">TN temp vs normal</th>
+  <th style="padding:6px 8px">TN snowfall</th><th style="padding:6px 8px">Vs normal</th></tr></thead>
+  <tbody>{rows_html}</tbody></table></div>
+  <div class="src" style="margin-top:8px">Analog years are context, not a forecast: six winters are a small sample, the AO half of the match is a partial season, and the surface response to a given vortex state depends on the Pacific jet, the MJO and plain timing. What the analogs do show is the range Tennessee has actually lived through in similar setups - which is more useful than a single number.</div>
+</div>"""
+
+
+def page_polar(d):
+    """Polar vortex tracker: Arctic Oscillation index, GEFS outlook, and the
+    CPC/NCEP 10 hPa panels that show the vortex itself (strength, warming,
+    wave driving, shape). AO history since 1950 powers the record book."""
+    pv = d.get("polarVortex") or {}
+    ao = pv.get("ao") or {}
+    cur = ao.get("current") or {}
+    season = ao.get("season") or {}
+    fc = ao.get("forecast") or {}
+    strat = pv.get("strat") or {}
+    rows = ao.get("daily") or []
+    value = cur.get("value")
+    color = cur.get("color") or "#9e9e9e"
+    label = (cur.get("label") or "unknown").upper()
+    as_of = pv.get("asOf") or cur.get("date") or "unknown"
+    fdays = fc.get("days") or []
+    f7, f14 = fc.get("mean7"), fc.get("mean14")
+
+    def fmt(v):
+        return "n/a" if v is None else f"{v:+.2f}"
+
+    def _gallery(items):
+        """Click-to-enlarge image grid; pvZoomOpen/pvZoomClose are global."""
+        figs = ""
+        for it in items or []:
+            url = it.get("url")
+            if not url:
+                continue
+            name = html.escape(str(it.get("label") or ""))
+            cap = html.escape(str(it.get("caption") or ""))
+            figs += ('<figure style="margin:0">'
+                     f'<img src="{html.escape(url)}" alt="{name}" loading="lazy" '
+                     'onclick="pvZoomOpen(this)" title="Click to enlarge" '
+                     'style="width:100%;border-radius:10px;background:#0d1117;'
+                     'cursor:zoom-in"/>'
+                     f'<figcaption class="src" style="margin-top:4px"><b>{name}</b>'
+                     + (f' - {cap}' if cap else '') + '</figcaption></figure>')
+        if not figs:
+            return ""
+        return ('<div style="display:grid;grid-template-columns:repeat(auto-fit,'
+                'minmax(300px,1fr));gap:14px;align-items:start">' + figs + '</div>')
+
+    def _chart():
+        """Observed daily AO + the 16-day GEFS ensemble forecast (SVG)."""
+        if len(rows) < 5:
+            return ""
+        pts = [(r["date"], r["v"], None, None) for r in rows]
+        pts += [(f["date"], f["mean"], f.get("p10"), f.get("p90"))
+                for f in fdays]
+        n = len(pts)
+        W, H, pl, pr, pt, pb = 960, 300, 42, 12, 16, 32
+        peak = 2.0
+        for _, v, lo, hi in pts:
+            for x in (v, lo, hi):
+                if x is not None and abs(x) > peak:
+                    peak = abs(x)
+        ymax = min(4.0, max(2.0, (int(peak * 2) + 1) / 2.0))
+        # 144 px of vertical span whatever the range: 36 px per AO unit at
+        # the usual +/-2 scale, shrinking only when a season runs past it.
+        scale = 72.0 / ymax
+        mid = pt + (H - pt - pb) / 2.0
+        step = (W - pl - pr) / max(1, n - 1)
+        zero = mid
+
+        def Xx(i):
+            return pl + i * step
+
+        def Yy(v):
+            return mid - v * scale
+
+        grid = ""
+        for k in range(-int(ymax), int(ymax) + 1):
+            y = Yy(k)
+            dash = "" if k == 0 else ' stroke-dasharray="4 4"'
+            stroke = "#546e7a" if k == 0 else "#455a6488"
+            grid += (f'<line x1="{pl}" x2="{W - pr}" y1="{y:.1f}" y2="{y:.1f}" '
+                     f'stroke="{stroke}"{dash}/>'
+                     f'<text x="{pl - 6}" y="{y + 3:.1f}" font-size="9" '
+                     f'fill="#78909c" text-anchor="end">{k:+d}</text>')
+
+        nobs = len(rows)
+        # a missing day is a gap in the line, never a crash or a fake zero
+        obs = [(i, v) for i, (_, v, _, _) in enumerate(pts[:nobs])
+               if v is not None]
+        if not obs:
+            return ""
+        line = "M" + "L".join(f"{Xx(i):.1f},{Yy(v):.1f}" for i, v in obs)
+        area = (line + f"L{Xx(obs[-1][0]):.1f},{zero:.1f}"
+                f"L{Xx(obs[0][0]):.1f},{zero:.1f}Z")
+        defs = ('<defs><clipPath id="aoPos"><rect x="0" y="0" '
+                f'width="{W}" height="{zero:.1f}"/></clipPath>'
+                '<clipPath id="aoNeg"><rect x="0" '
+                f'y="{zero:.1f}" width="{W}" '
+                f'height="{H - zero:.1f}"/></clipPath></defs>')
+
+        band = fmean = divider = ""
+        if fdays:
+            hi = [(nobs + i, f.get("p90")) for i, f in enumerate(fdays)
+                  if f.get("p90") is not None]
+            lo = [(nobs + i, f.get("p10")) for i, f in enumerate(fdays)
+                  if f.get("p10") is not None]
+            if hi and lo:
+                band_pts = ([f"{Xx(i):.1f},{Yy(v):.1f}" for i, v in hi]
+                            + [f"{Xx(i):.1f},{Yy(v):.1f}"
+                               for i, v in reversed(lo)])
+                band = (f'<polygon points="{" ".join(band_pts)}" '
+                        'fill="#ffd54f22" stroke="#ffd54f44"/>')
+            mean_path = "M" + "L".join(
+                f"{Xx(nobs + i):.1f},{Yy(f['mean']):.1f}"
+                for i, f in enumerate(fdays) if f.get("mean") is not None)
+            fmean = (f'<path d="{mean_path}" fill="none" stroke="#ffd54f" '
+                     'stroke-width="1.8" stroke-dasharray="5 4"/>')
+            divider = (f'<line x1="{Xx(nobs - 1):.1f}" x2="{Xx(nobs - 1):.1f}" '
+                       f'y1="{pt}" y2="{H - pb}" stroke="#ffd54f55" '
+                       'stroke-dasharray="3 4"/>')
+
+        months = ""
+        seen = ""
+        for i, (dt, _, _, _) in enumerate(pts[:nobs]):
+            mon = dt[:7]
+            if mon != seen:
+                seen = mon
+                mname = _MONTH_ABBR.get(dt[5:7], dt[5:7])
+                months += (f'<text x="{Xx(i):.1f}" y="{H - 12}" font-size="9" '
+                           f'fill="#78909c" text-anchor="middle">'
+                           f'{mname}</text>')
+
+        dots = ""
+        for i, (dt, v, _, _) in enumerate(pts[:nobs]):
+            if v is None or (i % 7 and i != nobs - 1):
+                continue
+            dots += (f'<circle cx="{Xx(i):.1f}" cy="{Yy(v):.1f}" r="2.2" '
+                     f'fill="{"#ef5350" if v >= 0 else "#42a5f5"}">'
+                     f'<title>{html.escape(dt)}: AO {v:+.2f}</title></circle>')
+        for i, f in enumerate(fdays):
+            m = f.get("mean")
+            if m is None:
+                continue
+            lo, hi = f.get("p10"), f.get("p90")
+            rng = (f"{lo:+.1f} to {hi:+.1f}" if lo is not None
+                   and hi is not None else "n/a")
+            dots += (f'<circle cx="{Xx(nobs + i):.1f}" cy="{Yy(m):.1f}" r="2" '
+                     f'fill="#ffd54f"><title>{html.escape(f["date"])}: GEFS '
+                     f'mean {m:+.2f} (10-90%: {rng})</title></circle>')
+        if rows and rows[-1].get("v") is not None:
+            lv = rows[-1]["v"]
+            dots += (f'<circle cx="{Xx(nobs - 1):.1f}" cy="{Yy(lv):.1f}" '
+                     f'r="3.6" fill="#fff"><title>latest '
+                     f'{html.escape(str(rows[-1]["date"]))}: '
+                     f'AO {lv:+.2f}</title></circle>')
+        return (f'<svg viewBox="0 0 {W} {H}" style="width:100%;background:#0d1117;'
+                'border-radius:10px" role="img" '
+                'aria-label="Daily Arctic Oscillation index with GEFS forecast">'
+                f'{grid}{defs}'
+                f'<path d="{area}" fill="#ef535033" clip-path="url(#aoPos)"/>'
+                f'<path d="{area}" fill="#42a5f533" clip-path="url(#aoNeg)"/>'
+                f'<path d="{line}" fill="none" stroke="#eceff1" '
+                'stroke-width="1.8"/>'
+                f'{band}{fmean}{divider}{months}{dots}</svg>')
+
+    def _winter_table():
+        out = ""
+        for w in (ao.get("winters") or [])[:20]:
+            v = w.get("ao")
+            if v is None:
+                continue
+            col = "#ef5350" if v >= 0.5 else "#42a5f5" if v <= -0.5 else "#b0bec5"
+            tag = "positive" if v >= 0.5 else "negative" if v <= -0.5 else "neutral"
+            mark = ' <span class="src">(in progress)</span>' if w.get("current") else ""
+            out += (f'<tr><td style="font-weight:700">{html.escape(w["years"])}{mark}</td>'
+                    f'<td style="color:{col};font-weight:700">{v:+.2f}</td>'
+                    f'<td>{tag}</td>'
+                    f'<td class="src">{w.get("min", 0):+.1f} to {w.get("max", 0):+.1f}</td>'
+                    f'<td class="src">{w.get("days", 0)} days</td></tr>')
+        return out or '<tr><td class="src" colspan="5">History unavailable.</td></tr>'
+
+    def _records(items, col):
+        out = ""
+        for i, w in enumerate(items or [], 1):
+            out += (f'<tr><td class="src" style="padding:4px 8px">{i}</td>'
+                    f'<td style="padding:4px 8px;font-weight:700">{html.escape(w["years"])}</td>'
+                    f'<td style="padding:4px 8px;color:{col};font-weight:700">{w["ao"]:+.2f}</td></tr>')
+        return out or '<tr><td class="src" style="padding:4px 8px">unavailable</td></tr>'
+
+    if not (rows or strat.get("observed") or strat.get("maps")):
+        body = f"""
+<header class="hero"><h1>🌀 Polar Vortex Tracker</h1>
+<div class="sub">Arctic Oscillation index · 10 hPa vortex strength · sudden stratospheric warming watch</div></header>
+<div class="card"><h2>📡 Current state</h2>
+<div class="alert">NOAA's Arctic Oscillation and stratosphere feeds are unreachable right now.
+This page fills in automatically on the next update cycle.</div></div>
+"""
+        return _page("Polar Vortex", "polar.html", body)
+
+    trend = cur.get("trend")
+    trend_txt = ""
+    if trend is not None:
+        arrow = "▲" if trend > 0.15 else "▼" if trend < -0.15 else "→"
+        trend_txt = f"Trending {arrow} {trend:+.2f} versus the previous week"
+
+    if f14 is not None:
+        last = fdays[-1] if fdays else {}
+        lo, hi = last.get("p10"), last.get("p90")
+        rng = (f"{lo:+.1f} to {hi:+.1f}" if lo is not None else "n/a")
+        lean = ("a weaker, more disturbed vortex" if f14 <= -1.0 else
+                "a somewhat weaker vortex" if f14 <= -0.5 else
+                "a somewhat stronger vortex" if f14 >= 0.5 else
+                "little net change")
+        fc_txt = (f"The 31-member GEFS ensemble takes the AO to a mean of "
+                  f"<b>{fmt(f7)}</b> across the next week and <b>{fmt(f14)}</b> "
+                  f"across the next 14 days (final-day 10th-90th percentile "
+                  f"{rng}) - leaning toward {lean}. "
+                  "Ensemble spread is the honest uncertainty here: a widening "
+                  "fan means the forecast is not settled, and the AO is one of "
+                  "the harder indices to take literally beyond a week.")
+    else:
+        fc_txt = ("The GEFS ensemble AO forecast is unavailable this cycle - "
+                  "the observed panels below still show where the vortex stands.")
+
+    pending = ""
+    if season.get("mean") is not None:
+        when = (f'Season {html.escape(season.get("label") or "")} to date'
+                if season.get("inProgress")
+                else f'Last winter {html.escape(season.get("label") or "")} (final)')
+        pending = (f'{when}: mean '
+                   f'<b>{fmt(season.get("mean"))}</b> over {season.get("days", 0)} days '
+                   f'(since {html.escape(season.get("start") or "")}). Negative days '
+                   f'(AO at or below -1) in the last 90: <b>{cur.get("daysNeg90", 0)}</b>; '
+                   f'strongly negative days (-2 or below): '
+                   f'<b>{cur.get("daysStrong90", 0)}</b>. {trend_txt}.')
+
+    fc_rows = ""
+    for i in (0, 2, 6, 9, 13):
+        if i < len(fdays):
+            f = fdays[i]
+            lead = "Today" if i == 0 else f"Day +{i}"
+            fc_rows += (f'<tr><td>{lead}</td><td>{html.escape(f["date"])}</td>'
+                        f'<td style="font-weight:700">{f["mean"]:+.2f}</td>'
+                        f'<td class="src">{f.get("p10", 0):+.1f} to {f.get("p90", 0):+.1f}</td></tr>')
+    fc_table = ("<table style=\"margin-top:8px;min-width:360px\">"
+                "<tr><th>Lead</th><th>Valid</th><th>Ensemble mean</th><th>10-90%</th></tr>"
+                + fc_rows + "</table>") if fc_rows else ""
+
+    chart = _chart()
+    chart_card = ""
+    if chart:
+        chart_card = f"""
+<div class="card">
+  <h2>📉 Arctic Oscillation - last {len(rows)} days + 16-day GEFS forecast</h2>
+  {chart}
+  <div class="src" style="margin-top:6px">White line: observed daily AO from {html.escape(rows[0]["date"])} to {html.escape(rows[-1]["date"])}. Blue shading = negative phase (weak/perturbed vortex), red = positive (strong/locked vortex). The dashed yellow line is the 31-member GEFS ensemble mean from its {html.escape(str(fc.get("issue") or "latest"))} run; the pale band is the 10th-90th percentile spread. Hover any mark for the exact value.</div>
+</div>"""
+
+    season_note = html.escape(str(strat.get("season") or ""))
+    season_line = (f' <span class="src">({season_note} season)</span>' if season_note else "")
+
+    body = f"""
+<header class="hero"><h1>🌀 Polar Vortex Tracker</h1>
+<div class="sub">Arctic Oscillation index · 10 hPa vortex strength · sudden stratospheric warming watch
+· NOAA CPC · updated {d["generated"]}</div></header>
+
+<div class="card">
+  <h2>📡 Current state</h2>
+  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <span style="background:{color};color:#0b0f14;font-weight:800;border-radius:20px;padding:6px 18px;font-size:16px">AO {fmt(value)} · {label}</span>
+    <span class="src">latest daily value {html.escape(as_of)}</span>
+  </div>
+  <p style="margin:8px 0">{html.escape(cur.get("read") or "")}</p>
+  <div class="kpis">
+    <div class="kpi"><span>AO now</span><b style="color:{color}">{fmt(value)}</b></div>
+    <div class="kpi"><span>7-day mean</span><b>{fmt(cur.get("mean7"))}</b></div>
+    <div class="kpi"><span>30-day mean</span><b>{fmt(cur.get("mean30"))}</b></div>
+    <div class="kpi"><span>GEFS 14-day mean</span><b>{fmt(f14)}</b></div>
+  </div>
+  <div class="src" style="margin-top:8px">{pending}</div>
+  <p style="margin:10px 0 0">{fc_txt}</p>
+  {fc_table}
+  <div class="src" style="margin-top:8px">AO is the surface expression of the same hemispheric pressure pattern the stratospheric vortex rides on. It is not the vortex itself - the 10 hPa panels below show the vortex directly. Use them together.</div>
+</div>
+
+{chart_card}
+
+<div class="card">
+  <h2>🛰️ The vortex itself - CPC stratosphere monitoring{season_line}</h2>
+  <div class="src" style="margin-bottom:8px">10 hPa is roughly 100,000 ft up, the level where sudden stratospheric warmings are defined. These are observations, not a model: the current vortex strength, temperature, and wave driving. Click any image to enlarge it.</div>
+  {_gallery(strat.get("observed"))}
+</div>
+
+<div class="card">
+  <h2>🔮 16-day stratospheric outlook - GEFS ensemble</h2>
+  {_gallery(strat.get("forecast"))}
+  <div class="src" style="margin-top:6px">The same three diagnostics as a 16-day forecast. A forecast 10 hPa wind drop toward zero, a polar-cap temperature climb, and a heat-flux spike appearing together is the classic sudden-stratospheric-warming recipe - and even then, the surface response usually lags by 1-3 weeks.</div>
+</div>
+
+<div class="card">
+  <h2>🗺️ 10 hPa height &amp; temperature - GFS analysis and forecast</h2>
+  <div class="src" style="margin-bottom:8px">The shape of the vortex, not just its strength. A tight, circular ring over the pole is a healthy vortex; a stretched oval, a split into two lobes, or a center displaced toward Eurasia or Canada is a disturbed one. The forecast panels show where the models take that shape - click any map to enlarge it.</div>
+  {_gallery(strat.get("maps"))}
+</div>
+
+<div class="card">
+  <h2>❄️ The last 20 winters - DJF Arctic Oscillation</h2>
+  <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13.5px;min-width:560px">
+  <thead><tr style="color:#9fb0c0;text-align:left;border-bottom:1px solid #2b3441">
+  <th style="padding:6px 8px">Winter</th><th style="padding:6px 8px">DJF mean</th>
+  <th style="padding:6px 8px">Phase</th><th style="padding:6px 8px">Daily range</th>
+  <th style="padding:6px 8px">Data</th></tr></thead>
+  <tbody>{_winter_table()}</tbody></table></div>
+  <div class="src" style="margin-top:6px">Dec-Feb mean of CPC's daily AO index, computed from the same 1950-present record as the chart. Phase tags: + beyond +0.5, - beyond -0.5, ~ neutral in between. A single season can still swing hard: the DJF mean hides cold outbreaks and mild spells in the same winter.</div>
+</div>
+
+{_tn_outcomes_card(d)}
+
+{_analog_card(d)}
+
+<div class="card">
+  <h2>🏆 The record book - DJF AO since 1950</h2>
+  <div style="display:flex;gap:18px;flex-wrap:wrap">
+    <div style="flex:1;min-width:260px">
+      <b class="src">Most negative - weakest vortex winters</b>
+      <table style="width:100%;border-collapse:collapse;font-size:13.5px;margin-top:4px">
+      <tr style="color:#9fb0c0;text-align:left"><th style="padding:4px 8px">#</th><th style="padding:4px 8px">Winter</th><th style="padding:4px 8px">DJF AO</th></tr>
+      {_records((ao.get("records") or {}).get("negative"), "#42a5f5")}</table>
+    </div>
+    <div style="flex:1;min-width:260px">
+      <b class="src">Most positive - locked-vortex winters</b>
+      <table style="width:100%;border-collapse:collapse;font-size:13.5px;margin-top:4px">
+      <tr style="color:#9fb0c0;text-align:left"><th style="padding:4px 8px">#</th><th style="padding:4px 8px">Winter</th><th style="padding:4px 8px">DJF AO</th></tr>
+      {_records((ao.get("records") or {}).get("positive"), "#ef5350")}</table>
+    </div>
+  </div>
+  <div class="src" style="margin-top:6px">2009-10 is the benchmark negative winter of the modern record: a record-strong negative AO paired with an El Nino, and the Mid-Atlantic's Snowmageddon. Its opposite - 1988-89 and 2019-20 - kept the cold bottled up north for most of the winter.</div>
+</div>
+
+<div class="card">
+  <h2>🧠 What the polar vortex is - and is not</h2>
+  <p style="margin:6px 0"><b>The vortex.</b> Every autumn, as the Arctic loses sunlight, the stratosphere (roughly 10-30 miles up) cools and a ring of strong westerly winds forms around the pole. That is the stratospheric polar vortex. A strong vortex keeps the coldest air bottled up; a weak one stretches, wobbles, or splits into lobes that can sag far south.</p>
+  <p style="margin:6px 0"><b>The AO.</b> The Arctic Oscillation is the down-at-the-surface signature of the same hemispheric pressure see-saw between the Arctic and the mid-latitudes. It is computed daily from 1000 mb height anomalies and is what this page tracks quantitatively. AO negative = weaker vortex, more cold air able to spill; AO positive = strong, locked vortex. The two usually agree, though not perfectly - the stratosphere can be disturbed for days while the surface AO stays positive.</p>
+  <p style="margin:6px 0"><b>Sudden stratospheric warming (SSW).</b> When planetary waves punch upward, the vortex can warm by tens of degrees in days and the 10 hPa winds at 60&deg;N can reverse from westerly to easterly. Forecasters watch three things together: a falling or reversing 10 hPa wind, a spike in polar-cap temperature, and a surge in eddy heat flux. The surface effects usually take 1-3 weeks to arrive - and they are never guaranteed.</p>
+</div>
+
+<div class="card">
+  <h2>🏘️ What it means for Tennessee</h2>
+  <p style="margin:6px 0"><b>Cold-air delivery.</b> A sustained negative AO tilts the odds toward Arctic air reaching the Southeast - usually as repeated shallow cold pushes rather than one dramatic blast - and toward a more active East Coast storm track when moisture lines up. The lag matters: watch the 1-3 weeks after a sharp negative swing or an SSW. A one-day dip means little; persistence is the signal.</p>
+  <p style="margin:6px 0"><b>What it does not do.</b> The AO does not schedule a snowstorm. It sets the background state, and the storm still needs moisture and timing. Pair this page with the <a href="{_prem_page_url("winter.html")}">Winter center</a>'s snow forecasts and the <a href="climate.html">Climate page</a>'s CPC outlooks before making a winter call.</p>
+  <p style="margin:6px 0"><b>Forecast honesty.</b> The AO is a useful but noisy index. Models often forecast a negative turn that never verifies; use the ensemble spread above and the CPC panels, not a single day's value, to judge whether the vortex is really breaking down.</p>
+</div>
+
+<div class="card"><span class="src">Sources: NOAA CPC Arctic Oscillation index (daily, CDAS 1000 mb heights, 1950-present) and GEFS ensemble AO forecast; NOAA CPC Stratosphere / Sudden Stratospheric Warming monitoring (10 hPa temperature, zonal wind, eddy heat flux - observed analyses and 16-day GEFS forecasts); NCEP GFS 10 hPa height and temperature analyses and forecasts. Graphics mirrored locally for speed; text and indices refresh on the site update cycle. AO is standardized relative to 1950-2000.</span></div>
+
+{_POLAR_ZOOM_HTML}
+<script>
+async function boot() {{
+  try {{
+    DATA = await (await fetch(dataUrl(), {{cache: "no-store"}})).json();
+    document.title = DATA.pageName + " - Polar Vortex";
+  }} catch (_e) {{}}
+}}
+boot();
+</script>
+"""
+    return _page("Polar Vortex", "polar.html", body)
+
+
 def page_status(d):
     """Tiny status page: updater heartbeat, data age, public publish lag.
 
@@ -12345,6 +13168,8 @@ def page_winter(d):
 
 {_prem_lock_open()}
 
+{_polar_card(d)}
+
 <div class="card">
   <div class="kpis">
     <div class="kpi"><span>Nationwide winter alerts</span><b style="color:{a_color}">{a_word}</b></div>
@@ -12479,6 +13304,10 @@ def page_winter(d):
 </div>
 <div class="src" style="margin-top:6px">Read it like an East Tennessean: the Plateau and Tri-Cities run 2-3 weeks ahead of Knoxville and Chattanooga into winter and a week behind coming out - freeze is a daily occurrence up there by late October. And the Superstorm of March 1993 appearing in two rows of the same table is no coincidence: the biggest storm in most of Tennessee's recorded history did not care about elevation. The row inside its current first-freeze window is highlighted. Sources: NWS Morristown climate pages (weather.gov/mrx: Knoxville, Chattanooga, Tri-Cities normals &amp; records) and NOAA's ACIS climate database (Crossville daily records); normals period 1991-2020.</div>
 </div>
+
+{_tn_outcomes_card(d)}
+
+{_analog_card(d)}
 
 <div class="card"><h2>🌨️ Season-to-date snow tracker - observed vs. the outlook</h2>
 <div class="src">Every observed snow event (0.1"+) this snow year at the four anchor stations, logged from NOAA's ACIS daily database - then checked against the pace each station's CPC seasonal outlook implies. "Expected by now" applies the normal seasonal shape (quiet Oct/Nov, ramping Dec, peaking Jan) to the station's 1991-2020 normal: if the observed total tracks that curve, the outlook is verifying; if not, the panel says so plainly. Before Oct 1 the panel shows the most recent complete season as its proving ground.</div>
@@ -12831,6 +13660,8 @@ def page_dashboard(d):
 <div class="sub">Marine-style condition boards - every panel shows current readings with a 24 h trend \u00b7 updated {d["generated"]}</div></header>
 
 <div class="card"><div class="kpis">{kpi_html}</div></div>
+
+{_polar_card(d)}
 
 <div class="card"><h2>🌦️ Station panels - current + 24 h trend</h2>
 <div class="src">Live observations from the NWS station network (ASOS/AWOS). The bar under each reading is the last 24 hours of temperature - watch it climb or fall through the day.</div>
@@ -14650,6 +15481,7 @@ def generate_site():
             "cfsv2.html": page_cfsv2(d),
             "climate.html": page_climate(d),
             "enso.html": page_enso(d),
+            "polar.html": page_polar(d),
             "severe.html": page_severe(d),
             "fieldguide.html": page_fieldguide(d),
             "winter.html": page_winter(d),
@@ -14676,7 +15508,8 @@ def generate_site():
             "afd", "alerts", "climate", "dashboard", "elNino",
             "forecastCharts", "gefs", "gefsTracks", "gefsVerify",
             "hailCase", "heatIndex", "hourly", "marine", "mos",
-            "mpasShield", "nbmPct", "pageUrl", "pivotEtn", "pivotRegions",
+            "mpasShield",            "nbmPct", "pageUrl", "pivotEtn", "pivotRegions",
+            "polarVortex", "tnWinter",
             "pivotUs", "psu", "rapNowcast", "roadCams", "roadRisk",
             "seasonSummary", "sounding", "space", "stormArchive", "sun",
             "wpcText",

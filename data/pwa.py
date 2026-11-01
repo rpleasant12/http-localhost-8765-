@@ -31,6 +31,7 @@ STABLE_PAGES = [
     "rivers.html", "obs.html", "national.html", "climate.html",
     "storms.html", "dashboard.html", "charts.html",
     "hrrr.html", "gefs.html", "meso.html", "fronts.html", "enso.html",
+    "polar.html",
     "education.html", "fieldguide.html", "history.html", "status.html",
     "pricing.html", "member.html", "admin.html",
 ]
