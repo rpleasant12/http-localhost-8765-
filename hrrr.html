@@ -671,10 +671,10 @@ setTimeout(function () {
 </script>
 
 <header class="hero"><h1>⚡ <span style="color:var(--acc)">HRRR · RRFS</span></h1>
-<div class="sub">3-km convection-allowing models: SPC's official HRRR browser + our own RRFS/HRRR MetPy renders · free, no keys · updated 2026-11-05 9:43 AM ET</div></header>
+<div class="sub">3-km convection-allowing models: SPC's official HRRR browser + our own RRFS/HRRR MetPy renders · free, no keys · updated 2026-11-05 9:56 AM ET</div></header>
 
 <div class="card">
-  <h2>📡 RRFS radar <span class="src" style="font-weight:400">simulated composite reflectivity · our MetPy render from NOAA 3-km GRIB · <span id="zAge">HRRR waiting on NOAA · newest init 11/05 04Z, 11 h old · RRFS waiting on NOAA · newest init 11/05 03Z, 12 h old · updated 11/05 09:46 AM ET</span></span></h2>
+  <h2>📡 RRFS radar <span class="src" style="font-weight:400">simulated composite reflectivity · our MetPy render from NOAA 3-km GRIB · <span id="zAge">HRRR waiting on NOAA · newest init 11/05 04Z, 11 h old · RRFS waiting on NOAA · newest init 11/05 03Z, 12 h old · updated 11/05 10:01 AM ET</span></span></h2>
   <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
     <label class="src" style="margin:0">Area</label>
     <select id="zRegion"><option value="etn">East Tennessee</option><option value="us">US (CONUS)</option></select>
@@ -693,7 +693,7 @@ setTimeout(function () {
 <div class="card"><h2>⏱ RAP nowcast</h2><div class="src">RAP nowcast unavailable right now - the next refresh retries automatically (new hourly cycle every ~45 min).</div></div>
 
 <div class="card">
-  <h2>⚔️ HRRR vs RRFS <span class="src" style="font-weight:400">side-by-side · same valid time · where the two 3-km CAMs disagree · <span id="cAge">HRRR waiting on NOAA · newest init 11/05 04Z, 11 h old · RRFS waiting on NOAA · newest init 11/05 03Z, 12 h old · updated 11/05 09:46 AM ET</span></span></h2>
+  <h2>⚔️ HRRR vs RRFS <span class="src" style="font-weight:400">side-by-side · same valid time · where the two 3-km CAMs disagree · <span id="cAge">HRRR waiting on NOAA · newest init 11/05 04Z, 11 h old · RRFS waiting on NOAA · newest init 11/05 03Z, 12 h old · updated 11/05 10:01 AM ET</span></span></h2>
   <div class="ctl" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
     <label class="src" style="margin:0">Product</label>
     <select id="cProd"></select>
@@ -784,7 +784,7 @@ setTimeout(function () {
 /* filled by onDataRefresh: SITE_DATA is still null while this script
    parses (data.json loads async), so the payload always arrives late */
 let SHR = {}, REND = [], CMP = [], sBooted = false;
-let DATA_STAMP = "2026-11-05 9:43 AM ET";
+let DATA_STAMP = "2026-11-05 9:56 AM ET";
 const cycLbl = s => s.slice(4,6) + "/" + s.slice(6,8) + " " + s.slice(8,10) + "Z";
 
 /* ---------------- RRFS simulated-radar player ---------------- */
@@ -1119,7 +1119,7 @@ rFill();
   <div id="upd" style="color:#7d8794">checking data age…</div>
   <div id="memStrip"></div>
   Data: National Weather Service · NOAA · RainViewer · SPC — all free, no keys.<br/>
-  Page generated Nov 05 2026 14:41 UTC · auto-updated every few minutes by the Tennessee Weather Network weather center ·
+  Page generated Nov 05 2026 14:53 UTC · auto-updated every few minutes by the Tennessee Weather Network weather center ·
   <a href="https://www.facebook.com/tennesseeweathernetwork" target="_blank">Facebook page</a> ·
   <a id="fbShareFt" href="#" target="_blank" rel="noopener">📘 Post this page to Facebook</a> ·
   <a href="fb_page.html" target="_blank">📱 Facebook post page (stand-alone)</a>
