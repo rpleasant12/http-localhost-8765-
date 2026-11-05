@@ -1,0 +1,30 @@
+{
+ "name": "Tennessee Weather Network",
+ "short_name": "TN Weather",
+ "description": "Live East Tennessee weather: radar, future cast, satellite, forecast models - free, no keys, always updating.",
+ "start_url": "./index.html",
+ "scope": "./",
+ "display": "standalone",
+ "background_color": "#0e1117",
+ "theme_color": "#0e1117",
+ "icons": [
+  {
+   "src": "icon-192.png",
+   "sizes": "192x192",
+   "type": "image/png",
+   "purpose": "any"
+  },
+  {
+   "src": "icon-512.png",
+   "sizes": "512x512",
+   "type": "image/png",
+   "purpose": "any"
+  },
+  {
+   "src": "icon-192.png",
+   "sizes": "192x192",
+   "type": "image/png",
+   "purpose": "maskable"
+  }
+ ]
+}
